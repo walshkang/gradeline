@@ -1,0 +1,56 @@
+assignment_id: "assignment2"
+scoring_mode: "equal_weights"
+partial_credit: 0.5
+
+bands:
+  check_plus_min: 0.90
+  check_min: 0.70
+
+questions:
+  - id: "1"
+    label_patterns: ["1)", "1.", "(1)"]
+    anchor_tokens: ["1)", "1.", "(1)"]
+    scoring_rules: "Define expected answer criteria."
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "2a"
+    label_patterns: ["2a)", "2a.", "(2a)"]
+    anchor_tokens: ["2a)", "2a.", "(2a)"]
+    scoring_rules: "Define expected answer criteria."
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "2b"
+    label_patterns: ["2b)", "2b.", "(2b)"]
+    anchor_tokens: ["2b)", "2b.", "(2b)"]
+    scoring_rules: "Define expected answer criteria."
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "3"
+    label_patterns: ["3)", "3.", "(3)"]
+    anchor_tokens: ["3)", "3.", "(3)"]
+    scoring_rules: "Define expected answer criteria."
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "4"
+    label_patterns: ["4)", "4.", "(4)"]
+    anchor_tokens: ["4)", "4.", "(4)"]
+    scoring_rules: "Define expected answer criteria."
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "5"
+    label_patterns: ["5)", "5.", "(5)"]
+    anchor_tokens: ["5)", "5.", "(5)"]
+    scoring_rules: "Define expected answer criteria."
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0

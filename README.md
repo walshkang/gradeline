@@ -62,6 +62,78 @@ Optional CLI UX and diagnostics flags:
 --context-cache --context-cache-ttl-seconds 86400
 ```
 
+## Workflow CLI (Profile-Based)
+
+Use workflow profiles to avoid long flag lists for repeated assignment runs.
+
+### 1) Create local profile(s)
+
+```bash
+mkdir -p .manual_runs/profiles
+cp configs/workflow_profile.example.toml .manual_runs/profiles/a2.toml
+```
+
+Edit `.manual_runs/profiles/a2.toml` with your Assignment 2 paths.
+
+Or use the interactive wizard (recommended):
+
+```bash
+python3 -m grader.workflow_cli setup --profile a2
+```
+
+The wizard prompts for:
+- submissions folder
+- solutions PDF (right answers)
+- rubric YAML path (and can generate a starter rubric file)
+- Brightspace grade template CSV + grade column
+- output directory and review host/port
+
+### 2) Run full workflow (grade + init + serve)
+
+```bash
+python3 -m grader.workflow_cli run --profile a2
+```
+
+Behavior:
+- Loads `.manual_runs/profiles/a2.toml`
+- Runs `grader.cli` with mapped flags
+- Initializes review state
+- Starts review server on the requested port, or next free port (`+1`, up to 25 attempts)
+- If profile is missing, CLI offers guided setup interactively
+
+### 3) Keep Assignment 1 and Assignment 2 open side-by-side
+
+Terminal A:
+
+```bash
+python3 -m grader.workflow_cli serve --profile a1 --port 8765
+```
+
+Terminal B:
+
+```bash
+python3 -m grader.workflow_cli run --profile a2
+```
+
+### 4) List profiles and state status
+
+```bash
+python3 -m grader.workflow_cli list
+```
+
+The list view includes:
+- profile name
+- output directory
+- rubric path
+- review state status (`valid`, `missing`, or `invalid:<reason>`)
+
+### Troubleshooting
+
+- `Profile file not found`: confirm profile is under `.manual_runs/profiles/<name>.toml` or pass an explicit path.
+- `Unknown keys in [grade]`: remove unsupported keys; profile validation is strict by design.
+- `Review state invalid`: run workflow `run` once, or run `grader.review_cli init --output-dir ...` manually.
+- `Requested grade column was not found`: ensure profile `grade_column` matches your Brightspace template header.
+
 ## Outputs
 
 Inside `--output-dir`:

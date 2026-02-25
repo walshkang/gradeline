@@ -413,6 +413,9 @@ class ReviewApi:
             }
 
         totals = diagnostics.get("totals", {}) if isinstance(diagnostics, dict) else {}
+        args_snapshot = diagnostics.get("args_snapshot", {}) if isinstance(diagnostics, dict) else {}
+        if not isinstance(args_snapshot, dict):
+            args_snapshot = {}
         by_code = totals.get("by_code", {}) if isinstance(totals, dict) else {}
         if not isinstance(by_code, dict):
             by_code = {}
@@ -463,7 +466,8 @@ class ReviewApi:
             summary["error_submissions"] = sorted(folder_errors.values(), key=lambda item: item["folder"])[:10]
 
         if brightspace_rows:
-            grade_column = resolve_grade_column(brightspace_rows)
+            preferred_grade_column = str(args_snapshot.get("grade_column", "")).strip() or None
+            grade_column = resolve_grade_column(brightspace_rows, preferred=preferred_grade_column)
             if grade_column:
                 summary["unmatched_grade_rows"] = sum(
                     1 for row in brightspace_rows if not str(row.get(grade_column, "")).strip()
@@ -670,10 +674,37 @@ def coerce_int(value: Any, default: int = 0) -> int:
         return default
 
 
-def resolve_grade_column(rows: list[dict[str, str]]) -> str | None:
+def resolve_grade_column(rows: list[dict[str, str]], preferred: str | None = None) -> str | None:
     if not rows:
         return None
-    for field in rows[0].keys():
+    fields = list(rows[0].keys())
+
+    resolved_preferred = resolve_requested_column(fields, preferred)
+    if resolved_preferred:
+        return resolved_preferred
+
+    for field in fields:
         if field.lower().startswith("assignment 1 points grade"):
             return field
+    return None
+
+
+def resolve_requested_column(fields: list[str], requested: str | None) -> str | None:
+    target = str(requested or "").strip()
+    if not target:
+        return None
+
+    if target in fields:
+        return target
+
+    lowered = target.lower()
+    casefold_matches = [field for field in fields if field.lower() == lowered]
+    if len(casefold_matches) == 1:
+        return casefold_matches[0]
+    if len(casefold_matches) > 1:
+        return None
+
+    prefix_matches = [field for field in fields if field.lower().startswith(lowered)]
+    if len(prefix_matches) == 1:
+        return prefix_matches[0]
     return None

@@ -259,6 +259,45 @@ class ReviewApiTests(unittest.TestCase):
             self.assertEqual(outcomes.get("band_counts", {}).get("Check Plus"), 1)
             self.assertEqual(outcomes.get("verdict_counts", {}).get("correct"), 1)
 
+    def test_get_run_uses_grade_column_from_diagnostics_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+
+            (output_dir / "grading_diagnostics.json").write_text(
+                json.dumps(
+                    {
+                        "args_snapshot": {
+                            "grade_column": "Assignment 2 Points Grade",
+                        },
+                        "totals": {
+                            "submissions_processed": 1,
+                            "success_count": 1,
+                            "review_required_count": 0,
+                            "failed_with_error_count": 0,
+                            "warning_count": 0,
+                            "by_code": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (output_dir / "grading_audit.csv").write_text(
+                "folder,student_name,band,verdict,error\n"
+                "123 - Jane,Jane,Check Plus,correct,\n",
+                encoding="utf-8",
+            )
+            (output_dir / "brightspace_grades_import.csv").write_text(
+                "Username,Assignment 2 Points Grade <Numeric MaxPoints:2>\n"
+                "jane,\n",
+                encoding="utf-8",
+            )
+
+            api = ReviewApi(output_dir)
+            payload = api.get_run()
+            outcomes = payload.get("outcomes", {})
+            self.assertEqual(outcomes.get("unmatched_grade_rows"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
