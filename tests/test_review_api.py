@@ -139,6 +139,47 @@ class ReviewApiTests(unittest.TestCase):
         coords = coerce_coords_payload([125, 875])
         self.assertEqual(coords, [125.0, 875.0])
 
+    def test_patch_grading_context_recomputes_submission(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+            api = ReviewApi(output_dir)
+
+            response = api.patch_grading_context(
+                {
+                    "grade_points": {
+                        "Check Plus": "110",
+                        "Check": "90",
+                        "Check Minus": "70",
+                        "REVIEW_REQUIRED": "0",
+                    },
+                    "rubric": {
+                        "assignment_id": "a1",
+                        "bands": {"check_plus_min": 0.8, "check_min": 0.6},
+                        "scoring_mode": "equal_weights",
+                        "partial_credit": 0.5,
+                        "questions": [
+                            {
+                                "id": "a",
+                                "label_patterns": ["a)"],
+                                "scoring_rules": "allow partial",
+                                "short_note_pass": "ok",
+                                "short_note_fail": "check",
+                                "weight": 1.0,
+                                "anchor_tokens": [],
+                            }
+                        ],
+                    },
+                }
+            )
+
+            self.assertEqual(response["recomputed_submissions"], 1)
+            self.assertEqual(response["grading_context"]["grade_points"]["Check Plus"], "110")
+            self.assertEqual(response["grading_context"]["rubric"]["bands"]["check_plus_min"], 0.8)
+
+            run_payload = api.get_run()
+            self.assertIn("args_snapshot", run_payload["grading_context"])
+
 
 if __name__ == "__main__":
     unittest.main()

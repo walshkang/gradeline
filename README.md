@@ -25,6 +25,12 @@ Set your Gemini API key:
 export GEMINI_API_KEY="your_api_key_here"
 ```
 
+Or create a local `.env` file in this repo root (auto-loaded by `grader.cli`):
+
+```bash
+GEMINI_API_KEY="your_api_key_here"
+```
+
 ## Run
 
 ```bash
@@ -92,6 +98,12 @@ python3 -m grader.review_cli serve --output-dir "/path/to/grading/output"
 ```
 
 Then open `http://127.0.0.1:8765`.
+
+Use the **Config** tab to inspect/update:
+- solutions/rubric paths captured from the CLI run
+- grade points mapping
+- rubric thresholds (`check_plus_min`, `check_min`), `partial_credit`
+- question label patterns and scoring rules (what the CLI is using as grading interpretation)
 
 ### 3) Export reviewed artifacts
 

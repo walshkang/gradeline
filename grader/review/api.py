@@ -16,7 +16,15 @@ from .state import (
     touch_updated_at,
     write_state_atomic,
 )
-from .types import VERDICT_VALUES, normalize_coords, question_result_from_payload, rubric_from_dict, utc_now_iso
+from .types import (
+    DEFAULT_GRADE_POINTS,
+    VERDICT_VALUES,
+    normalize_coords,
+    question_result_from_payload,
+    rubric_from_dict,
+    rubric_to_dict,
+    utc_now_iso,
+)
 
 
 class ReviewApiError(ValueError):
@@ -52,6 +60,7 @@ class ReviewApi:
         return {
             "run_metadata": state.get("run_metadata", {}),
             "grading_context": {
+                "args_snapshot": state.get("grading_context", {}).get("args_snapshot", {}),
                 "grade_points": state.get("grading_context", {}).get("grade_points", {}),
                 "rubric": state.get("grading_context", {}).get("rubric", {}),
             },
@@ -256,6 +265,55 @@ class ReviewApi:
             )
             return {"submission_id": submission_id, "note": submission["note"]}
 
+    def patch_grading_context(self, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            grading_context = self._state.setdefault("grading_context", {})
+            if not isinstance(grading_context, dict):
+                raise ReviewApiError("Invalid grading_context in state.")
+
+            incoming_rubric = payload.get("rubric", grading_context.get("rubric", {}))
+            incoming_grade_points = payload.get("grade_points", grading_context.get("grade_points", {}))
+            if not isinstance(incoming_rubric, dict):
+                raise ReviewApiError("rubric must be a JSON object.")
+            if not isinstance(incoming_grade_points, dict):
+                raise ReviewApiError("grade_points must be a JSON object.")
+
+            normalized_grade_points = normalize_grade_points_payload(incoming_grade_points)
+            rubric = rubric_from_dict(incoming_rubric)
+            normalized_rubric = rubric_to_dict(rubric)
+
+            grading_context["rubric"] = normalized_rubric
+            grading_context["grade_points"] = normalized_grade_points
+
+            recomputed_submissions = 0
+            submissions = self._state.get("submissions", {})
+            if isinstance(submissions, dict):
+                for submission in submissions.values():
+                    if not isinstance(submission, dict):
+                        continue
+                    self._recompute_submission_summary(submission)
+                    submission["updated_at"] = utc_now_iso()
+                    recomputed_submissions += 1
+
+            touch_updated_at(self._state)
+            self._persist_state_locked()
+            append_event(
+                self.events_path,
+                "grading_context_updated",
+                {
+                    "recomputed_submissions": recomputed_submissions,
+                },
+            )
+
+            return {
+                "grading_context": {
+                    "args_snapshot": grading_context.get("args_snapshot", {}),
+                    "grade_points": normalized_grade_points,
+                    "rubric": normalized_rubric,
+                },
+                "recomputed_submissions": recomputed_submissions,
+            }
+
     def export(self) -> dict[str, str]:
         artifacts = export_review_outputs(self.output_dir)
         return {name: str(path) for name, path in artifacts.items()}
@@ -392,3 +450,14 @@ def coerce_page_number(value: Any) -> int | None:
     if number < 1:
         raise ReviewApiError("page_final must be null or an integer >= 1.")
     return number
+
+
+def normalize_grade_points_payload(payload: dict[str, Any]) -> dict[str, str]:
+    if not payload:
+        return dict(DEFAULT_GRADE_POINTS)
+    return {
+        "Check Plus": str(payload.get("Check Plus", DEFAULT_GRADE_POINTS["Check Plus"])),
+        "Check": str(payload.get("Check", DEFAULT_GRADE_POINTS["Check"])),
+        "Check Minus": str(payload.get("Check Minus", DEFAULT_GRADE_POINTS["Check Minus"])),
+        "REVIEW_REQUIRED": str(payload.get("REVIEW_REQUIRED", DEFAULT_GRADE_POINTS["REVIEW_REQUIRED"])),
+    }

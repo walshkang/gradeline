@@ -131,6 +131,15 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, payload)
             return
 
+        if path == "/api/grading-context":
+            try:
+                payload = self.api.patch_grading_context(body)
+            except ReviewApiError as exc:
+                self._send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+            self._send_json(HTTPStatus.OK, payload)
+            return
+
         self._send_json_error(HTTPStatus.NOT_FOUND, f"Unknown path: {path}")
 
     def do_POST(self) -> None:  # noqa: N802
@@ -183,6 +192,7 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(content)
 

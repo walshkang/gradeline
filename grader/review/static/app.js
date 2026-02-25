@@ -1,11 +1,13 @@
 (() => {
   const state = {
+    runInfo: null,
     submissions: [],
     currentSubmission: null,
     currentQuestionId: null,
     currentDocIdx: 0,
     currentPageIdx: 0,
     scale: 1.2,
+    currentTab: "review",
     pendingPatch: {},
     pendingPatchTimer: null,
     pendingNoteTimer: null,
@@ -13,6 +15,10 @@
   };
 
   const ui = {
+    tabReviewBtn: document.getElementById("tabReviewBtn"),
+    tabConfigBtn: document.getElementById("tabConfigBtn"),
+    reviewPanel: document.getElementById("reviewPanel"),
+    configPanel: document.getElementById("configPanel"),
     queueList: document.getElementById("queueList"),
     searchInput: document.getElementById("searchInput"),
     refreshBtn: document.getElementById("refreshBtn"),
@@ -35,6 +41,19 @@
     reasonInput: document.getElementById("reasonInput"),
     evidenceInput: document.getElementById("evidenceInput"),
     noteInput: document.getElementById("noteInput"),
+    solutionsPathInput: document.getElementById("solutionsPathInput"),
+    rubricPathInput: document.getElementById("rubricPathInput"),
+    gpCheckPlus: document.getElementById("gpCheckPlus"),
+    gpCheck: document.getElementById("gpCheck"),
+    gpCheckMinus: document.getElementById("gpCheckMinus"),
+    gpReviewRequired: document.getElementById("gpReviewRequired"),
+    bandCheckPlusMin: document.getElementById("bandCheckPlusMin"),
+    bandCheckMin: document.getElementById("bandCheckMin"),
+    partialCreditInput: document.getElementById("partialCreditInput"),
+    questionRulesList: document.getElementById("questionRulesList"),
+    reloadConfigBtn: document.getElementById("reloadConfigBtn"),
+    saveConfigBtn: document.getElementById("saveConfigBtn"),
+    configStatus: document.getElementById("configStatus"),
   };
 
   async function apiGet(path) {
@@ -76,6 +95,24 @@
     ui.viewerMeta.textContent = message;
   }
 
+  function setConfigStatus(message) {
+    ui.configStatus.textContent = message;
+  }
+
+  function setTab(tab) {
+    state.currentTab = tab;
+    const reviewActive = tab === "review";
+    ui.tabReviewBtn.classList.toggle("active", reviewActive);
+    ui.tabConfigBtn.classList.toggle("active", !reviewActive);
+    ui.reviewPanel.classList.toggle("hidden", !reviewActive);
+    ui.configPanel.classList.toggle("hidden", reviewActive);
+  }
+
+  async function refreshRun() {
+    state.runInfo = await apiGet("/api/run");
+    renderConfig();
+  }
+
   async function refreshQueue() {
     const q = encodeURIComponent(ui.searchInput.value.trim());
     const payload = await apiGet(`/api/submissions?q=${q}`);
@@ -88,7 +125,8 @@
     state.submissions.forEach((item) => {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "queue-item" +
+      btn.className =
+        "queue-item" +
         (state.currentSubmission && state.currentSubmission.submission_id === item.submission_id ? " active" : "");
       btn.textContent = `${item.student_name} | ${item.final_band} | needs_review:${item.needs_review_count}`;
       btn.addEventListener("click", () => selectSubmission(item.submission_id));
@@ -156,6 +194,7 @@
 
     const question = getCurrentQuestion();
     if (!question) {
+      ui.marker.hidden = true;
       return;
     }
 
@@ -184,6 +223,60 @@
     renderMarker();
   }
 
+  function renderConfig() {
+    const runInfo = state.runInfo;
+    if (!runInfo) {
+      return;
+    }
+    const gradingContext = runInfo.grading_context || {};
+    const argsSnapshot = gradingContext.args_snapshot || {};
+    const gradePoints = gradingContext.grade_points || {};
+    const rubric = gradingContext.rubric || {};
+    const bands = rubric.bands || {};
+
+    ui.solutionsPathInput.value = argsSnapshot.solutions_pdf || "";
+    ui.rubricPathInput.value = argsSnapshot.rubric_yaml || "";
+    ui.gpCheckPlus.value = gradePoints["Check Plus"] || "";
+    ui.gpCheck.value = gradePoints["Check"] || "";
+    ui.gpCheckMinus.value = gradePoints["Check Minus"] || "";
+    ui.gpReviewRequired.value = gradePoints["REVIEW_REQUIRED"] || "";
+    ui.bandCheckPlusMin.value = String(bands.check_plus_min ?? 0.9);
+    ui.bandCheckMin.value = String(bands.check_min ?? 0.7);
+    ui.partialCreditInput.value = String(rubric.partial_credit ?? 0.5);
+
+    ui.questionRulesList.innerHTML = "";
+    const questions = Array.isArray(rubric.questions) ? rubric.questions : [];
+    questions.forEach((question) => {
+      const row = document.createElement("div");
+      row.className = "question-rule-row";
+      row.dataset.questionId = String(question.id || "");
+
+      const id = document.createElement("strong");
+      id.textContent = `Q${question.id || "?"}`;
+
+      const labels = document.createElement("label");
+      labels.textContent = "Label Patterns (comma separated)";
+      const labelsInput = document.createElement("input");
+      labelsInput.type = "text";
+      labelsInput.className = "rule-label-patterns";
+      labelsInput.value = (question.label_patterns || []).join(", ");
+      labels.appendChild(labelsInput);
+
+      const rules = document.createElement("label");
+      rules.textContent = "Scoring Rules";
+      const rulesInput = document.createElement("textarea");
+      rulesInput.rows = 3;
+      rulesInput.className = "rule-scoring";
+      rulesInput.value = question.scoring_rules || "";
+      rules.appendChild(rulesInput);
+
+      row.appendChild(id);
+      row.appendChild(labels);
+      row.appendChild(rules);
+      ui.questionRulesList.appendChild(row);
+    });
+  }
+
   function getCurrentQuestion() {
     const submission = state.currentSubmission;
     if (!submission || !state.currentQuestionId) {
@@ -204,17 +297,18 @@
       return;
     }
 
-    const rect = ui.pageImage.getBoundingClientRect();
-    if (!rect.width || !rect.height) {
+    const imgRect = ui.pageImage.getBoundingClientRect();
+    const wrapRect = ui.imageWrap.getBoundingClientRect();
+    if (!imgRect.width || !imgRect.height) {
       ui.marker.hidden = true;
       return;
     }
     const y = Number(coords[0]);
     const x = Number(coords[1]);
-    const px = (x / 1000) * rect.width;
-    const py = (y / 1000) * rect.height;
-    ui.marker.style.left = `${ui.pageImage.offsetLeft + px}px`;
-    ui.marker.style.top = `${ui.pageImage.offsetTop + py}px`;
+    const px = (x / 1000) * imgRect.width;
+    const py = (y / 1000) * imgRect.height;
+    ui.marker.style.left = `${imgRect.left - wrapRect.left + px}px`;
+    ui.marker.style.top = `${imgRect.top - wrapRect.top + py}px`;
     ui.marker.hidden = false;
   }
 
@@ -233,7 +327,9 @@
       `/api/submissions/${submission.submission_id}/documents/${state.currentDocIdx}/pages/${state.currentPageIdx}/meta?scale=${state.scale}`
     );
     ui.pageImage.src = meta.image_url;
-    setStatus(`Doc ${state.currentDocIdx + 1}, page ${state.currentPageIdx + 1} | ${meta.image_width_px}x${meta.image_height_px}px`);
+    setStatus(
+      `Doc ${state.currentDocIdx + 1}, page ${state.currentPageIdx + 1} | ${meta.image_width_px}x${meta.image_height_px}px`
+    );
   }
 
   function convertClientPointToNormalized(clientX, clientY) {
@@ -302,10 +398,81 @@
       clearTimeout(state.pendingNoteTimer);
       state.pendingNoteTimer = null;
     }
-    await apiPatch(`/api/submissions/${state.currentSubmission.submission_id}/note`, { note: ui.noteInput.value || "" });
+    await apiPatch(`/api/submissions/${state.currentSubmission.submission_id}/note`, {
+      note: ui.noteInput.value || "",
+    });
+  }
+
+  function collectConfigPayload() {
+    const runInfo = state.runInfo;
+    const gradingContext = runInfo?.grading_context || {};
+    const baseRubric = structuredClone(gradingContext.rubric || {});
+    const baseQuestions = Array.isArray(baseRubric.questions) ? baseRubric.questions : [];
+
+    baseRubric.bands = {
+      check_plus_min: Number(ui.bandCheckPlusMin.value || "0.9"),
+      check_min: Number(ui.bandCheckMin.value || "0.7"),
+    };
+    baseRubric.partial_credit = Number(ui.partialCreditInput.value || "0.5");
+
+    const rowMap = new Map();
+    ui.questionRulesList.querySelectorAll(".question-rule-row").forEach((row) => {
+      const questionId = row.dataset.questionId;
+      if (!questionId) {
+        return;
+      }
+      const labelsRaw = row.querySelector(".rule-label-patterns")?.value || "";
+      const scoringRaw = row.querySelector(".rule-scoring")?.value || "";
+      rowMap.set(questionId, {
+        label_patterns: labelsRaw
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        scoring_rules: scoringRaw,
+      });
+    });
+
+    baseRubric.questions = baseQuestions.map((question) => {
+      const override = rowMap.get(String(question.id || ""));
+      if (!override) {
+        return question;
+      }
+      return {
+        ...question,
+        label_patterns: override.label_patterns,
+        scoring_rules: override.scoring_rules,
+      };
+    });
+
+    return {
+      grade_points: {
+        "Check Plus": ui.gpCheckPlus.value,
+        "Check": ui.gpCheck.value,
+        "Check Minus": ui.gpCheckMinus.value,
+        "REVIEW_REQUIRED": ui.gpReviewRequired.value,
+      },
+      rubric: baseRubric,
+    };
+  }
+
+  async function saveConfig() {
+    await flushPatch();
+    await flushNote();
+    const payload = collectConfigPayload();
+    const response = await apiPatch("/api/grading-context", payload);
+    state.runInfo.grading_context = response.grading_context;
+    renderConfig();
+    await refreshQueue();
+    if (state.currentSubmission) {
+      await selectSubmission(state.currentSubmission.submission_id);
+    }
+    setConfigStatus(`Saved config. Recomputed ${response.recomputed_submissions} submissions.`);
   }
 
   function bindEvents() {
+    ui.tabReviewBtn.addEventListener("click", () => setTab("review"));
+    ui.tabConfigBtn.addEventListener("click", () => setTab("config"));
+
     ui.refreshBtn.addEventListener("click", () => {
       refreshQueue().catch((error) => alert(error.message));
     });
@@ -319,6 +486,18 @@
       await flushNote();
       const result = await apiPost("/api/export", {});
       alert(`Export complete. Artifacts: ${Object.keys(result.artifacts || {}).length}`);
+    });
+
+    ui.reloadConfigBtn.addEventListener("click", async () => {
+      await refreshRun();
+      setConfigStatus("Reloaded config from state.");
+    });
+
+    ui.saveConfigBtn.addEventListener("click", () => {
+      saveConfig().catch((error) => {
+        setConfigStatus(`Save failed: ${error.message}`);
+        alert(error.message);
+      });
     });
 
     ui.docSelect.addEventListener("change", async () => {
@@ -352,8 +531,12 @@
       queuePatch({ confidence_final: Number(ui.confidenceInput.value || "0") }, 550)
     );
     ui.reasonInput.addEventListener("input", () => queuePatch({ short_reason_final: ui.reasonInput.value || "" }, 550));
-    ui.evidenceInput.addEventListener("input", () => queuePatch({ evidence_quote_final: ui.evidenceInput.value || "" }, 550));
-    ui.sourceFileSelect.addEventListener("change", () => queuePatch({ source_file_final: ui.sourceFileSelect.value || null }, 150));
+    ui.evidenceInput.addEventListener("input", () =>
+      queuePatch({ evidence_quote_final: ui.evidenceInput.value || "" }, 550)
+    );
+    ui.sourceFileSelect.addEventListener("change", () =>
+      queuePatch({ source_file_final: ui.sourceFileSelect.value || null }, 150)
+    );
     ui.pageNumberInput.addEventListener("input", () => {
       const raw = ui.pageNumberInput.value.trim();
       queuePatch({ page_final: raw ? Number(raw) : null }, 550);
@@ -413,6 +596,8 @@
 
   async function init() {
     bindEvents();
+    setTab("review");
+    await refreshRun();
     await refreshQueue();
     if (state.submissions.length > 0) {
       await selectSubmission(state.submissions[0].submission_id);

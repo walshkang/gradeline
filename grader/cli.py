@@ -12,6 +12,7 @@ from .annotate import annotate_submission_pdfs
 from .config import load_rubric
 from .diagnostics import DiagnosticsCollector, serialize_cli_args
 from .discovery import discover_submission_units, parse_index_html
+from .env import load_dotenv_if_present
 from .extract import ensure_binaries_present, extract_pdf_text
 from .gemini_client import GeminiGrader
 from .report import (
@@ -65,6 +66,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv_if_present()
     args = parse_args(argv if argv is not None else sys.argv[1:])
     ui = create_console_ui(force_plain=args.plain)
     ui.banner("Brightspace PDF Grader", subtitle=args_to_subtitle(args))

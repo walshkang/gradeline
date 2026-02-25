@@ -10,18 +10,20 @@
     <header class="topbar">
       <h1>Grading Review</h1>
       <div class="toolbar">
+        <button id="tabReviewBtn" type="button" class="tab-btn active">Review</button>
+        <button id="tabConfigBtn" type="button" class="tab-btn">Config</button>
+        <button id="exportBtn" type="button">Export Reviewed Outputs</button>
+      </div>
+    </header>
+
+    <main id="reviewPanel" class="layout">
+      <aside class="queue">
+        <h2>Queue</h2>
         <label>
           Search
           <input id="searchInput" type="text" placeholder="Student or folder" />
         </label>
         <button id="refreshBtn" type="button">Refresh</button>
-        <button id="exportBtn" type="button">Export Reviewed Outputs</button>
-      </div>
-    </header>
-
-    <main class="layout">
-      <aside class="queue">
-        <h2>Queue</h2>
         <div id="queueList" class="queue-list"></div>
       </aside>
 
@@ -100,6 +102,57 @@
         </label>
       </aside>
     </main>
+
+    <section id="configPanel" class="config-panel hidden">
+      <h2>Grading Config</h2>
+      <div class="config-grid">
+        <label>
+          Solutions PDF
+          <input id="solutionsPathInput" type="text" readonly />
+        </label>
+        <label>
+          Rubric YAML
+          <input id="rubricPathInput" type="text" readonly />
+        </label>
+        <label>
+          Grade Points: Check Plus
+          <input id="gpCheckPlus" type="text" />
+        </label>
+        <label>
+          Grade Points: Check
+          <input id="gpCheck" type="text" />
+        </label>
+        <label>
+          Grade Points: Check Minus
+          <input id="gpCheckMinus" type="text" />
+        </label>
+        <label>
+          Grade Points: REVIEW_REQUIRED
+          <input id="gpReviewRequired" type="text" />
+        </label>
+        <label>
+          Band: check_plus_min
+          <input id="bandCheckPlusMin" type="number" min="0" max="1" step="0.01" />
+        </label>
+        <label>
+          Band: check_min
+          <input id="bandCheckMin" type="number" min="0" max="1" step="0.01" />
+        </label>
+        <label>
+          Partial Credit
+          <input id="partialCreditInput" type="number" min="0" max="1" step="0.01" />
+        </label>
+      </div>
+
+      <h3>Question Interpretation</h3>
+      <div id="questionRulesList" class="question-rules"></div>
+
+      <div class="config-actions">
+        <button id="reloadConfigBtn" type="button">Reload Config</button>
+        <button id="saveConfigBtn" type="button">Save Config</button>
+      </div>
+      <div id="configStatus" class="viewer-meta"></div>
+    </section>
 
     <script src="/static/app.js"></script>
   </body>
