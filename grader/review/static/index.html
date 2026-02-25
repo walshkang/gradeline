@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Grading Review</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Grading Review</h1>
+      <div class="toolbar">
+        <label>
+          Search
+          <input id="searchInput" type="text" placeholder="Student or folder" />
+        </label>
+        <button id="refreshBtn" type="button">Refresh</button>
+        <button id="exportBtn" type="button">Export Reviewed Outputs</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="queue">
+        <h2>Queue</h2>
+        <div id="queueList" class="queue-list"></div>
+      </aside>
+
+      <section class="viewer">
+        <div class="viewer-toolbar">
+          <label>
+            Document
+            <select id="docSelect"></select>
+          </label>
+          <label>
+            Page
+            <input id="pageInput" type="number" min="1" step="1" value="1" />
+          </label>
+          <label>
+            Scale
+            <input id="scaleInput" type="number" min="0.5" max="3" step="0.1" value="1.2" />
+          </label>
+          <button id="loadPageBtn" type="button">Load Page</button>
+        </div>
+
+        <div id="imageWrap" class="image-wrap">
+          <img id="pageImage" alt="Submission page" />
+          <div id="marker" class="marker" hidden>●</div>
+        </div>
+
+        <div id="viewerMeta" class="viewer-meta"></div>
+      </section>
+
+      <aside class="editor">
+        <h2 id="submissionTitle">Submission</h2>
+        <div class="summary" id="summaryBox"></div>
+
+        <label>
+          Question
+          <select id="questionSelect"></select>
+        </label>
+
+        <label>
+          Verdict
+          <select id="verdictSelect">
+            <option value="correct">correct</option>
+            <option value="partial">partial</option>
+            <option value="incorrect">incorrect</option>
+            <option value="needs_review">needs_review</option>
+          </select>
+        </label>
+
+        <label>
+          Confidence
+          <input id="confidenceInput" type="number" min="0" max="1" step="0.01" />
+        </label>
+
+        <label>
+          Source File
+          <select id="sourceFileSelect"></select>
+        </label>
+
+        <label>
+          Page Number
+          <input id="pageNumberInput" type="number" min="1" step="1" />
+        </label>
+
+        <label>
+          Short Reason
+          <textarea id="reasonInput" rows="3"></textarea>
+        </label>
+
+        <label>
+          Evidence Quote
+          <textarea id="evidenceInput" rows="3"></textarea>
+        </label>
+
+        <label>
+          Submission Note
+          <textarea id="noteInput" rows="3"></textarea>
+        </label>
+      </aside>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

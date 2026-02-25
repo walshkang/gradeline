@@ -1,0 +1,173 @@
+:root {
+  color-scheme: light;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --bg: #f4f6f8;
+  --panel: #ffffff;
+  --border: #d4d9df;
+  --text: #13202d;
+  --muted: #5c6b7a;
+  --accent: #1e5db5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.toolbar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 300px 1fr 360px;
+  gap: 0.8rem;
+  padding: 0.8rem;
+  min-height: calc(100vh - 66px);
+}
+
+.queue,
+.viewer,
+.editor {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.8rem;
+  min-height: 0;
+}
+
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: calc(100vh - 150px);
+  overflow: auto;
+}
+
+.queue-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 6px;
+  padding: 0.5rem;
+  cursor: pointer;
+}
+
+.queue-item.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.viewer-toolbar {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+.image-wrap {
+  flex: 1;
+  min-height: 300px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  position: relative;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+
+#pageImage {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.marker {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(30, 93, 181, 0.86);
+  color: transparent;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(30, 93, 181, 0.9);
+}
+
+.marker.dragging {
+  cursor: grabbing;
+}
+
+.viewer-meta,
+.summary {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  overflow: auto;
+}
+
+.editor h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+@media (max-width: 1180px) {
+  .layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .queue-list {
+    max-height: 220px;
+  }
+}

@@ -7,8 +7,12 @@ from .discovery import normalize_name
 from .types import JsonDict, SubmissionResult
 
 
-def write_grading_audit_csv(output_dir: Path, results: list[SubmissionResult]) -> Path:
-    output_path = output_dir / "grading_audit.csv"
+def write_grading_audit_csv(
+    output_dir: Path,
+    results: list[SubmissionResult],
+    output_filename: str = "grading_audit.csv",
+) -> Path:
+    output_path = output_dir / output_filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
@@ -65,8 +69,12 @@ def write_grading_audit_csv(output_dir: Path, results: list[SubmissionResult]) -
     return output_path
 
 
-def write_review_queue_csv(output_dir: Path, results: list[SubmissionResult]) -> Path:
-    output_path = output_dir / "review_queue.csv"
+def write_review_queue_csv(
+    output_dir: Path,
+    results: list[SubmissionResult],
+    output_filename: str = "review_queue.csv",
+) -> Path:
+    output_path = output_dir / output_filename
     with output_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(
@@ -105,6 +113,7 @@ def write_brightspace_import_csv(
     grade_column: str,
     identifier_column: str,
     comment_column: str | None = None,
+    output_filename: str = "brightspace_grades_import.csv",
 ) -> tuple[Path, list[str]]:
     rows, fieldnames = read_csv_rows(template_csv_path)
     resolved_grade_column = resolve_column_name(fieldnames, grade_column, kind="grade")
@@ -146,7 +155,7 @@ def write_brightspace_import_csv(
                 f"(student '{result.submission.student_name}')."
             )
 
-    output_path = output_dir / "brightspace_grades_import.csv"
+    output_path = output_dir / output_filename
     with output_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -258,8 +267,12 @@ def resolve_identifier_column(fieldnames: list[str], requested: str) -> tuple[st
     )
 
 
-def write_index_audit_csv(output_dir: Path, audit_entries: list[JsonDict]) -> Path:
-    output_path = output_dir / "index_audit.csv"
+def write_index_audit_csv(
+    output_dir: Path,
+    audit_entries: list[JsonDict],
+    output_filename: str = "index_audit.csv",
+) -> Path:
+    output_path = output_dir / output_filename
     with output_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["student_name", "submitted_filename", "submitted_at", "comments"])

@@ -67,6 +67,48 @@ Inside `--output-dir`:
 - `index_audit.csv`
 - `grading_diagnostics.json` (unless overridden with `--diagnostics-file`)
 
+## Manual Review Web App (Local)
+
+After a grading run finishes, you can do a second-pass manual review in a local browser app.
+
+### 1) Initialize review state
+
+```bash
+python3 -m grader.review_cli init --output-dir "/path/to/grading/output"
+```
+
+Optional rubric override:
+
+```bash
+python3 -m grader.review_cli init \
+  --output-dir "/path/to/grading/output" \
+  --rubric-yaml "/path/to/rubric.yaml"
+```
+
+### 2) Start review server
+
+```bash
+python3 -m grader.review_cli serve --output-dir "/path/to/grading/output"
+```
+
+Then open `http://127.0.0.1:8765`.
+
+### 3) Export reviewed artifacts
+
+```bash
+python3 -m grader.review_cli export --output-dir "/path/to/grading/output"
+```
+
+Reviewed artifacts are written into `output_dir/review/`:
+
+- `review_state.json`
+- `review_events.jsonl`
+- `reviewed_pdfs/...`
+- `grading_audit_reviewed.csv`
+- `review_queue_reviewed.csv`
+- `brightspace_grades_import_reviewed.csv`
+- `review_decisions.json`
+
 ## Notes
 
 - If any question is `needs_review`, final band is `REVIEW_REQUIRED`.
