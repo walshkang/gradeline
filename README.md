@@ -1,6 +1,6 @@
 # Gemini-Backed Brightspace Grader
 
-This tool grades Brightspace PDF submissions with Gemini, annotates PDFs with editable AcroForm text fields (green checks/red `x` marks), and builds CSV outputs for grade import and review.
+This tool grades Brightspace PDF submissions with Gemini, annotates PDFs with movable/editable FreeText annotations (green checks/red `x` marks), and builds CSV outputs for grade import and review.
 
 ## Requirements
 

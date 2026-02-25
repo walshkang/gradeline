@@ -56,7 +56,7 @@ def make_rubric(question_id: str = "a", label_patterns: list[str] | None = None)
 
 
 class EditableAnnotationTests(unittest.TestCase):
-    def test_marks_and_header_are_editable_widgets(self) -> None:
+    def test_marks_and_header_are_movable_freetext_annotations(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             submissions_root = root / "subs"
@@ -86,16 +86,20 @@ class EditableAnnotationTests(unittest.TestCase):
 
             self.assertEqual(len(output_paths), 1)
             with fitz.open(output_paths[0]) as annotated:
-                widgets = list(annotated[0].widgets() or [])
-                self.assertGreaterEqual(len(widgets), 2)
-                values = [widget.field_value for widget in widgets]
-                self.assertIn("Grade: CHECK_PLUS", values)
-                self.assertIn("✓ Qa", values)
-                mark_widget = next(
-                    widget for widget in widgets if widget.field_name.startswith("sda_grader_question_mark_a_")
+                page = annotated[0]
+                annots = list(page.annots() or [])
+                self.assertGreaterEqual(len(annots), 2)
+                contents = [annot.info.get("content", "") for annot in annots]
+                self.assertIn("Grade: CHECK_PLUS", contents)
+                self.assertIn("✓ Qa", contents)
+                mark_annot = next(
+                    annot
+                    for annot in annots
+                    if (annot.info.get("subject", "")).startswith("question_mark|q=a|")
                 )
-                self.assertEqual(mark_widget.field_type, fitz.PDF_WIDGET_TYPE_TEXT)
-                self.assertEqual(mark_widget.field_flags & fitz.PDF_FIELD_IS_READ_ONLY, 0)
+                self.assertEqual(mark_annot.type[1], "FreeText")
+                self.assertEqual(mark_annot.info.get("title", ""), "sda_grader")
+                self.assertNotEqual(mark_annot.flags & fitz.PDF_ANNOT_IS_PRINT, 0)
 
     def test_unresolved_questions_use_editable_review_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -126,10 +130,14 @@ class EditableAnnotationTests(unittest.TestCase):
             )
 
             with fitz.open(output_paths[0]) as annotated:
-                widgets = list(annotated[0].widgets() or [])
-                values = [widget.field_value for widget in widgets]
-                self.assertIn("Review Notes:", values)
-                self.assertTrue(any(value and value.startswith("x Qz:") for value in values))
+                page = annotated[0]
+                annots = list(page.annots() or [])
+                contents = [annot.info.get("content", "") for annot in annots]
+                subjects = [annot.info.get("subject", "") for annot in annots]
+                self.assertIn("Review Notes:", contents)
+                self.assertTrue(any(value and value.startswith("x Qz:") for value in contents))
+                self.assertTrue(any(subject.startswith("review_title|p=1") for subject in subjects))
+                self.assertTrue(any(subject.startswith("review_note|q=z|p=1|n=1") for subject in subjects))
 
     def test_header_text_does_not_create_false_qe_anchor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -172,15 +180,16 @@ class EditableAnnotationTests(unittest.TestCase):
             )
 
             with fitz.open(output_paths[0]) as annotated:
-                widgets = list(annotated[0].widgets() or [])
-                qe_mark_widgets = [
-                    widget
-                    for widget in widgets
-                    if (widget.field_name or "").startswith("sda_grader_question_mark_e_")
+                page = annotated[0]
+                annots = list(page.annots() or [])
+                qe_mark_annots = [
+                    annot
+                    for annot in annots
+                    if (annot.info.get("subject", "")).startswith("question_mark|q=e|")
                 ]
-                self.assertEqual(qe_mark_widgets, [])
-                values = [widget.field_value for widget in widgets]
-                self.assertTrue(any(value and value.startswith("x Qe:") for value in values))
+                self.assertEqual(qe_mark_annots, [])
+                contents = [annot.info.get("content", "") for annot in annots]
+                self.assertTrue(any(value and value.startswith("x Qe:") for value in contents))
 
 
 if __name__ == "__main__":

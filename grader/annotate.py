@@ -7,7 +7,7 @@ from typing import Callable
 
 from .types import QuestionResult, RubricConfig, SubmissionUnit
 
-ANNOTATION_FIELD_PREFIX = "sda_grader"
+ANNOTATION_INFO_TITLE = "sda_grader"
 
 
 def annotate_submission_pdfs(
@@ -268,21 +268,23 @@ def compact_reason(text: str, max_chars: int = 42) -> str:
     return cleaned[: max_chars - 3].rstrip() + "..."
 
 
-def sanitize_field_name_component(value: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", value.strip())
+def sanitize_subject_component(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.\-]+", "_", value.strip())
     return cleaned.strip("_") or "x"
 
 
-def build_field_name(*parts: str) -> str:
-    normalized = [sanitize_field_name_component(part) for part in parts if part]
-    return "_".join([ANNOTATION_FIELD_PREFIX, *normalized])
+def build_annotation_subject(kind: str, **parts: str | int | float) -> str:
+    tokens = [sanitize_subject_component(kind)]
+    for key, value in parts.items():
+        tokens.append(f"{sanitize_subject_component(str(key))}={sanitize_subject_component(str(value))}")
+    return "|".join(tokens)
 
 
 def estimate_text_width(text: str, fontsize: float, minimum: float = 80.0) -> float:
     return max(minimum, (len(text) + 2) * fontsize * 0.58)
 
 
-def text_widget_rect_from_baseline(
+def text_annotation_rect_from_baseline(
     page: "fitz.Page",
     x: float,
     y: float,
@@ -296,35 +298,47 @@ def text_widget_rect_from_baseline(
         estimate_text_width(text=text, fontsize=fontsize, minimum=min_width),
         max(24.0, page.rect.width - 8.0),
     )
-    height = max(16.0, fontsize + 8.0)
+    # FreeText annotations render with extra inner padding in Preview.
+    height = max(20.0, fontsize + 12.0)
     x0 = clamp(x, 4.0, max(4.0, page.rect.width - width - 4.0))
     y0 = clamp(y - fontsize, 4.0, max(4.0, page.rect.height - height - 4.0))
     return fitz.Rect(x0, y0, x0 + width, y0 + height)
 
 
-def add_editable_text_widget(
+def add_movable_freetext_annotation(
     page: "fitz.Page",
     rect: "fitz.Rect",
     text: str,
     fontsize: float,
     color: tuple[float, float, float],
-    field_name: str,
+    subject: str,
 ) -> None:
     import fitz
 
-    widget = fitz.Widget()
-    widget.field_type = fitz.PDF_WIDGET_TYPE_TEXT
-    widget.field_name = field_name
-    widget.field_value = text
-    widget.rect = rect
-    widget.text_font = "Helv"
-    widget.text_fontsize = fontsize
-    widget.text_color = color
-    widget.border_width = 0
-    widget.fill_color = None
-    widget.border_color = None
-    page.add_widget(widget)
-    widget.update()
+    annot = page.add_freetext_annot(
+        rect=rect,
+        text=text,
+        fontsize=fontsize,
+        fontname="Helv",
+        text_color=color,
+        fill_color=None,
+        border_color=None,
+        border_width=0,
+    )
+    annot.set_info(
+        title=ANNOTATION_INFO_TITLE,
+        subject=subject,
+        content=text,
+    )
+    annot.set_border(width=0)
+    annot.set_flags((annot.flags or 0) | fitz.PDF_ANNOT_IS_PRINT)
+    annot.update(
+        fontsize=fontsize,
+        fontname="Helv",
+        text_color=color,
+        border_color=None,
+        fill_color=None,
+    )
 
 
 def insert_mark(
@@ -337,7 +351,7 @@ def insert_mark(
     mark_point = offset_mark_point(page=page, point=point)
     fontsize = 12.0
     color = (0.0, 0.55, 0.0) if is_correct else (0.8, 0.0, 0.0)
-    rect = text_widget_rect_from_baseline(
+    rect = text_annotation_rect_from_baseline(
         page=page,
         x=mark_point.x,
         y=mark_point.y,
@@ -345,20 +359,20 @@ def insert_mark(
         fontsize=fontsize,
         min_width=140.0,
     )
-    field_name = build_field_name(
+    subject = build_annotation_subject(
         "question_mark",
-        question_id,
-        f"p{page.number + 1}",
-        f"x{int(mark_point.x)}",
-        f"y{int(mark_point.y)}",
+        q=question_id,
+        p=page.number + 1,
+        x=int(mark_point.x),
+        y=int(mark_point.y),
     )
-    add_editable_text_widget(
+    add_movable_freetext_annotation(
         page=page,
         rect=rect,
         text=mark_text,
         fontsize=fontsize,
         color=color,
-        field_name=field_name,
+        subject=subject,
     )
 
 
@@ -382,7 +396,7 @@ def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False) -
     x = max(24, page.rect.width - 320)
     y = 36
     fontsize = 14.0
-    rect = text_widget_rect_from_baseline(
+    rect = text_annotation_rect_from_baseline(
         page=page,
         x=float(x),
         y=float(y),
@@ -390,13 +404,17 @@ def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False) -
         fontsize=fontsize,
         min_width=220.0,
     )
-    add_editable_text_widget(
+    add_movable_freetext_annotation(
         page=page,
         rect=rect,
         text=text,
         fontsize=fontsize,
         color=(0.0, 0.0, 0.0),
-        field_name=build_field_name("header", final_band, f"p{page.number + 1}"),
+        subject=build_annotation_subject(
+            "header",
+            p=page.number + 1,
+            band=final_band,
+        ),
     )
 
 
@@ -405,7 +423,7 @@ def add_fallback_summary(page: "fitz.Page", unresolved: list, result_map: dict[s
     y = 72
     title_text = "Review Notes:"
     title_size = 11.0
-    title_rect = text_widget_rect_from_baseline(
+    title_rect = text_annotation_rect_from_baseline(
         page=page,
         x=float(x),
         y=float(y),
@@ -413,13 +431,16 @@ def add_fallback_summary(page: "fitz.Page", unresolved: list, result_map: dict[s
         fontsize=title_size,
         min_width=120.0,
     )
-    add_editable_text_widget(
+    add_movable_freetext_annotation(
         page=page,
         rect=title_rect,
         text=title_text,
         fontsize=title_size,
         color=(0.1, 0.1, 0.1),
-        field_name=build_field_name("review_title", f"p{page.number + 1}"),
+        subject=build_annotation_subject(
+            "review_title",
+            p=page.number + 1,
+        ),
     )
 
     for idx, question in enumerate(unresolved, start=1):
@@ -431,7 +452,7 @@ def add_fallback_summary(page: "fitz.Page", unresolved: list, result_map: dict[s
         else:
             line_text = mark_text_for_result(question_id=question.id, result=q_result)
         line_size = 10.0
-        line_rect = text_widget_rect_from_baseline(
+        line_rect = text_annotation_rect_from_baseline(
             page=page,
             x=float(x),
             y=float(y + (idx * 14)),
@@ -439,11 +460,16 @@ def add_fallback_summary(page: "fitz.Page", unresolved: list, result_map: dict[s
             fontsize=line_size,
             min_width=150.0,
         )
-        add_editable_text_widget(
+        add_movable_freetext_annotation(
             page=page,
             rect=line_rect,
             text=line_text,
             fontsize=line_size,
             color=color,
-            field_name=build_field_name("review_note", question.id, f"p{page.number + 1}", f"n{idx}"),
+            subject=build_annotation_subject(
+                "review_note",
+                q=question.id,
+                p=page.number + 1,
+                n=idx,
+            ),
         )

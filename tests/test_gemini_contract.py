@@ -6,6 +6,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from grader.gemini_client import (
+    NUMERIC_EQUIVALENCE_RULE,
+    build_context_system_instruction,
+    build_legacy_grading_prompt,
+    build_unified_grading_prompt,
     call_with_backoff,
     compute_context_cache_key,
     normalize_locator_response,
@@ -90,6 +94,25 @@ class GeminiContractTests(unittest.TestCase):
         self.assertEqual(by_id["a"].short_reason, "Show the final probability value.")
         self.assertEqual(by_id["b"].short_reason, "check")
         self.assertEqual(by_id["c"].short_reason, "Review manually.")
+
+    def test_prompts_include_numeric_equivalence_rule(self) -> None:
+        rubric = make_rubric()
+        legacy = build_legacy_grading_prompt(
+            submission_id="sub-1",
+            rubric=rubric,
+            solutions_text="Solution text",
+            combined_text="Student text",
+        )
+        unified = build_unified_grading_prompt(
+            submission_id="sub-1",
+            rubric=rubric,
+            pdf_paths=[Path("submission.pdf")],
+        )
+        context_system = build_context_system_instruction(rubric)
+
+        self.assertIn(NUMERIC_EQUIVALENCE_RULE, legacy)
+        self.assertIn(NUMERIC_EQUIVALENCE_RULE, unified)
+        self.assertIn(NUMERIC_EQUIVALENCE_RULE, context_system)
 
     def test_backoff_retries_rate_limit(self) -> None:
         calls = {"count": 0}

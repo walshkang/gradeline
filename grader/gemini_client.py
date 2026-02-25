@@ -13,8 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from .types import JsonDict, QuestionResult, RubricConfig
 
 
-PROMPT_VERSION = "2026-02-25-gemini-brightspace-v2"
+PROMPT_VERSION = "2026-02-25-gemini-brightspace-v3"
 DEFAULT_CONTEXT_CACHE_TTL_SECONDS = 86400
+NUMERIC_EQUIVALENCE_RULE = (
+    "SYSTEM RULE: You must treat decimal and percentage notation as strictly equivalent when they express "
+    "the same quantity (for example: .45, 0.45, and 45%)."
+)
 
 
 class UnifiedQuestionItem(BaseModel):
@@ -409,6 +413,7 @@ def build_legacy_grading_prompt(
         "- If verdict is correct, short_reason must be an empty string.\n"
         "- If verdict is incorrect or partial, short_reason must be one short teacher-style sentence.\n"
         "- Use direct second-person voice and avoid third-person phrasing.\n\n"
+        f"{NUMERIC_EQUIVALENCE_RULE}\n\n"
         f"Submission ID: {submission_id}\n\n"
         "Master solution text:\n"
         f"{solutions_text}\n\n"
@@ -425,6 +430,7 @@ def build_context_system_instruction(rubric: RubricConfig) -> str:
         "You are the grading policy context for one statistics assignment.\n"
         "Use the attached master solution PDF and rubric rules below as the source of truth.\n"
         "Return judgments only from the student's provided work and these rubric rules.\n"
+        f"{NUMERIC_EQUIVALENCE_RULE}\n"
         "Rubric rules:\n"
         f"{chr(10).join(rubric_lines)}"
     )
@@ -443,6 +449,7 @@ def build_unified_grading_prompt(
         "Per question, include verdict, confidence, short_reason, evidence_quote, coords, page_number, source_file.\n"
         "Coordinate rule: if your detector yields [ymin, xmin, ymax, xmax], convert it to the center and return [y, x] integers on 0..1000.\n"
         "source_file must exactly match one attached student filename.\n"
+        f"{NUMERIC_EQUIVALENCE_RULE}\n"
         "Feedback rules: correct => empty short_reason; incorrect/partial => one short teacher-style sentence in second-person voice.\n"
         "If uncertain, set verdict=needs_review and confidence near 0.0.\n\n"
         f"Submission ID: {submission_id}\n"
