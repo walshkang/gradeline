@@ -1,0 +1,49 @@
+assignment_id: "execdc27_assignment1_atm"
+scoring_mode: "equal_weights"
+partial_credit: 0.5
+
+bands:
+  check_plus_min: 0.90
+  check_min: 0.70
+
+questions:
+  - id: "a"
+    label_patterns: ["a)", "a.", "(a)"]
+    anchor_tokens: ["a)", "a.", "(a)", "Question A"]
+    scoring_rules: "Accept equivalent answer 0.45 or 45% with correct supporting probability sum."
+    short_note_pass: "Probability is correct."
+    short_note_fail: "Probability result should be 0.45."
+    weight: 1.0
+
+  - id: "b"
+    label_patterns: ["b)", "b.", "(b)"]
+    anchor_tokens: ["b)", "b.", "(b)", "Question B"]
+    scoring_rules: "Must show expected value 50 and standard deviation about 26.27 (variance 690 acceptable intermediate)."
+    short_note_pass: "Mean and SD are correct."
+    short_note_fail: "Check mean/variance/SD calculations."
+    weight: 1.0
+
+  - id: "c"
+    label_patterns: ["c)", "c.", "(c)"]
+    anchor_tokens: ["c)", "c.", "(c)", "Question C"]
+    scoring_rules: "Explanation should mention expected value as long-run average and not the next single withdrawal."
+    short_note_pass: "Concept explanation is correct."
+    short_note_fail: "Expected value interpretation is incomplete."
+    weight: 1.0
+
+  - id: "d"
+    label_patterns: ["d)", "d.", "(d)"]
+    anchor_tokens: ["d)", "d.", "(d)", "Question D"]
+    scoring_rules: "Within one SD interval should resolve to probability 0.45."
+    short_note_pass: "One-SD probability is correct."
+    short_note_fail: "One-SD probability should be 0.45."
+    weight: 1.0
+
+  - id: "e"
+    label_patterns: ["e)", "e.", "(e)"]
+    anchor_tokens: ["e)", "e.", "(e)", "Question E"]
+    scoring_rules: "Within two SD interval should resolve to probability 1.00."
+    short_note_pass: "Two-SD probability is correct."
+    short_note_fail: "Two-SD probability should be 1.00."
+    weight: 1.0
+
