@@ -1,6 +1,6 @@
 # Gemini-Backed Brightspace Grader
 
-This tool grades Brightspace PDF submissions with `gemini-2.5-flash`, annotates PDFs with inline green checks/red `x` marks, and builds CSV outputs for grade import and review.
+This tool grades Brightspace PDF submissions with `gemini-2.5-flash`, annotates PDFs with editable AcroForm text fields (green checks/red `x` marks), and builds CSV outputs for grade import and review.
 
 ## Requirements
 
@@ -38,6 +38,16 @@ python3 -m grader.cli \
   --output-dir "/Users/walsh.kang/Downloads/Assignment 1 Graded Feb 2026"
 ```
 
+Optional CLI UX and diagnostics flags:
+
+```bash
+# force plain text output (no Rich formatting)
+--plain
+
+# write diagnostics JSON to a custom path
+--diagnostics-file "/custom/path/grading_diagnostics.json"
+```
+
 ## Outputs
 
 Inside `--output-dir`:
@@ -47,6 +57,7 @@ Inside `--output-dir`:
 - `grading_audit.csv`
 - `review_queue.csv`
 - `index_audit.csv`
+- `grading_diagnostics.json` (unless overridden with `--diagnostics-file`)
 
 ## Notes
 
@@ -59,3 +70,7 @@ Inside `--output-dir`:
   - `--review-required-points`
 - `--dry-run` now defaults to header-only annotation (no per-question x/✓ marks).
 - Use `--annotate-dry-run-marks` if you want debug placement marks during dry-run.
+- Rich console output is used automatically in interactive terminals; use `--plain` for deterministic text output.
+- Diagnostics JSON includes:
+  - `run_id`, `started_at`, `ended_at`, `args_snapshot`, `totals`, `events`
+  - event fields: `timestamp`, `severity`, `code`, `stage`, `submission_folder`, `message`, `exception_type`, `traceback_snippet`

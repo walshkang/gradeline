@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .types import QuestionResult, RubricConfig, SubmissionUnit
 
-ARIAL_FONT_PATH = Path("/System/Library/Fonts/Supplemental/Arial.ttf")
+ANNOTATION_FIELD_PREFIX = "sda_grader"
 
 
 def annotate_submission_pdfs(
@@ -41,6 +41,7 @@ def annotate_submission_pdfs(
                 doc.save(out_path)
                 output_paths.append(out_path)
                 continue
+            doc.need_appearances(True)
 
             if pdf_path == submission.pdf_paths[0]:
                 add_band_header(doc[0], final_band=final_band, dry_run=dry_run)
@@ -76,6 +77,7 @@ def annotate_submission_pdfs(
                         point,
                         mark_text=mark_text,
                         is_correct=(q_result.verdict == "correct"),
+                        question_id=question.id,
                     )
                     rendered.add(question.id)
                     placement_details[question.id] = {
@@ -94,6 +96,7 @@ def annotate_submission_pdfs(
     if render_question_marks and unresolved and output_paths:
         doc = fitz.open(output_paths[0])
         try:
+            doc.need_appearances(True)
             add_fallback_summary(
                 doc[0],
                 unresolved=unresolved,
@@ -260,17 +263,97 @@ def compact_reason(text: str, max_chars: int = 42) -> str:
     return cleaned[: max_chars - 3].rstrip() + "..."
 
 
-def insert_mark(page: "fitz.Page", point: "fitz.Point", mark_text: str, is_correct: bool) -> None:
+def sanitize_field_name_component(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", value.strip())
+    return cleaned.strip("_") or "x"
+
+
+def build_field_name(*parts: str) -> str:
+    normalized = [sanitize_field_name_component(part) for part in parts if part]
+    return "_".join([ANNOTATION_FIELD_PREFIX, *normalized])
+
+
+def estimate_text_width(text: str, fontsize: float, minimum: float = 80.0) -> float:
+    return max(minimum, (len(text) + 2) * fontsize * 0.58)
+
+
+def text_widget_rect_from_baseline(
+    page: "fitz.Page",
+    x: float,
+    y: float,
+    text: str,
+    fontsize: float,
+    min_width: float = 80.0,
+) -> "fitz.Rect":
+    import fitz
+
+    width = min(
+        estimate_text_width(text=text, fontsize=fontsize, minimum=min_width),
+        max(24.0, page.rect.width - 8.0),
+    )
+    height = max(16.0, fontsize + 8.0)
+    x0 = clamp(x, 4.0, max(4.0, page.rect.width - width - 4.0))
+    y0 = clamp(y - fontsize, 4.0, max(4.0, page.rect.height - height - 4.0))
+    return fitz.Rect(x0, y0, x0 + width, y0 + height)
+
+
+def add_editable_text_widget(
+    page: "fitz.Page",
+    rect: "fitz.Rect",
+    text: str,
+    fontsize: float,
+    color: tuple[float, float, float],
+    field_name: str,
+) -> None:
+    import fitz
+
+    widget = fitz.Widget()
+    widget.field_type = fitz.PDF_WIDGET_TYPE_TEXT
+    widget.field_name = field_name
+    widget.field_value = text
+    widget.rect = rect
+    widget.text_font = "Helv"
+    widget.text_fontsize = fontsize
+    widget.text_color = color
+    widget.border_width = 0
+    widget.fill_color = None
+    widget.border_color = None
+    page.add_widget(widget)
+    widget.update()
+
+
+def insert_mark(
+    page: "fitz.Page",
+    point: "fitz.Point",
+    mark_text: str,
+    is_correct: bool,
+    question_id: str,
+) -> None:
+    fontsize = 12.0
     color = (0.0, 0.55, 0.0) if is_correct else (0.8, 0.0, 0.0)
-    kwargs = {
-        "fontsize": 12,
-        "color": color,
-    }
-    if ARIAL_FONT_PATH.exists():
-        kwargs["fontfile"] = str(ARIAL_FONT_PATH)
-    else:
-        kwargs["fontname"] = "helv"
-    page.insert_text(point, mark_text, **kwargs)
+    rect = text_widget_rect_from_baseline(
+        page=page,
+        x=point.x,
+        y=point.y,
+        text=mark_text,
+        fontsize=fontsize,
+        min_width=140.0,
+    )
+    field_name = build_field_name(
+        "question_mark",
+        question_id,
+        f"p{page.number + 1}",
+        f"x{int(point.x)}",
+        f"y{int(point.y)}",
+    )
+    add_editable_text_widget(
+        page=page,
+        rect=rect,
+        text=mark_text,
+        fontsize=fontsize,
+        color=color,
+        field_name=field_name,
+    )
 
 
 def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False) -> None:
@@ -279,29 +362,46 @@ def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False) -
         text = f"Dry Run - {final_band} (no per-question marks)"
     x = max(24, page.rect.width - 320)
     y = 36
-    kwargs = {
-        "fontsize": 14,
-        "color": (0.0, 0.0, 0.0),
-    }
-    if ARIAL_FONT_PATH.exists():
-        kwargs["fontfile"] = str(ARIAL_FONT_PATH)
-    else:
-        kwargs["fontname"] = "helv"
-    page.insert_text((x, y), text, **kwargs)
+    fontsize = 14.0
+    rect = text_widget_rect_from_baseline(
+        page=page,
+        x=float(x),
+        y=float(y),
+        text=text,
+        fontsize=fontsize,
+        min_width=220.0,
+    )
+    add_editable_text_widget(
+        page=page,
+        rect=rect,
+        text=text,
+        fontsize=fontsize,
+        color=(0.0, 0.0, 0.0),
+        field_name=build_field_name("header", final_band, f"p{page.number + 1}"),
+    )
 
 
 def add_fallback_summary(page: "fitz.Page", unresolved: list, result_map: dict[str, QuestionResult]) -> None:
     x = max(24, page.rect.width - 230)
     y = 72
-    kwargs = {
-        "fontsize": 11,
-        "color": (0.1, 0.1, 0.1),
-    }
-    if ARIAL_FONT_PATH.exists():
-        kwargs["fontfile"] = str(ARIAL_FONT_PATH)
-    else:
-        kwargs["fontname"] = "helv"
-    page.insert_text((x, y), "Review Notes:", **kwargs)
+    title_text = "Review Notes:"
+    title_size = 11.0
+    title_rect = text_widget_rect_from_baseline(
+        page=page,
+        x=float(x),
+        y=float(y),
+        text=title_text,
+        fontsize=title_size,
+        min_width=120.0,
+    )
+    add_editable_text_widget(
+        page=page,
+        rect=title_rect,
+        text=title_text,
+        fontsize=title_size,
+        color=(0.1, 0.1, 0.1),
+        field_name=build_field_name("review_title", f"p{page.number + 1}"),
+    )
 
     for idx, question in enumerate(unresolved, start=1):
         q_result = result_map.get(question.id)
@@ -309,12 +409,21 @@ def add_fallback_summary(page: "fitz.Page", unresolved: list, result_map: dict[s
         symbol = "✓" if verdict == "correct" else "x"
         note = compact_reason(q_result.short_reason if q_result else "No result.")
         color = (0.0, 0.55, 0.0) if verdict == "correct" else (0.8, 0.0, 0.0)
-        item_kwargs = {
-            "fontsize": 10,
-            "color": color,
-        }
-        if ARIAL_FONT_PATH.exists():
-            item_kwargs["fontfile"] = str(ARIAL_FONT_PATH)
-        else:
-            item_kwargs["fontname"] = "helv"
-        page.insert_text((x, y + (idx * 14)), f"{symbol} Q{question.id}: {note}", **item_kwargs)
+        line_text = f"{symbol} Q{question.id}: {note}"
+        line_size = 10.0
+        line_rect = text_widget_rect_from_baseline(
+            page=page,
+            x=float(x),
+            y=float(y + (idx * 14)),
+            text=line_text,
+            fontsize=line_size,
+            min_width=150.0,
+        )
+        add_editable_text_widget(
+            page=page,
+            rect=line_rect,
+            text=line_text,
+            fontsize=line_size,
+            color=color,
+            field_name=build_field_name("review_note", question.id, f"p{page.number + 1}", f"n{idx}"),
+        )
