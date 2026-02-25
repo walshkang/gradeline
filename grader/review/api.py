@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import threading
 from copy import deepcopy
 from pathlib import Path
@@ -683,8 +684,13 @@ def resolve_grade_column(rows: list[dict[str, str]], preferred: str | None = Non
     if resolved_preferred:
         return resolved_preferred
 
+    assignment_grade_pattern = re.compile(r"\bassignment\s*\d+\b.*\bpoints\b.*\bgrade\b")
     for field in fields:
-        if field.lower().startswith("assignment 1 points grade"):
+        if assignment_grade_pattern.search(field.lower()):
+            return field
+
+    for field in fields:
+        if "points grade" in field.lower():
             return field
     return None
 

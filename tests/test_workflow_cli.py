@@ -8,8 +8,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from grader.workflow_detect import DetectedConfig, DetectedField, DiscoveryContext
 from grader.workflow_cli import main, resolve_available_port
-from grader.workflow_profile import load_workflow_profile
+from grader.workflow_profile import WorkflowProfileError, load_workflow_profile
 
 
 @contextlib.contextmanager
@@ -53,6 +54,94 @@ def write_valid_review_state(output_dir: Path) -> None:
 """.strip()
         + "\n",
         encoding="utf-8",
+    )
+
+
+def make_detected_config(root: Path, *, rubric_exists: bool = True) -> DetectedConfig:
+    submissions_dir = root / "subs"
+    solutions_pdf = root / "solutions.pdf"
+    rubric_yaml = root / "configs" / "a2.yaml"
+    template_csv = root / "template.csv"
+    output_dir = root / "outputs" / "a2"
+    downloads_dir = root / "Downloads"
+    submissions_dir.mkdir(parents=True, exist_ok=True)
+    solutions_pdf.write_bytes(b"%PDF-1.4")
+    template_csv.write_text("OrgDefinedId,Assignment 2 Points Grade <Numeric MaxPoints:2>\n", encoding="utf-8")
+    downloads_dir.mkdir(parents=True, exist_ok=True)
+    if rubric_exists:
+        rubric_yaml.parent.mkdir(parents=True, exist_ok=True)
+        rubric_yaml.write_text(
+            (
+                "assignment_id: a2\n"
+                "bands:\n"
+                "  check_plus_min: 0.9\n"
+                "  check_min: 0.7\n"
+                "questions:\n"
+                "  - id: a\n"
+            ),
+            encoding="utf-8",
+        )
+
+    context = DiscoveryContext(
+        cwd=root.resolve(),
+        profile_path=(root / ".manual_runs" / "profiles" / "a2.toml").resolve(),
+        profile_name="a2",
+        assignment_token="2",
+        downloads_dir=downloads_dir.resolve(),
+        recency_days=7,
+    )
+    return DetectedConfig(
+        context=context,
+        submissions_dir=DetectedField(
+            value=submissions_dir.resolve(),
+            source="recent_run",
+            confidence=0.9,
+            candidates=(submissions_dir.resolve(),),
+        ),
+        solutions_pdf=DetectedField(
+            value=solutions_pdf.resolve(),
+            source="recent_run",
+            confidence=0.9,
+            candidates=(solutions_pdf.resolve(),),
+        ),
+        rubric_yaml=DetectedField(
+            value=rubric_yaml.resolve(),
+            source="default",
+            confidence=0.4,
+            candidates=(rubric_yaml.resolve(),),
+        ),
+        grades_template_csv=DetectedField(
+            value=template_csv.resolve(),
+            source="downloads",
+            confidence=0.7,
+            candidates=(template_csv.resolve(),),
+        ),
+        grade_column=DetectedField(
+            value="Assignment 2 Points Grade",
+            source="template_inference",
+            confidence=0.7,
+            candidates=(
+                "Assignment 2 Points Grade",
+                "Assignment 2 Points Grade <Numeric MaxPoints:2>",
+            ),
+        ),
+        output_dir=DetectedField(
+            value=output_dir.resolve(),
+            source="default",
+            confidence=0.4,
+            candidates=(output_dir.resolve(),),
+        ),
+        host=DetectedField(value="127.0.0.1", source="default", confidence=0.4, candidates=("127.0.0.1",)),
+        port=DetectedField(value=8765, source="default", confidence=0.4, candidates=(8765,)),
+        optional_grade_values={
+            "grading_mode": "unified",
+            "model": "gemini-3-flash-preview",
+            "identifier_column": "OrgDefinedId",
+            "context_cache": True,
+            "context_cache_ttl_seconds": 86400,
+            "plain": False,
+        },
+        prior_rubric_question_ids=("a", "b", "c"),
     )
 
 
@@ -193,6 +282,108 @@ class WorkflowCliTests(unittest.TestCase):
             self.assertEqual(profile.path, profile_path.resolve())
             self.assertEqual(profile.grade.rubric_yaml, rubric_path.resolve())
             self.assertEqual(profile.grade.grade_column, "Assignment 2 Points Grade")
+
+    def test_quickstart_requires_tty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stderr = io.StringIO()
+            with (
+                pushd(root),
+                patch("sys.stdin.isatty", return_value=False),
+                patch("sys.stdout.isatty", return_value=False),
+                patch("sys.stderr", stderr),
+            ):
+                exit_code = main(["quickstart", "--profile", "a2"])
+
+            self.assertEqual(exit_code, 2)
+            self.assertIn("requires an interactive terminal", stderr.getvalue())
+
+    def test_quickstart_no_run_writes_profile_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detected = make_detected_config(root)
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.detect_defaults", return_value=detected),
+                patch("sys.stdin.isatty", return_value=True),
+                patch("sys.stdout.isatty", return_value=True),
+                patch("builtins.input", side_effect=[""]),
+                patch("grader.workflow_cli.invoke_grading_main") as grade_mock,
+            ):
+                exit_code = main(["quickstart", "--profile", "a2", "--no-run", "--overwrite"])
+
+            self.assertEqual(exit_code, 0)
+            profile_path = root / ".manual_runs" / "profiles" / "a2.toml"
+            self.assertTrue(profile_path.exists())
+            profile = load_workflow_profile("a2", cwd=root)
+            self.assertEqual(profile.grade.grade_column, "Assignment 2 Points Grade <Numeric MaxPoints:2>")
+            grade_mock.assert_not_called()
+
+    def test_quickstart_accept_all_writes_profile_and_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detected = make_detected_config(root)
+            output_dir = (root / "outputs" / "a2").resolve()
+
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.detect_defaults", return_value=detected),
+                patch("sys.stdin.isatty", return_value=True),
+                patch("sys.stdout.isatty", return_value=True),
+                patch("builtins.input", side_effect=[""]),
+                patch("grader.workflow_cli.invoke_grading_main", return_value=0) as grade_mock,
+                patch("grader.workflow_cli.initialize_review_state", return_value=output_dir / "review/review_state.json"),
+                patch("grader.workflow_cli.review_state_status", return_value=("valid", "")),
+                patch("grader.workflow_cli.resolve_available_port", return_value=(8765, False)),
+                patch("grader.workflow_cli.run_review_server", return_value=None) as serve_mock,
+            ):
+                exit_code = main(["quickstart", "--profile", "a2", "--overwrite"])
+
+            self.assertEqual(exit_code, 0)
+            grade_mock.assert_called_once()
+            serve_mock.assert_called_once()
+
+    def test_run_missing_profile_bootstraps_via_quickstart_then_runs_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                pushd(root),
+                patch("sys.stdin.isatty", return_value=True),
+                patch("sys.stdout.isatty", return_value=True),
+                patch("grader.workflow_cli.prompt_missing_profile_bootstrap_choice", return_value="quickstart"),
+                patch("grader.workflow_cli.quickstart_profile_interactive", return_value=0) as quickstart_mock,
+                patch(
+                    "grader.workflow_cli.run_from_profile",
+                    side_effect=[WorkflowProfileError("Profile file not found: /tmp/missing"), 0],
+                ) as run_mock,
+            ):
+                exit_code = main(["run", "--profile", "a9"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(run_mock.call_count, 2)
+            quickstart_mock.assert_called_once_with(profile_spec="a9", overwrite=False, auto_run=False)
+
+    def test_serve_missing_profile_bootstraps_via_quickstart_without_grading(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                pushd(root),
+                patch("sys.stdin.isatty", return_value=True),
+                patch("sys.stdout.isatty", return_value=True),
+                patch("grader.workflow_cli.prompt_missing_profile_bootstrap_choice", return_value="quickstart"),
+                patch("grader.workflow_cli.quickstart_profile_interactive", return_value=0) as quickstart_mock,
+                patch(
+                    "grader.workflow_cli.serve_from_profile",
+                    side_effect=[WorkflowProfileError("Profile file not found: /tmp/missing"), 0],
+                ) as serve_profile_mock,
+                patch("grader.workflow_cli.invoke_grading_main") as grade_mock,
+            ):
+                exit_code = main(["serve", "--profile", "a9"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(serve_profile_mock.call_count, 2)
+            quickstart_mock.assert_called_once_with(profile_spec="a9", overwrite=False, auto_run=False)
+            grade_mock.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -298,6 +298,42 @@ class ReviewApiTests(unittest.TestCase):
             outcomes = payload.get("outcomes", {})
             self.assertEqual(outcomes.get("unmatched_grade_rows"), 1)
 
+    def test_get_run_falls_back_to_assignment_n_points_grade(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+
+            (output_dir / "grading_diagnostics.json").write_text(
+                json.dumps(
+                    {
+                        "totals": {
+                            "submissions_processed": 1,
+                            "success_count": 1,
+                            "review_required_count": 0,
+                            "failed_with_error_count": 0,
+                            "warning_count": 0,
+                            "by_code": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (output_dir / "grading_audit.csv").write_text(
+                "folder,student_name,band,verdict,error\n"
+                "123 - Jane,Jane,Check Plus,correct,\n",
+                encoding="utf-8",
+            )
+            (output_dir / "brightspace_grades_import.csv").write_text(
+                "Username,Assignment 3 Points Grade <Numeric MaxPoints:3>\n"
+                "jane,\n",
+                encoding="utf-8",
+            )
+
+            api = ReviewApi(output_dir)
+            payload = api.get_run()
+            outcomes = payload.get("outcomes", {})
+            self.assertEqual(outcomes.get("unmatched_grade_rows"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

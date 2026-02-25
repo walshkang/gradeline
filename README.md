@@ -66,7 +66,30 @@ Optional CLI UX and diagnostics flags:
 
 Use workflow profiles to avoid long flag lists for repeated assignment runs.
 
-### 1) Create local profile(s)
+### 1) Quickstart (recommended)
+
+```bash
+python3 -m grader.workflow_cli quickstart --profile a2
+```
+
+Quickstart behavior:
+- Detects defaults from existing profile values, prior successful runs, and a bounded `~/Downloads` scan.
+- Shows one confirmation table with optional field edits.
+- Writes the profile to `.manual_runs/profiles/a2.toml`.
+- Runs grading + review server immediately by default.
+
+Write profile only (do not run yet):
+
+```bash
+python3 -m grader.workflow_cli quickstart --profile a2 --no-run
+```
+
+If the rubric path does not exist, quickstart can generate a starter rubric and prints a concise checklist:
+- update `scoring_rules` per question
+- confirm `label_patterns` and `anchor_tokens`
+- verify grading bands thresholds
+
+### 2) Manual setup wizard (fallback)
 
 ```bash
 mkdir -p .manual_runs/profiles
@@ -75,7 +98,7 @@ cp configs/workflow_profile.example.toml .manual_runs/profiles/a2.toml
 
 Edit `.manual_runs/profiles/a2.toml` with your Assignment 2 paths.
 
-Or use the interactive wizard (recommended):
+Or use the interactive wizard:
 
 ```bash
 python3 -m grader.workflow_cli setup --profile a2
@@ -88,7 +111,7 @@ The wizard prompts for:
 - Brightspace grade template CSV + grade column
 - output directory and review host/port
 
-### 2) Run full workflow (grade + init + serve)
+### 3) Run full workflow (grade + init + serve)
 
 ```bash
 python3 -m grader.workflow_cli run --profile a2
@@ -99,9 +122,13 @@ Behavior:
 - Runs `grader.cli` with mapped flags
 - Initializes review state
 - Starts review server on the requested port, or next free port (`+1`, up to 25 attempts)
-- If profile is missing, CLI offers guided setup interactively
+- If profile is missing (interactive terminal), CLI offers:
+  - `quickstart` first (recommended)
+  - `setup` fallback
+  - abort
+- In non-interactive mode, missing-profile behavior remains an explicit error.
 
-### 3) Keep Assignment 1 and Assignment 2 open side-by-side
+### 4) Keep Assignment 1 and Assignment 2 open side-by-side
 
 Terminal A:
 
@@ -115,7 +142,7 @@ Terminal B:
 python3 -m grader.workflow_cli run --profile a2
 ```
 
-### 4) List profiles and state status
+### 5) List profiles and state status
 
 ```bash
 python3 -m grader.workflow_cli list
