@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 from pathlib import Path
+from typing import Callable
 
 from .types import QuestionResult, RubricConfig, SubmissionUnit
 
@@ -18,6 +19,7 @@ def annotate_submission_pdfs(
     final_band: str,
     dry_run: bool = False,
     annotate_dry_run_marks: bool = False,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[Path], list[QuestionResult]]:
     import fitz  # Lazy import for testability without dependency.
 
@@ -53,6 +55,8 @@ def annotate_submission_pdfs(
                         continue
                     if question.id in rendered:
                         continue
+                    if progress_callback is not None:
+                        progress_callback(len(rendered) + 1, len(rubric.questions), question.id)
 
                     model_location = resolve_model_location(doc=doc, pdf_filename=pdf_path.name, result=q_result)
                     if model_location is not None:

@@ -8,7 +8,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from grader.cli import main
+from grader.cli import build_annotation_progress_callback, main
 from grader.types import (
     ExtractedPdf,
     QuestionResult,
@@ -16,7 +16,7 @@ from grader.types import (
     RubricConfig,
     SubmissionUnit,
 )
-from grader.ui import PlainConsoleUI, create_console_ui
+from grader.ui import PlainConsoleUI, args_to_subtitle, create_console_ui
 
 
 def make_rubric() -> RubricConfig:
@@ -86,6 +86,7 @@ class CliUiTests(unittest.TestCase):
                 final_band: str,
                 dry_run: bool,
                 annotate_dry_run_marks: bool,
+                progress_callback=None,
             ) -> tuple[list[Path], list[QuestionResult]]:
                 return [output_dir / f"{submission.folder_path.name}.pdf"], question_results
 
@@ -138,6 +139,28 @@ class CliUiTests(unittest.TestCase):
             self.assertTrue(diagnostics_path.exists())
             payload = json.loads(diagnostics_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["totals"]["submissions_processed"], 1)
+
+    def test_args_to_subtitle_includes_unified_cache_status(self) -> None:
+        class Args:
+            dry_run = False
+            model = "gemini-3-flash-preview"
+            grading_mode = "unified"
+            context_cache = True
+            locator_model = ""
+
+        subtitle = args_to_subtitle(Args())
+        self.assertIn("grading=unified", subtitle)
+        self.assertIn("cache=on", subtitle)
+
+    def test_annotation_progress_callback_formats_question_progress(self) -> None:
+        captured: list[str] = []
+
+        callback = build_annotation_progress_callback(captured.append, total_questions=7)
+        self.assertIsNotNone(callback)
+        assert callback is not None
+
+        callback(3, 7, "1a")
+        self.assertEqual(captured, ["annotating question 1a (3/7)"])
 
 
 if __name__ == "__main__":

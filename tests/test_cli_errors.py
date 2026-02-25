@@ -123,6 +123,39 @@ class CliErrorTests(unittest.TestCase):
             codes = [event["code"] for event in payload["events"]]
             self.assertIn("preflight_missing_binaries", codes)
 
+    def test_unified_mode_skips_binary_preflight(self) -> None:
+        rubric = make_rubric()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_dir, solutions_pdf, rubric_yaml, template_csv, output_dir = self._make_required_paths(root)
+            ensure_mock = Mock(return_value=["pdftotext"])
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                patch("grader.cli.ensure_binaries_present", ensure_mock),
+                patch("grader.cli.load_rubric", return_value=rubric),
+                patch("grader.cli.discover_submission_units", return_value=[]),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                exit_code = main(
+                    self._base_args(
+                        submissions_dir,
+                        solutions_pdf,
+                        rubric_yaml,
+                        template_csv,
+                        output_dir,
+                    )
+                    + ["--grading-mode", "unified", "--dry-run"]
+                )
+
+            self.assertEqual(exit_code, 0)
+            ensure_mock.assert_not_called()
+            diagnostics_path = output_dir / "grading_diagnostics.json"
+            payload = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+            codes = [event["code"] for event in payload["events"]]
+            self.assertNotIn("preflight_missing_binaries", codes)
+
     def test_grading_exception_continues_and_is_reported(self) -> None:
         rubric = make_rubric()
         with tempfile.TemporaryDirectory() as tmp:
@@ -163,6 +196,7 @@ class CliErrorTests(unittest.TestCase):
                 final_band: str,
                 dry_run: bool,
                 annotate_dry_run_marks: bool,
+                progress_callback=None,
             ) -> tuple[list[Path], list[QuestionResult]]:
                 return [output_dir / f"{submission.folder_path.name}.pdf"], question_results
 
@@ -293,6 +327,7 @@ class CliErrorTests(unittest.TestCase):
                 final_band: str,
                 dry_run: bool,
                 annotate_dry_run_marks: bool,
+                progress_callback=None,
             ) -> tuple[list[Path], list[QuestionResult]]:
                 return [output_dir / f"{submission.folder_path.name}.pdf"], question_results
 
@@ -326,6 +361,162 @@ class CliErrorTests(unittest.TestCase):
             payload = json.loads(diagnostics_path.read_text(encoding="utf-8"))
             codes = [event["code"] for event in payload["events"]]
             self.assertIn("report_write_failed", codes)
+
+    def test_unified_schema_error_is_categorized(self) -> None:
+        rubric = make_rubric()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_dir, solutions_pdf, rubric_yaml, template_csv, output_dir = self._make_required_paths(root)
+            unit = make_unit(submissions_dir, "555 - Unified Schema")
+
+            class FakeGrader:
+                def __init__(self, api_key: str, model: str, cache_dir: Path) -> None:
+                    self.api_key = api_key
+
+                def grade_submission_unified(
+                    self,
+                    submission_id,
+                    pdf_paths,
+                    rubric,
+                    solutions_pdf_path,
+                    context_cache_enabled,
+                    context_cache_ttl_seconds,
+                ):
+                    raise ValueError("bad structured output")
+
+            def fake_annotate(
+                submission: SubmissionUnit,
+                rubric: RubricConfig,
+                question_results: list[QuestionResult],
+                output_dir: Path,
+                submissions_root: Path,
+                final_band: str,
+                dry_run: bool,
+                annotate_dry_run_marks: bool,
+                progress_callback=None,
+            ) -> tuple[list[Path], list[QuestionResult]]:
+                return [output_dir / f"{submission.folder_path.name}.pdf"], question_results
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                patch("grader.cli.load_rubric", return_value=rubric),
+                patch("grader.cli.discover_submission_units", return_value=[unit]),
+                patch("grader.cli.parse_index_html", return_value=[]),
+                patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
+                patch("grader.cli.GeminiGrader", FakeGrader),
+                patch("grader.cli.annotate_submission_pdfs", side_effect=fake_annotate),
+                patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
+                patch("grader.cli.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
+                patch(
+                    "grader.cli.write_brightspace_import_csv",
+                    return_value=(output_dir / "brightspace_grades_import.csv", []),
+                ),
+                patch.dict("os.environ", {"GEMINI_API_KEY": "token"}, clear=False),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                exit_code = main(
+                    self._base_args(
+                        submissions_dir,
+                        solutions_pdf,
+                        rubric_yaml,
+                        template_csv,
+                        output_dir,
+                    )
+                    + ["--grading-mode", "unified"]
+                )
+
+            self.assertEqual(exit_code, 0)
+            diagnostics_path = output_dir / "grading_diagnostics.json"
+            payload = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+            codes = [event["code"] for event in payload["events"]]
+            self.assertIn("unified_schema_invalid", codes)
+
+    def test_unified_context_cache_flags_are_recorded(self) -> None:
+        rubric = make_rubric()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_dir, solutions_pdf, rubric_yaml, template_csv, output_dir = self._make_required_paths(root)
+            unit = make_unit(submissions_dir, "666 - Unified Cache")
+
+            class FakeGrader:
+                def __init__(self, api_key: str, model: str, cache_dir: Path) -> None:
+                    self.api_key = api_key
+
+                def grade_submission_unified(
+                    self,
+                    submission_id,
+                    pdf_paths,
+                    rubric,
+                    solutions_pdf_path,
+                    context_cache_enabled,
+                    context_cache_ttl_seconds,
+                ):
+                    return [
+                        QuestionResult(
+                            id="a",
+                            verdict="correct",
+                            confidence=0.95,
+                            short_reason="ok",
+                            evidence_quote="e",
+                        )
+                    ], [
+                        "context_cache_lookup_failed",
+                        "context_cache_create_failed",
+                        "context_cache_bypassed",
+                    ]
+
+            def fake_annotate(
+                submission: SubmissionUnit,
+                rubric: RubricConfig,
+                question_results: list[QuestionResult],
+                output_dir: Path,
+                submissions_root: Path,
+                final_band: str,
+                dry_run: bool,
+                annotate_dry_run_marks: bool,
+                progress_callback=None,
+            ) -> tuple[list[Path], list[QuestionResult]]:
+                return [output_dir / f"{submission.folder_path.name}.pdf"], question_results
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                patch("grader.cli.load_rubric", return_value=rubric),
+                patch("grader.cli.discover_submission_units", return_value=[unit]),
+                patch("grader.cli.parse_index_html", return_value=[]),
+                patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
+                patch("grader.cli.GeminiGrader", FakeGrader),
+                patch("grader.cli.annotate_submission_pdfs", side_effect=fake_annotate),
+                patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
+                patch("grader.cli.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
+                patch(
+                    "grader.cli.write_brightspace_import_csv",
+                    return_value=(output_dir / "brightspace_grades_import.csv", []),
+                ),
+                patch.dict("os.environ", {"GEMINI_API_KEY": "token"}, clear=False),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                exit_code = main(
+                    self._base_args(
+                        submissions_dir,
+                        solutions_pdf,
+                        rubric_yaml,
+                        template_csv,
+                        output_dir,
+                    )
+                    + ["--grading-mode", "unified"]
+                )
+
+            self.assertEqual(exit_code, 0)
+            diagnostics_path = output_dir / "grading_diagnostics.json"
+            payload = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+            codes = [event["code"] for event in payload["events"]]
+            self.assertIn("context_cache_lookup_failed", codes)
+            self.assertIn("context_cache_create_failed", codes)
+            self.assertIn("context_cache_bypassed", codes)
 
 
 if __name__ == "__main__":

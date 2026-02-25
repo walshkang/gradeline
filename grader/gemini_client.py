@@ -5,12 +5,36 @@ import json
 import random
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from .types import JsonDict, QuestionResult, RubricConfig
 
 
-PROMPT_VERSION = "2026-02-25-gemini-brightspace-v1"
+PROMPT_VERSION = "2026-02-25-gemini-brightspace-v2"
+DEFAULT_CONTEXT_CACHE_TTL_SECONDS = 86400
+
+
+class UnifiedQuestionItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    verdict: Literal["correct", "partial", "incorrect", "needs_review"]
+    confidence: float = 0.0
+    short_reason: str = ""
+    evidence_quote: str = ""
+    coords: list[int] | None = None
+    page_number: int | None = None
+    source_file: str | None = None
+
+
+class UnifiedSubmissionResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    student_submission_id: str
+    questions: list[UnifiedQuestionItem]
+    global_flags: list[str] = Field(default_factory=list)
 
 
 class GeminiGrader:
@@ -27,7 +51,10 @@ class GeminiGrader:
         self.max_retries = max_retries
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_path = self.cache_dir / "cache.json"
+        self.context_cache_path = self.cache_dir / "context_cache.json"
         self._cache = self._load_cache()
+        self._context_cache = self._load_context_cache()
+        self._resolved_context_names: dict[str, str] = {}
 
         from google import genai  # Lazy import for testability without dependency.
 
@@ -55,7 +82,7 @@ class GeminiGrader:
             return normalized["questions"], normalized["global_flags"]
 
         files = [self._upload_and_wait(pdf_path) for pdf_path in pdf_paths]
-        prompt = build_grading_prompt(
+        prompt = build_legacy_grading_prompt(
             submission_id=submission_id,
             rubric=rubric,
             solutions_text=solutions_text,
@@ -73,6 +100,71 @@ class GeminiGrader:
             return payload
 
         payload = call_with_backoff(invoke, max_retries=self.max_retries)
+        normalized = normalize_model_response(payload, rubric)
+        self._cache[cache_key] = payload
+        self._save_cache()
+        return normalized["questions"], normalized["global_flags"]
+
+    def grade_submission_unified(
+        self,
+        submission_id: str,
+        pdf_paths: list[Path],
+        rubric: RubricConfig,
+        solutions_pdf_path: Path,
+        context_cache_enabled: bool = True,
+        context_cache_ttl_seconds: int = DEFAULT_CONTEXT_CACHE_TTL_SECONDS,
+    ) -> tuple[list[QuestionResult], list[str]]:
+        context_key = compute_context_cache_key(
+            model=self.model,
+            rubric=rubric,
+            solutions_pdf_path=solutions_pdf_path,
+        )
+        cache_key = compute_unified_grade_cache_key(
+            submission_id=submission_id,
+            pdf_paths=pdf_paths,
+            rubric=rubric,
+            model=self.model,
+            context_key=context_key,
+        )
+        cached = self._cache.get(cache_key)
+        if cached:
+            normalized = normalize_model_response(cached, rubric)
+            return normalized["questions"], normalized["global_flags"]
+
+        files = [self._upload_and_wait(pdf_path) for pdf_path in pdf_paths]
+        prompt = build_unified_grading_prompt(
+            submission_id=submission_id,
+            rubric=rubric,
+            pdf_paths=pdf_paths,
+        )
+
+        cache_flags: list[str] = []
+        cached_content: str | None = None
+        if context_cache_enabled:
+            cached_content, cache_flags = self._resolve_context_cache(
+                context_key=context_key,
+                rubric=rubric,
+                solutions_pdf_path=solutions_pdf_path,
+                ttl_seconds=context_cache_ttl_seconds,
+            )
+
+        def invoke() -> JsonDict:
+            config: JsonDict = {
+                "response_mime_type": "application/json",
+                "response_schema": UnifiedSubmissionResponse,
+            }
+            if cached_content:
+                config["cached_content"] = cached_content
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=[*files, prompt],
+                config=config,
+            )
+            payload = structured_response_payload(response)
+            return payload
+
+        payload = call_with_backoff(invoke, max_retries=self.max_retries)
+        payload["global_flags"] = merge_flags(payload.get("global_flags", []), cache_flags)
         normalized = normalize_model_response(payload, rubric)
         self._cache[cache_key] = payload
         self._save_cache()
@@ -122,6 +214,67 @@ class GeminiGrader:
             max_retries=self.max_retries,
         )
 
+    def _resolve_context_cache(
+        self,
+        context_key: str,
+        rubric: RubricConfig,
+        solutions_pdf_path: Path,
+        ttl_seconds: int,
+    ) -> tuple[str | None, list[str]]:
+        flags: list[str] = []
+        resolved = self._resolved_context_names.get(context_key)
+        if resolved:
+            return resolved, flags
+
+        now = int(time.time())
+        entry = self._context_cache.get(context_key)
+        if isinstance(entry, dict):
+            cache_name = str(entry.get("cache_name", "")).strip()
+            expires_at = int(entry.get("expires_at", 0))
+            if cache_name and expires_at > now:
+                try:
+                    call_with_backoff(
+                        lambda: self.client.caches.get(name=cache_name),
+                        max_retries=self.max_retries,
+                    )
+                    self._resolved_context_names[context_key] = cache_name
+                    return cache_name, flags
+                except Exception:
+                    flags.append("context_cache_lookup_failed")
+                    self._context_cache.pop(context_key, None)
+                    self._save_context_cache()
+
+        ttl = max(60, int(ttl_seconds))
+        try:
+            file_ref = self._upload_and_wait(solutions_pdf_path)
+            cache = call_with_backoff(
+                lambda: self.client.caches.create(
+                    model=self.model,
+                    config={
+                        "display_name": f"sda-solutions-{context_key[:12]}",
+                        "ttl": f"{ttl}s",
+                        "contents": [file_ref],
+                        "system_instruction": build_context_system_instruction(rubric),
+                    },
+                ),
+                max_retries=self.max_retries,
+            )
+            cache_name = str(getattr(cache, "name", "")).strip()
+            if not cache_name:
+                raise ValueError("Context cache create returned no cache name.")
+            self._context_cache[context_key] = {
+                "cache_name": cache_name,
+                "created_at": now,
+                "expires_at": now + ttl,
+                "model": self.model,
+            }
+            self._save_context_cache()
+            self._resolved_context_names[context_key] = cache_name
+            return cache_name, flags
+        except Exception:
+            flags.extend(["context_cache_create_failed", "context_cache_bypassed"])
+            return None, flags
+
     def _load_cache(self) -> dict[str, JsonDict]:
         if not self.cache_path.exists():
             return {}
@@ -138,6 +291,41 @@ class GeminiGrader:
             json.dumps(self._cache, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+
+    def _load_context_cache(self) -> dict[str, JsonDict]:
+        if not self.context_cache_path.exists():
+            return {}
+        try:
+            payload = json.loads(self.context_cache_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        return {str(k): v for k, v in payload.items() if isinstance(v, dict)}
+
+    def _save_context_cache(self) -> None:
+        self.context_cache_path.write_text(
+            json.dumps(self._context_cache, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+
+def structured_response_payload(response: Any) -> JsonDict:
+    parsed = getattr(response, "parsed", None)
+    if parsed is None:
+        text = response_text(response)
+        return parse_json_maybe_fenced(text)
+
+    if isinstance(parsed, dict):
+        payload = parsed
+    elif hasattr(parsed, "model_dump"):
+        payload = parsed.model_dump()  # pydantic model from response_schema.
+    else:
+        raise ValueError(f"Unexpected parsed response type: {type(parsed)!r}")
+
+    if not isinstance(payload, dict):
+        raise ValueError("Structured Gemini response must be an object.")
+    return payload
 
 
 def response_text(response: Any) -> str:
@@ -198,18 +386,13 @@ def parse_json_maybe_fenced(text: str) -> JsonDict:
     return payload
 
 
-def build_grading_prompt(
+def build_legacy_grading_prompt(
     submission_id: str,
     rubric: RubricConfig,
     solutions_text: str,
     combined_text: str,
 ) -> str:
-    rubric_lines = []
-    for question in rubric.questions:
-        labels = ", ".join(question.label_patterns) if question.label_patterns else f"{question.id})"
-        rubric_lines.append(
-            f"- Q{question.id}: labels=[{labels}] rule={question.scoring_rules}"
-        )
+    rubric_lines = build_rubric_lines(rubric)
 
     return (
         "You are grading one statistics assignment submission.\n"
@@ -231,6 +414,37 @@ def build_grading_prompt(
     )
 
 
+def build_context_system_instruction(rubric: RubricConfig) -> str:
+    rubric_lines = build_rubric_lines(rubric)
+    return (
+        "You are the grading policy context for one statistics assignment.\n"
+        "Use the attached master solution PDF and rubric rules below as the source of truth.\n"
+        "Return judgments only from the student's provided work and these rubric rules.\n"
+        "Rubric rules:\n"
+        f"{chr(10).join(rubric_lines)}"
+    )
+
+
+def build_unified_grading_prompt(
+    submission_id: str,
+    rubric: RubricConfig,
+    pdf_paths: list[Path],
+) -> str:
+    labels = ", ".join(question.id for question in rubric.questions)
+    files = ", ".join(path.name for path in pdf_paths)
+    return (
+        "Grade this student submission using the attached student PDF files and cached master-solution context.\n"
+        "Return ONLY JSON that matches the response schema exactly.\n"
+        "Per question, include verdict, confidence, short_reason, evidence_quote, coords, page_number, source_file.\n"
+        "Coordinate rule: if your detector yields [ymin, xmin, ymax, xmax], convert it to the center and return [y, x] integers on 0..1000.\n"
+        "source_file must exactly match one attached student filename.\n"
+        "If uncertain, set verdict=needs_review and confidence near 0.0.\n\n"
+        f"Submission ID: {submission_id}\n"
+        f"Expected question IDs: {labels}\n"
+        f"Attached student files: {files}\n"
+    )
+
+
 def build_locator_prompt(pdf_name: str, rubric: RubricConfig) -> str:
     labels = ", ".join(question.id for question in rubric.questions)
     return (
@@ -247,6 +461,14 @@ def build_locator_prompt(pdf_name: str, rubric: RubricConfig) -> str:
         f"Expected question labels: {labels}\n"
         f"PDF filename: {pdf_name}\n"
     )
+
+
+def build_rubric_lines(rubric: RubricConfig) -> list[str]:
+    lines: list[str] = []
+    for question in rubric.questions:
+        labels = ", ".join(question.label_patterns) if question.label_patterns else f"{question.id})"
+        lines.append(f"- Q{question.id}: labels=[{labels}] rule={question.scoring_rules}")
+    return lines
 
 
 def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDict:
@@ -301,7 +523,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
     global_flags = [str(item).strip() for item in global_flags_raw if str(item).strip()]
     return {
         "questions": normalized_questions,
-        "global_flags": global_flags,
+        "global_flags": merge_flags(global_flags),
     }
 
 
@@ -374,11 +596,26 @@ def normalize_question_id(value: Any) -> str:
 
 
 def parse_coords_0_to_1000(value: Any) -> tuple[float, float] | None:
-    if not isinstance(value, (list, tuple)) or len(value) != 2:
+    if not isinstance(value, (list, tuple)):
         return None
+
+    if len(value) == 2:
+        items = value
+    elif len(value) == 4:
+        try:
+            ymin = float(value[0])
+            xmin = float(value[1])
+            ymax = float(value[2])
+            xmax = float(value[3])
+        except (TypeError, ValueError):
+            return None
+        items = [(ymin + ymax) / 2.0, (xmin + xmax) / 2.0]
+    else:
+        return None
+
     try:
-        y = float(value[0])
-        x = float(value[1])
+        y = float(items[0])
+        x = float(items[1])
     except (TypeError, ValueError):
         return None
     return (max(0.0, min(1000.0, y)), max(0.0, min(1000.0, x)))
@@ -396,6 +633,21 @@ def parse_page_number(value: Any) -> int | None:
     return number
 
 
+def merge_flags(*groups: Any) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        if not isinstance(group, list):
+            continue
+        for item in group:
+            value = str(item).strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            merged.append(value)
+    return merged
+
+
 def compute_grade_cache_key(
     submission_id: str,
     pdf_paths: list[Path],
@@ -405,6 +657,7 @@ def compute_grade_cache_key(
 ) -> str:
     hasher = hashlib.sha256()
     hasher.update(PROMPT_VERSION.encode("utf-8"))
+    hasher.update(b"legacy")
     hasher.update(model.encode("utf-8"))
     hasher.update(submission_id.encode("utf-8"))
     hasher.update(json.dumps(rubric_to_cache_payload(rubric), sort_keys=True).encode("utf-8"))
@@ -412,6 +665,40 @@ def compute_grade_cache_key(
     for path in sorted(pdf_paths, key=lambda p: str(p)):
         hasher.update(str(path).encode("utf-8"))
         hasher.update(hash_file(path).encode("utf-8"))
+    return hasher.hexdigest()
+
+
+def compute_unified_grade_cache_key(
+    submission_id: str,
+    pdf_paths: list[Path],
+    rubric: RubricConfig,
+    model: str,
+    context_key: str,
+) -> str:
+    hasher = hashlib.sha256()
+    hasher.update(PROMPT_VERSION.encode("utf-8"))
+    hasher.update(b"unified")
+    hasher.update(model.encode("utf-8"))
+    hasher.update(context_key.encode("utf-8"))
+    hasher.update(submission_id.encode("utf-8"))
+    hasher.update(json.dumps(rubric_to_cache_payload(rubric), sort_keys=True).encode("utf-8"))
+    for path in sorted(pdf_paths, key=lambda p: str(p)):
+        hasher.update(str(path).encode("utf-8"))
+        hasher.update(hash_file(path).encode("utf-8"))
+    return hasher.hexdigest()
+
+
+def compute_context_cache_key(
+    model: str,
+    rubric: RubricConfig,
+    solutions_pdf_path: Path,
+) -> str:
+    hasher = hashlib.sha256()
+    hasher.update(PROMPT_VERSION.encode("utf-8"))
+    hasher.update(b"context")
+    hasher.update(model.encode("utf-8"))
+    hasher.update(hash_file(solutions_pdf_path).encode("utf-8"))
+    hasher.update(json.dumps(rubric_to_cache_payload(rubric), sort_keys=True).encode("utf-8"))
     return hasher.hexdigest()
 
 

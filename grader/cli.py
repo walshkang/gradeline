@@ -6,6 +6,7 @@ import re
 import sys
 from dataclasses import replace
 from pathlib import Path
+from typing import Callable
 
 from .annotate import annotate_submission_pdfs
 from .config import load_rubric
@@ -24,6 +25,12 @@ from .types import QuestionResult, SubmissionResult
 from .ui import RunSummary, args_to_subtitle, create_console_ui
 
 
+LEGACY_MODE = "legacy"
+UNIFIED_MODE = "unified"
+DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_OCR_CHAR_THRESHOLD = 200
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Gemini-backed Brightspace PDF grader.")
     parser.add_argument("--submissions-dir", required=True, type=Path)
@@ -33,13 +40,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--temp-dir", type=Path, default=Path(".grader_tmp"))
     parser.add_argument("--cache-dir", type=Path, default=Path(".grader_cache"))
-    parser.add_argument("--model", default="gemini-2.5-flash")
+    parser.add_argument("--grading-mode", choices=(LEGACY_MODE, UNIFIED_MODE), default=LEGACY_MODE)
+    parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--locator-model", default="")
     parser.add_argument("--api-key-env", default="GEMINI_API_KEY")
     parser.add_argument("--identifier-column", default="OrgDefinedId")
     parser.add_argument("--grade-column", required=True)
     parser.add_argument("--comment-column", default="")
-    parser.add_argument("--ocr-char-threshold", type=int, default=200)
+    parser.add_argument("--ocr-char-threshold", type=int, default=DEFAULT_OCR_CHAR_THRESHOLD)
     parser.add_argument("--student-filter", default="")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--annotate-dry-run-marks", action="store_true")
@@ -47,6 +55,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--check-points", default="85")
     parser.add_argument("--check-minus-points", default="65")
     parser.add_argument("--review-required-points", default="")
+    parser.add_argument("--context-cache", dest="context_cache", action="store_true")
+    parser.add_argument("--no-context-cache", dest="context_cache", action="store_false")
+    parser.set_defaults(context_cache=True)
+    parser.add_argument("--context-cache-ttl-seconds", type=int, default=86400)
     parser.add_argument("--plain", action="store_true")
     parser.add_argument("--diagnostics-file", type=Path, default=None)
     return parser.parse_args(argv)
@@ -67,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     def conclude(exit_code: int, submission_results: list[SubmissionResult], warnings: list[str]) -> int:
+        ui.clear_status()
         summary = summarize_results(submission_results=submission_results, warning_count=len(warnings))
         diagnostics.set_run_totals(
             {
@@ -93,17 +106,37 @@ def main(argv: list[str] | None = None) -> int:
         ui.emit_artifacts(artifact_payload)
         return exit_code
 
-    missing = ensure_binaries_present()
-    if missing:
-        message = f"Missing required local binaries: {', '.join(missing)}"
-        diagnostics.record(
-            severity="error",
-            code="preflight_missing_binaries",
-            stage="preflight",
-            message=message,
-        )
-        ui.error(message)
-        return conclude(exit_code=2, submission_results=[], warnings=[])
+    if args.grading_mode == LEGACY_MODE:
+        missing = ensure_binaries_present()
+        if missing:
+            message = f"Missing required local binaries: {', '.join(missing)}"
+            diagnostics.record(
+                severity="error",
+                code="preflight_missing_binaries",
+                stage="preflight",
+                message=message,
+            )
+            ui.error(message)
+            return conclude(exit_code=2, submission_results=[], warnings=[])
+    else:
+        if args.locator_model.strip():
+            message = "--locator-model is ignored in unified mode; use model-provided coordinates from unified grading."
+            diagnostics.record(
+                severity="warning",
+                code="preflight_unified_locator_ignored",
+                stage="preflight",
+                message=message,
+            )
+            ui.warning(message)
+        if args.ocr_char_threshold != DEFAULT_OCR_CHAR_THRESHOLD:
+            message = "--ocr-char-threshold is ignored in unified mode."
+            diagnostics.record(
+                severity="warning",
+                code="preflight_unified_ocr_threshold_ignored",
+                stage="preflight",
+                message=message,
+            )
+            ui.warning(message)
 
     required_paths = [
         ("Submissions directory", args.submissions_dir),
@@ -123,7 +156,11 @@ def main(argv: list[str] | None = None) -> int:
             ui.error(message)
             return conclude(exit_code=2, submission_results=[], warnings=[])
 
-    for label, path in (("Output directory", args.output_dir), ("Temp directory", args.temp_dir), ("Cache directory", args.cache_dir)):
+    for label, path in (
+        ("Output directory", args.output_dir),
+        ("Temp directory", args.temp_dir),
+        ("Cache directory", args.cache_dir),
+    ):
         try:
             path.mkdir(parents=True, exist_ok=True)
         except Exception as exc:  # noqa: BLE001
@@ -203,23 +240,25 @@ def main(argv: list[str] | None = None) -> int:
         ui.error(message)
         return conclude(exit_code=1, submission_results=[], warnings=[])
 
-    try:
-        solutions_text = extract_pdf_text(
-            args.solutions_pdf,
-            temp_dir=args.temp_dir,
-            ocr_char_threshold=args.ocr_char_threshold,
-        ).text
-    except Exception as exc:  # noqa: BLE001
-        message = f"Failed to extract text from solutions PDF {args.solutions_pdf}: {exc}"
-        diagnostics.record(
-            severity="error",
-            code="solution_extract_failed",
-            stage="solution_extract",
-            message=message,
-            exc=exc,
-        )
-        ui.error(message)
-        return conclude(exit_code=1, submission_results=[], warnings=[])
+    solutions_text: str | None = None
+    if args.grading_mode == LEGACY_MODE:
+        try:
+            solutions_text = extract_pdf_text(
+                args.solutions_pdf,
+                temp_dir=args.temp_dir,
+                ocr_char_threshold=args.ocr_char_threshold,
+            ).text
+        except Exception as exc:  # noqa: BLE001
+            message = f"Failed to extract text from solutions PDF {args.solutions_pdf}: {exc}"
+            diagnostics.record(
+                severity="error",
+                code="solution_extract_failed",
+                stage="solution_extract",
+                message=message,
+                exc=exc,
+            )
+            ui.error(message)
+            return conclude(exit_code=1, submission_results=[], warnings=[])
 
     grade_points = {
         "Check Plus": args.check_plus_points,
@@ -264,6 +303,13 @@ def main(argv: list[str] | None = None) -> int:
     for index, unit in enumerate(units, start=1):
         folder_name = unit.folder_path.name
         ui.submission_started(index=index, total=len(units), folder_name=folder_name)
+        status_prefix = f"[{index}/{len(units)}] {folder_name}"
+        if args.grading_mode == LEGACY_MODE:
+            ui.status(f"{status_prefix} :: preparing extraction")
+        else:
+            ui.status(f"{status_prefix} :: preparing unified grading")
+
+        status_update = build_status_updater(ui=ui, prefix=status_prefix)
         try:
             result = grade_one_submission(
                 unit=unit,
@@ -273,12 +319,17 @@ def main(argv: list[str] | None = None) -> int:
                 ocr_char_threshold=args.ocr_char_threshold,
                 rubric=rubric,
                 solutions_text=solutions_text,
+                solutions_pdf_path=args.solutions_pdf,
                 grade_points=grade_points,
                 grader=grader,
+                grading_mode=args.grading_mode,
+                context_cache=args.context_cache,
+                context_cache_ttl_seconds=args.context_cache_ttl_seconds,
                 dry_run=args.dry_run,
                 locator_model=args.locator_model.strip(),
                 annotate_dry_run_marks=args.annotate_dry_run_marks,
                 diagnostics=diagnostics,
+                status_update=status_update,
             )
         except Exception as exc:  # noqa: BLE001
             message = f"Unhandled submission failure: {exc}"
@@ -296,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
                 grade_points=grade_points,
                 error_message=message,
             )
+        ui.clear_status()
         submission_results.append(result)
         ui.submission_finished(
             index=index,
@@ -394,6 +446,35 @@ def append_error(existing: str | None, new_error: str) -> str:
     return f"{existing}; {new_error}" if existing else new_error
 
 
+def build_status_updater(ui, prefix: str) -> Callable[[str], None]:
+    def update(message: str) -> None:
+        ui.status(f"{prefix} :: {message}")
+
+    return update
+
+
+def dedupe_flags(flags: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for flag in flags:
+        value = str(flag).strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
+
+
+def context_cache_flag_message(flag: str) -> str:
+    if flag == "context_cache_lookup_failed":
+        return "Context cache lookup failed; rebuilding or bypassing cache for this submission."
+    if flag == "context_cache_create_failed":
+        return "Context cache creation failed; continuing without cache."
+    if flag == "context_cache_bypassed":
+        return "Context cache bypassed for this submission."
+    return flag
+
+
 def grade_one_submission(
     unit,
     submissions_root: Path,
@@ -401,50 +482,64 @@ def grade_one_submission(
     temp_dir: Path,
     ocr_char_threshold: int,
     rubric,
-    solutions_text: str,
+    solutions_text: str | None,
+    solutions_pdf_path: Path,
     grade_points: dict[str, str],
     grader: GeminiGrader | None,
+    grading_mode: str,
+    context_cache: bool,
+    context_cache_ttl_seconds: int,
     dry_run: bool,
     locator_model: str,
     annotate_dry_run_marks: bool,
     diagnostics: DiagnosticsCollector | None = None,
+    status_update: Callable[[str], None] | None = None,
 ) -> SubmissionResult:
     extracted = []
     extraction_sources: dict[str, str] = {}
     accumulated_error: str | None = None
     global_flags: list[str] = []
+    combined_text = ""
 
-    for pdf_path in unit.pdf_paths:
-        try:
-            pdf_extract = extract_pdf_text(
-                pdf_path=pdf_path,
-                temp_dir=temp_dir,
-                ocr_char_threshold=ocr_char_threshold,
-            )
-        except Exception as exc:  # noqa: BLE001
-            extraction_sources[pdf_path.name] = "error"
-            extraction_error = f"Text extraction failed for {pdf_path.name}: {exc}"
-            accumulated_error = append_error(accumulated_error, extraction_error)
-            if "extract_error" not in global_flags:
-                global_flags.append("extract_error")
-            if diagnostics is not None:
-                diagnostics.record(
-                    severity="error",
-                    code="grading_extract_failed",
-                    stage="grading",
-                    message=extraction_error,
-                    submission_folder=unit.folder_path.name,
-                    exc=exc,
+    if grading_mode == LEGACY_MODE:
+        for pdf_path in unit.pdf_paths:
+            if status_update is not None:
+                status_update(f"extracting {pdf_path.name}")
+            try:
+                pdf_extract = extract_pdf_text(
+                    pdf_path=pdf_path,
+                    temp_dir=temp_dir,
+                    ocr_char_threshold=ocr_char_threshold,
                 )
-            continue
-        extracted.append(pdf_extract)
-        extraction_sources[pdf_path.name] = pdf_extract.source
+            except Exception as exc:  # noqa: BLE001
+                extraction_sources[pdf_path.name] = "error"
+                extraction_error = f"Text extraction failed for {pdf_path.name}: {exc}"
+                accumulated_error = append_error(accumulated_error, extraction_error)
+                if "extract_error" not in global_flags:
+                    global_flags.append("extract_error")
+                if diagnostics is not None:
+                    diagnostics.record(
+                        severity="error",
+                        code="grading_extract_failed",
+                        stage="grading",
+                        message=extraction_error,
+                        submission_folder=unit.folder_path.name,
+                        exc=exc,
+                    )
+                continue
+            extracted.append(pdf_extract)
+            extraction_sources[pdf_path.name] = pdf_extract.source
 
-    combined_text = "\n\n".join(
-        f"### FILE: {item.pdf_path.name}\n{item.text}" for item in extracted
-    )
+        combined_text = "\n\n".join(
+            f"### FILE: {item.pdf_path.name}\n{item.text}" for item in extracted
+        )
+    else:
+        for pdf_path in unit.pdf_paths:
+            extraction_sources[pdf_path.name] = "model_vision"
 
     if dry_run:
+        if status_update is not None:
+            status_update("dry-run question statuses")
         question_results = [
             QuestionResult(
                 id=question.id,
@@ -459,20 +554,89 @@ def grade_one_submission(
     else:
         try:
             assert grader is not None
-            question_results, model_flags = grader.grade_submission(
-                submission_id=unit.folder_path.name,
-                pdf_paths=unit.pdf_paths,
-                combined_text=combined_text,
-                rubric=rubric,
-                solutions_text=solutions_text,
-            )
-            global_flags.extend(model_flags)
+            if grading_mode == LEGACY_MODE:
+                if status_update is not None:
+                    status_update(f"grading {len(rubric.questions)} questions")
+                question_results, model_flags = grader.grade_submission(
+                    submission_id=unit.folder_path.name,
+                    pdf_paths=unit.pdf_paths,
+                    combined_text=combined_text,
+                    rubric=rubric,
+                    solutions_text=solutions_text or "",
+                )
+                global_flags.extend(model_flags)
+            else:
+                if status_update is not None:
+                    status_update(f"unified grading {len(rubric.questions)} questions")
+                question_results, model_flags = grader.grade_submission_unified(
+                    submission_id=unit.folder_path.name,
+                    pdf_paths=unit.pdf_paths,
+                    rubric=rubric,
+                    solutions_pdf_path=solutions_pdf_path,
+                    context_cache_enabled=context_cache,
+                    context_cache_ttl_seconds=context_cache_ttl_seconds,
+                )
+                global_flags.extend(model_flags)
+                if diagnostics is not None:
+                    for flag in model_flags:
+                        if flag in {
+                            "context_cache_lookup_failed",
+                            "context_cache_create_failed",
+                            "context_cache_bypassed",
+                        }:
+                            diagnostics.record(
+                                severity="warning",
+                                code=flag,
+                                stage="context_cache",
+                                message=context_cache_flag_message(flag),
+                                submission_folder=unit.folder_path.name,
+                            )
+        except ValueError as exc:
+            if grading_mode == UNIFIED_MODE:
+                grading_error = f"Unified Gemini schema validation failed: {exc}"
+                if diagnostics is not None:
+                    diagnostics.record(
+                        severity="error",
+                        code="unified_schema_invalid",
+                        stage="grading",
+                        message=grading_error,
+                        submission_folder=unit.folder_path.name,
+                        exc=exc,
+                    )
+            else:
+                grading_error = f"Gemini grading failed: {exc}"
+                if diagnostics is not None:
+                    diagnostics.record(
+                        severity="error",
+                        code="grading_failed",
+                        stage="grading",
+                        message=grading_error,
+                        submission_folder=unit.folder_path.name,
+                        exc=exc,
+                    )
+            question_results = [
+                QuestionResult(
+                    id=question.id,
+                    verdict="needs_review",
+                    confidence=0.0,
+                    short_reason=grading_error,
+                    evidence_quote="",
+                )
+                for question in rubric.questions
+            ]
+            global_flags.append("grading_error")
+            accumulated_error = append_error(accumulated_error, str(exc))
         except Exception as exc:  # noqa: BLE001
-            grading_error = f"Gemini grading failed: {exc}"
+            if grading_mode == UNIFIED_MODE:
+                grading_error = f"Unified Gemini grading failed: {exc}"
+                code = "unified_grading_failed"
+            else:
+                grading_error = f"Gemini grading failed: {exc}"
+                code = "grading_failed"
             if diagnostics is not None:
                 diagnostics.record(
                     severity="error",
-                    code="grading_failed",
+                    code=code,
                     stage="grading",
                     message=grading_error,
                     submission_folder=unit.folder_path.name,
@@ -491,7 +655,9 @@ def grade_one_submission(
             global_flags.append("grading_error")
             accumulated_error = append_error(accumulated_error, str(exc))
 
-    if (not dry_run) and locator_model and grader is not None:
+    if grading_mode == LEGACY_MODE and (not dry_run) and locator_model and grader is not None:
+        if status_update is not None:
+            status_update("locating answer anchors")
         locator_errors: list[str] = []
         candidates = collect_locator_candidates(
             grader=grader,
@@ -518,6 +684,8 @@ def grade_one_submission(
         question_results=question_results,
         grade_points=grade_points,
     )
+    if status_update is not None:
+        status_update("annotating submission")
     try:
         output_pdf_paths, question_results = annotate_submission_pdfs(
             submission=unit,
@@ -528,6 +696,7 @@ def grade_one_submission(
             final_band=grade_result.band,
             dry_run=dry_run,
             annotate_dry_run_marks=annotate_dry_run_marks,
+            progress_callback=build_annotation_progress_callback(status_update, len(rubric.questions)),
         )
     except Exception as exc:  # noqa: BLE001
         output_pdf_paths = []
@@ -549,9 +718,22 @@ def grade_one_submission(
         grade_result=grade_result,
         output_pdf_paths=output_pdf_paths,
         extraction_sources=extraction_sources,
-        global_flags=global_flags,
+        global_flags=dedupe_flags(global_flags),
         error=accumulated_error,
     )
+
+
+def build_annotation_progress_callback(
+    status_update: Callable[[str], None] | None,
+    total_questions: int,
+) -> Callable[[int, int, str], None] | None:
+    if status_update is None:
+        return None
+
+    def update(current: int, _: int, question_id: str) -> None:
+        status_update(f"annotating question {question_id} ({current}/{total_questions})")
+
+    return update
 
 
 def collect_locator_candidates(
