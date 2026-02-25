@@ -36,8 +36,9 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
         submission_match = re.fullmatch(r"/api/submissions/([^/]+)", path)
         if submission_match:
             submission_id = submission_match.group(1)
+            document_source = first_query_value(query, "doc_source")
             try:
-                payload = self.api.get_submission(submission_id)
+                payload = self.api.get_submission(submission_id, document_source=document_source)
             except ReviewApiError as exc:
                 self._send_json_error(HTTPStatus.NOT_FOUND, str(exc))
                 return
@@ -51,12 +52,14 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
         if meta_match:
             submission_id, doc_idx_raw, page_idx_raw = meta_match.groups()
             scale = parse_scale(first_query_value(query, "scale"))
+            document_source = first_query_value(query, "doc_source")
             try:
                 payload = self.api.get_page_meta(
                     submission_id=submission_id,
                     doc_idx=int(doc_idx_raw),
                     page_idx=int(page_idx_raw),
                     scale=scale,
+                    document_source=document_source,
                 )
             except (ReviewApiError, FileNotFoundError, ValueError, IndexError) as exc:
                 self._send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
@@ -71,12 +74,14 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
         if image_match:
             submission_id, doc_idx_raw, page_idx_raw = image_match.groups()
             scale = parse_scale(first_query_value(query, "scale"))
+            document_source = first_query_value(query, "doc_source")
             try:
                 image = self.api.get_page_image(
                     submission_id=submission_id,
                     doc_idx=int(doc_idx_raw),
                     page_idx=int(page_idx_raw),
                     scale=scale,
+                    document_source=document_source,
                 )
             except (ReviewApiError, FileNotFoundError, ValueError, IndexError) as exc:
                 self._send_json_error(HTTPStatus.BAD_REQUEST, str(exc))

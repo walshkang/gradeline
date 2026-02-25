@@ -131,6 +131,7 @@ class ReviewExporterTests(unittest.TestCase):
             write_state_atomic(state_path_for_output(output_dir), state)
             artifacts = export_review_outputs(output_dir)
 
+            self.assertIn("Reviewed PDFs folder", artifacts)
             self.assertIn("Grading audit reviewed CSV", artifacts)
             self.assertIn("Review queue reviewed CSV", artifacts)
             self.assertIn("Brightspace reviewed import CSV", artifacts)

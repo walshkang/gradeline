@@ -17,6 +17,7 @@ class AnnotationTokenTests(unittest.TestCase):
         self.assertIn("a)", normalized)
         self.assertIn("a.", normalized)
         self.assertIn("question a", normalized)
+        self.assertNotIn("a:", normalized)
 
     def test_dry_run_render_policy_defaults_to_header_only(self) -> None:
         self.assertFalse(should_render_question_marks(dry_run=True, annotate_dry_run_marks=False))

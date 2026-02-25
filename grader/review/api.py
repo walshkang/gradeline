@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import json
 import threading
 from copy import deepcopy
 from pathlib import Path
@@ -29,6 +31,11 @@ from .types import (
 
 class ReviewApiError(ValueError):
     """Raised when review API receives invalid input."""
+
+
+DOCUMENT_SOURCE_ORIGINAL = "original"
+DOCUMENT_SOURCE_EDITED = "edited"
+DOCUMENT_SOURCE_VALUES = {DOCUMENT_SOURCE_ORIGINAL, DOCUMENT_SOURCE_EDITED}
 
 
 class ReviewApi:
@@ -66,6 +73,7 @@ class ReviewApi:
             },
             "submission_count": len(submissions),
             "status_counts": status_counts,
+            "outcomes": self._build_outcomes_summary(),
         }
 
     def list_submissions(self, *, status: str | None = None, query: str | None = None) -> list[dict[str, Any]]:
@@ -131,31 +139,39 @@ class ReviewApi:
         items.sort(key=lambda item: str(item["student_name"]).lower())
         return items
 
-    def get_submission(self, submission_id: str) -> dict[str, Any]:
+    def get_submission(self, submission_id: str, document_source: str | None = None) -> dict[str, Any]:
         submission = self._get_submission(submission_id)
         payload = deepcopy(submission)
         identity = payload.get("identity", {})
         if not isinstance(identity, dict):
             identity = {}
 
-        pdf_paths = identity.get("pdf_paths", [])
+        resolved_source = normalize_document_source(document_source)
+        pdf_paths = self._document_paths_for_submission(submission, document_source=resolved_source)
         documents: list[dict[str, Any]] = []
-        if isinstance(pdf_paths, list):
-            for idx, value in enumerate(pdf_paths):
-                path = Path(str(value))
-                documents.append(
-                    {
-                        "doc_idx": idx,
-                        "path": str(path),
-                        "filename": path.name,
-                        "exists": path.exists(),
-                    }
-                )
+        for idx, path in enumerate(pdf_paths):
+            documents.append(
+                {
+                    "doc_idx": idx,
+                    "path": str(path),
+                    "filename": path.name,
+                    "exists": path.exists(),
+                }
+            )
         payload["documents"] = documents
+        payload["document_source"] = resolved_source
         return payload
 
-    def get_page_meta(self, submission_id: str, doc_idx: int, page_idx: int, scale: float) -> dict[str, Any]:
-        pdf_path = self.resolve_pdf_path(submission_id, doc_idx)
+    def get_page_meta(
+        self,
+        submission_id: str,
+        doc_idx: int,
+        page_idx: int,
+        scale: float,
+        document_source: str | None = None,
+    ) -> dict[str, Any]:
+        resolved_source = normalize_document_source(document_source)
+        pdf_path = self.resolve_pdf_path(submission_id, doc_idx, document_source=resolved_source)
         image = self.raster_cache.get_page_image(
             submission_id=submission_id,
             pdf_path=pdf_path,
@@ -174,11 +190,23 @@ class ReviewApi:
             "image_height_px": image.meta.image_height_px,
             "scale": image.meta.scale,
             "etag": image.meta.etag,
-            "image_url": f"/api/submissions/{submission_id}/documents/{doc_idx}/pages/{page_idx}/image?scale={image.meta.scale}",
+            "document_source": resolved_source,
+            "image_url": (
+                f"/api/submissions/{submission_id}/documents/{doc_idx}/pages/{page_idx}/image"
+                f"?scale={image.meta.scale}&doc_source={resolved_source}"
+            ),
         }
 
-    def get_page_image(self, submission_id: str, doc_idx: int, page_idx: int, scale: float):
-        pdf_path = self.resolve_pdf_path(submission_id, doc_idx)
+    def get_page_image(
+        self,
+        submission_id: str,
+        doc_idx: int,
+        page_idx: int,
+        scale: float,
+        document_source: str | None = None,
+    ):
+        resolved_source = normalize_document_source(document_source)
+        pdf_path = self.resolve_pdf_path(submission_id, doc_idx, document_source=resolved_source)
         return self.raster_cache.get_page_image(
             submission_id=submission_id,
             pdf_path=pdf_path,
@@ -318,20 +346,148 @@ class ReviewApi:
         artifacts = export_review_outputs(self.output_dir)
         return {name: str(path) for name, path in artifacts.items()}
 
-    def resolve_pdf_path(self, submission_id: str, doc_idx: int) -> Path:
+    def resolve_pdf_path(self, submission_id: str, doc_idx: int, document_source: str | None = None) -> Path:
         submission = self._get_submission(submission_id)
-        identity = submission.get("identity", {})
-        if not isinstance(identity, dict):
-            raise ReviewApiError(f"Invalid identity for submission '{submission_id}'.")
-        pdf_paths = identity.get("pdf_paths", [])
-        if not isinstance(pdf_paths, list):
-            raise ReviewApiError(f"Invalid pdf_paths for submission '{submission_id}'.")
+        resolved_source = normalize_document_source(document_source)
+        pdf_paths = self._document_paths_for_submission(submission, document_source=resolved_source)
         if doc_idx < 0 or doc_idx >= len(pdf_paths):
             raise ReviewApiError(f"doc_idx '{doc_idx}' out of range for submission '{submission_id}'.")
-        pdf_path = Path(str(pdf_paths[doc_idx]))
+        pdf_path = pdf_paths[doc_idx]
         if not pdf_path.exists():
             raise ReviewApiError(f"PDF path does not exist: {pdf_path}")
         return pdf_path
+
+    def _document_paths_for_submission(self, submission: dict[str, Any], document_source: str) -> list[Path]:
+        identity = submission.get("identity", {})
+        if not isinstance(identity, dict):
+            raise ReviewApiError("Submission identity is invalid.")
+        raw_paths = identity.get("pdf_paths", [])
+        if not isinstance(raw_paths, list):
+            raise ReviewApiError("Submission pdf_paths is invalid.")
+
+        original_paths = [Path(str(item)) for item in raw_paths if str(item).strip()]
+        if document_source == DOCUMENT_SOURCE_ORIGINAL:
+            return original_paths
+
+        folder_relpath = Path(str(identity.get("folder_relpath", "")).strip())
+        submissions_root = self._submissions_root()
+        edited_paths: list[Path] = []
+        for original in original_paths:
+            edited_paths.append(
+                edited_output_path_for_original(
+                    output_dir=self.output_dir,
+                    original_path=original,
+                    submissions_root=submissions_root,
+                    folder_relpath=folder_relpath,
+                )
+            )
+        return edited_paths
+
+    def _submissions_root(self) -> Path | None:
+        grading_context = self._state.get("grading_context", {})
+        if not isinstance(grading_context, dict):
+            return None
+        args_snapshot = grading_context.get("args_snapshot", {})
+        if not isinstance(args_snapshot, dict):
+            return None
+        raw = str(args_snapshot.get("submissions_dir", "")).strip()
+        if not raw:
+            return None
+        return Path(raw)
+
+    def _build_outcomes_summary(self) -> dict[str, Any]:
+        diagnostics_path = self.output_dir / "grading_diagnostics.json"
+        audit_path = self.output_dir / "grading_audit.csv"
+        review_queue_path = self.output_dir / "review_queue.csv"
+        brightspace_path = self.output_dir / "brightspace_grades_import.csv"
+
+        diagnostics = read_json_object(diagnostics_path) if diagnostics_path.exists() else {}
+        audit_rows = read_csv_rows(audit_path) if audit_path.exists() else []
+        review_rows = read_csv_rows(review_queue_path) if review_queue_path.exists() else []
+        brightspace_rows = read_csv_rows(brightspace_path) if brightspace_path.exists() else []
+
+        if not diagnostics and not audit_rows:
+            return {
+                "available": False,
+                "message": "No diagnostics/audit artifacts found in output directory.",
+            }
+
+        totals = diagnostics.get("totals", {}) if isinstance(diagnostics, dict) else {}
+        by_code = totals.get("by_code", {}) if isinstance(totals, dict) else {}
+        if not isinstance(by_code, dict):
+            by_code = {}
+
+        summary = {
+            "available": True,
+            "submissions_processed": coerce_int(totals.get("submissions_processed"), default=0),
+            "success_count": coerce_int(totals.get("success_count"), default=0),
+            "review_required_count": coerce_int(totals.get("review_required_count"), default=0),
+            "failed_with_error_count": coerce_int(totals.get("failed_with_error_count"), default=0),
+            "warning_count": coerce_int(totals.get("warning_count"), default=0),
+            "band_counts": {},
+            "verdict_counts": {},
+            "error_submissions": [],
+            "cache_warning_count": sum(
+                coerce_int(by_code.get(code), default=0)
+                for code in ("context_cache_create_failed", "context_cache_bypassed", "context_cache_lookup_failed")
+            ),
+            "unmatched_grade_rows": 0,
+        }
+
+        if audit_rows:
+            folder_bands: dict[str, str] = {}
+            folder_errors: dict[str, dict[str, str]] = {}
+            verdict_counts: dict[str, int] = {}
+            for row in audit_rows:
+                folder = str(row.get("folder", "")).strip()
+                if folder and folder not in folder_bands:
+                    folder_bands[folder] = str(row.get("band", "")).strip()
+                verdict = str(row.get("verdict", "")).strip().lower()
+                if verdict:
+                    verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
+                error = str(row.get("error", "")).strip()
+                if folder and error and folder not in folder_errors:
+                    folder_errors[folder] = {
+                        "folder": folder,
+                        "student_name": str(row.get("student_name", "")).strip(),
+                        "error": error,
+                    }
+
+            band_counts: dict[str, int] = {}
+            for band in folder_bands.values():
+                if not band:
+                    continue
+                band_counts[band] = band_counts.get(band, 0) + 1
+            summary["band_counts"] = band_counts
+            summary["verdict_counts"] = verdict_counts
+            summary["error_submissions"] = sorted(folder_errors.values(), key=lambda item: item["folder"])[:10]
+
+        if brightspace_rows:
+            grade_column = resolve_grade_column(brightspace_rows)
+            if grade_column:
+                summary["unmatched_grade_rows"] = sum(
+                    1 for row in brightspace_rows if not str(row.get(grade_column, "")).strip()
+                )
+
+        if review_rows and not summary["error_submissions"]:
+            queue_errors = []
+            for row in review_rows:
+                error = str(row.get("error", "")).strip()
+                if not error:
+                    continue
+                queue_errors.append(
+                    {
+                        "folder": str(row.get("folder", "")).strip(),
+                        "student_name": str(row.get("student_name", "")).strip(),
+                        "error": error,
+                    }
+                )
+            summary["error_submissions"] = queue_errors[:10]
+
+        if summary["submissions_processed"] <= 0 and audit_rows:
+            summary["submissions_processed"] = len({str(row.get("folder", "")).strip() for row in audit_rows if str(row.get("folder", "")).strip()})
+
+        return summary
 
     def coerce_source_file(self, submission: dict[str, Any], raw_value: Any) -> str | None:
         source_file = str(raw_value or "").strip()
@@ -461,3 +617,63 @@ def normalize_grade_points_payload(payload: dict[str, Any]) -> dict[str, str]:
         "Check Minus": str(payload.get("Check Minus", DEFAULT_GRADE_POINTS["Check Minus"])),
         "REVIEW_REQUIRED": str(payload.get("REVIEW_REQUIRED", DEFAULT_GRADE_POINTS["REVIEW_REQUIRED"])),
     }
+
+
+def normalize_document_source(value: str | None) -> str:
+    normalized = str(value or DOCUMENT_SOURCE_ORIGINAL).strip().lower() or DOCUMENT_SOURCE_ORIGINAL
+    if normalized not in DOCUMENT_SOURCE_VALUES:
+        raise ReviewApiError(f"Invalid document source '{value}'. Allowed values: {sorted(DOCUMENT_SOURCE_VALUES)}")
+    return normalized
+
+
+def edited_output_path_for_original(
+    *,
+    output_dir: Path,
+    original_path: Path,
+    submissions_root: Path | None,
+    folder_relpath: Path,
+) -> Path:
+    if submissions_root is not None:
+        try:
+            rel = original_path.relative_to(submissions_root)
+            return output_dir / rel
+        except ValueError:
+            pass
+    if str(folder_relpath).strip():
+        return output_dir / folder_relpath / original_path.name
+    return output_dir / original_path.name
+
+
+def read_json_object(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def read_csv_rows(path: Path) -> list[dict[str, str]]:
+    try:
+        with path.open("r", newline="", encoding="utf-8-sig") as handle:
+            reader = csv.DictReader(handle)
+            return [dict(row) for row in reader]
+    except OSError:
+        return []
+
+
+def coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def resolve_grade_column(rows: list[dict[str, str]]) -> str | None:
+    if not rows:
+        return None
+    for field in rows[0].keys():
+        if field.lower().startswith("assignment 1 points grade"):
+            return field
+    return None

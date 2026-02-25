@@ -3,6 +3,7 @@
     runInfo: null,
     submissions: [],
     currentSubmission: null,
+    documentSource: "original",
     currentQuestionId: null,
     currentDocIdx: 0,
     currentPageIdx: 0,
@@ -23,6 +24,8 @@
     searchInput: document.getElementById("searchInput"),
     refreshBtn: document.getElementById("refreshBtn"),
     exportBtn: document.getElementById("exportBtn"),
+    runOutcomeSummary: document.getElementById("runOutcomeSummary"),
+    docSourceSelect: document.getElementById("docSourceSelect"),
     docSelect: document.getElementById("docSelect"),
     pageInput: document.getElementById("pageInput"),
     scaleInput: document.getElementById("scaleInput"),
@@ -110,7 +113,60 @@
 
   async function refreshRun() {
     state.runInfo = await apiGet("/api/run");
+    state.documentSource = ui.docSourceSelect.value || "original";
+    renderRunOutcomes();
     renderConfig();
+  }
+
+  function renderRunOutcomes() {
+    const outcomes = state.runInfo?.outcomes;
+    if (!outcomes || !outcomes.available) {
+      ui.runOutcomeSummary.textContent = "No run summary found for this output folder yet.";
+      return;
+    }
+
+    const lines = [
+      `Processed: ${Number(outcomes.submissions_processed || 0)}`,
+      `Success: ${Number(outcomes.success_count || 0)}`,
+      `Review Required: ${Number(outcomes.review_required_count || 0)}`,
+      `Failed: ${Number(outcomes.failed_with_error_count || 0)}`,
+    ];
+
+    const warningCount = Number(outcomes.warning_count || 0);
+    const cacheWarnings = Number(outcomes.cache_warning_count || 0);
+    lines.push(`Warnings: ${warningCount}${cacheWarnings ? ` (${cacheWarnings} cache)` : ""}`);
+
+    const bandCounts = outcomes.band_counts || {};
+    const bandEntries = Object.entries(bandCounts).filter(([, value]) => Number(value) > 0);
+    if (bandEntries.length > 0) {
+      lines.push("");
+      lines.push("Bands:");
+      bandEntries
+        .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+        .forEach(([band, count]) => lines.push(`- ${band}: ${count}`));
+    }
+
+    const errorSubmissions = Array.isArray(outcomes.error_submissions) ? outcomes.error_submissions : [];
+    if (errorSubmissions.length > 0) {
+      lines.push("");
+      lines.push("Failures:");
+      errorSubmissions.slice(0, 3).forEach((item) => {
+        const name = item.student_name || item.folder || "Unknown submission";
+        lines.push(`- ${name}`);
+      });
+    }
+
+    const unmatched = Number(outcomes.unmatched_grade_rows || 0);
+    if (unmatched > 0) {
+      lines.push("");
+      lines.push(`Unmatched grade rows: ${unmatched}`);
+    }
+
+    ui.runOutcomeSummary.textContent = lines.join("\n");
+  }
+
+  function sourceQueryParam() {
+    return encodeURIComponent(state.documentSource || "original");
   }
 
   async function refreshQueue() {
@@ -137,15 +193,30 @@
   async function selectSubmission(submissionId) {
     await flushPatch();
     await flushNote();
-    const payload = await apiGet(`/api/submissions/${submissionId}`);
+    const payload = await apiGet(`/api/submissions/${submissionId}?doc_source=${sourceQueryParam()}`);
     state.currentSubmission = payload;
+    renderQueue();
     state.currentQuestionId = firstQuestionId(payload);
-    state.currentDocIdx = 0;
+    const docs = Array.isArray(payload.documents) ? payload.documents : [];
+    const firstExistingDocIdx = docs.findIndex((doc) => doc.exists);
+    state.currentDocIdx = firstExistingDocIdx >= 0 ? firstExistingDocIdx : 0;
     state.currentPageIdx = 0;
     ui.pageInput.value = "1";
     buildDocSelect();
     buildQuestionSelect();
     renderSubmission();
+    if (docs.length === 0) {
+      ui.pageImage.removeAttribute("src");
+      ui.marker.hidden = true;
+      setStatus("No PDF documents available for this submission.");
+      return;
+    }
+    if (firstExistingDocIdx < 0) {
+      ui.pageImage.removeAttribute("src");
+      ui.marker.hidden = true;
+      setStatus(`No ${state.documentSource} PDFs found. Switch source or run export/annotation first.`);
+      return;
+    }
     await loadCurrentPage();
   }
 
@@ -317,6 +388,20 @@
     if (!submission) {
       return;
     }
+    const docs = Array.isArray(submission.documents) ? submission.documents : [];
+    const currentDoc = docs[state.currentDocIdx];
+    if (!currentDoc) {
+      ui.pageImage.removeAttribute("src");
+      ui.marker.hidden = true;
+      setStatus("Selected document is unavailable.");
+      return;
+    }
+    if (!currentDoc.exists) {
+      ui.pageImage.removeAttribute("src");
+      ui.marker.hidden = true;
+      setStatus(`Missing file for selected source: ${currentDoc.filename}`);
+      return;
+    }
     const scale = Number(ui.scaleInput.value || state.scale || 1.2);
     state.scale = Number.isFinite(scale) ? scale : 1.2;
 
@@ -324,11 +409,11 @@
     state.currentPageIdx = page;
 
     const meta = await apiGet(
-      `/api/submissions/${submission.submission_id}/documents/${state.currentDocIdx}/pages/${state.currentPageIdx}/meta?scale=${state.scale}`
+      `/api/submissions/${submission.submission_id}/documents/${state.currentDocIdx}/pages/${state.currentPageIdx}/meta?scale=${state.scale}&doc_source=${sourceQueryParam()}`
     );
     ui.pageImage.src = meta.image_url;
     setStatus(
-      `Doc ${state.currentDocIdx + 1}, page ${state.currentPageIdx + 1} | ${meta.image_width_px}x${meta.image_height_px}px`
+      `${state.documentSource} | Doc ${state.currentDocIdx + 1}, page ${state.currentPageIdx + 1} | ${meta.image_width_px}x${meta.image_height_px}px`
     );
   }
 
@@ -481,11 +566,24 @@
       refreshQueue().catch((error) => alert(error.message));
     });
 
+    ui.docSourceSelect.addEventListener("change", async () => {
+      state.documentSource = ui.docSourceSelect.value || "original";
+      if (!state.currentSubmission) {
+        return;
+      }
+      await selectSubmission(state.currentSubmission.submission_id);
+    });
+
     ui.exportBtn.addEventListener("click", async () => {
       await flushPatch();
       await flushNote();
       const result = await apiPost("/api/export", {});
-      alert(`Export complete. Artifacts: ${Object.keys(result.artifacts || {}).length}`);
+      const artifacts = result.artifacts || {};
+      const reviewedFolder = artifacts["Reviewed PDFs folder"];
+      const details = reviewedFolder
+        ? `\nReviewed PDFs folder:\n${reviewedFolder}\n\nOpen this folder in Finder for final PDF edits.`
+        : "";
+      alert(`Export complete. Artifacts: ${Object.keys(artifacts).length}${details}`);
     });
 
     ui.reloadConfigBtn.addEventListener("click", async () => {

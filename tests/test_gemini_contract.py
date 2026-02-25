@@ -49,9 +49,47 @@ class GeminiContractTests(unittest.TestCase):
         self.assertEqual(len(normalized["questions"]), 5)
         by_id = {item.id: item for item in normalized["questions"]}
         self.assertEqual(by_id["a"].verdict, "correct")
+        self.assertEqual(by_id["a"].short_reason, "")
         self.assertEqual(by_id["b"].verdict, "partial")
         self.assertEqual(by_id["c"].verdict, "needs_review")
+        self.assertEqual(by_id["c"].short_reason, "Review manually.")
         self.assertEqual(normalized["global_flags"], ["flag1"])
+
+    def test_reason_postprocessing_uses_sentence_and_fallbacks(self) -> None:
+        rubric = make_rubric()
+        payload = {
+            "student_submission_id": "x",
+            "questions": [
+                {
+                    "id": "a",
+                    "verdict": "incorrect",
+                    "confidence": 0.9,
+                    "short_reason": "Show the final probability value. Add one line of support.",
+                    "evidence_quote": "",
+                },
+                {
+                    "id": "b",
+                    "verdict": "partial",
+                    "confidence": 0.6,
+                    "short_reason": "The student did not show full work for the result and they need more supporting steps.",
+                    "evidence_quote": "",
+                },
+                {
+                    "id": "c",
+                    "verdict": "needs_review",
+                    "confidence": 0.2,
+                    "short_reason": "unclear",
+                    "evidence_quote": "",
+                },
+            ],
+            "global_flags": [],
+        }
+
+        normalized = normalize_model_response(payload, rubric)
+        by_id = {item.id: item for item in normalized["questions"]}
+        self.assertEqual(by_id["a"].short_reason, "Show the final probability value.")
+        self.assertEqual(by_id["b"].short_reason, "check")
+        self.assertEqual(by_id["c"].short_reason, "Review manually.")
 
     def test_backoff_retries_rate_limit(self) -> None:
         calls = {"count": 0}

@@ -20,11 +20,16 @@ def make_pdf(path: Path, anchor_text: str = "a)") -> None:
         doc.close()
 
 
-def make_submission(submissions_root: Path, folder_name: str, pdf_name: str = "submission.pdf") -> SubmissionUnit:
+def make_submission(
+    submissions_root: Path,
+    folder_name: str,
+    pdf_name: str = "submission.pdf",
+    anchor_text: str = "a)",
+) -> SubmissionUnit:
     folder_path = submissions_root / folder_name
     folder_path.mkdir(parents=True, exist_ok=True)
     pdf_path = folder_path / pdf_name
-    make_pdf(path=pdf_path)
+    make_pdf(path=pdf_path, anchor_text=anchor_text)
     return SubmissionUnit(
         folder_path=folder_path,
         folder_relpath=Path(folder_name),
@@ -85,7 +90,7 @@ class EditableAnnotationTests(unittest.TestCase):
                 self.assertGreaterEqual(len(widgets), 2)
                 values = [widget.field_value for widget in widgets]
                 self.assertIn("Grade: CHECK_PLUS", values)
-                self.assertTrue(any(value and value.startswith("✓ Qa:") for value in values))
+                self.assertIn("✓ Qa", values)
                 mark_widget = next(
                     widget for widget in widgets if widget.field_name.startswith("sda_grader_question_mark_a_")
                 )
@@ -125,6 +130,57 @@ class EditableAnnotationTests(unittest.TestCase):
                 values = [widget.field_value for widget in widgets]
                 self.assertIn("Review Notes:", values)
                 self.assertTrue(any(value and value.startswith("x Qz:") for value in values))
+
+    def test_header_text_does_not_create_false_qe_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_root = root / "subs"
+            submission = make_submission(
+                submissions_root=submissions_root,
+                folder_name="789 - Student",
+                anchor_text="a)\nb)\nc)\nd)",
+            )
+            rubric = RubricConfig(
+                assignment_id="test",
+                bands={"check_plus_min": 0.9, "check_min": 0.7},
+                questions=[
+                    QuestionRubric(id=qid, label_patterns=[f"{qid})"], scoring_rules="", short_note_pass="ok", short_note_fail="check")
+                    for qid in ["a", "b", "c", "d", "e"]
+                ],
+            )
+            question_results = [
+                QuestionResult(
+                    id=qid,
+                    verdict="incorrect",
+                    confidence=0.6,
+                    short_reason=f"reason {qid}",
+                    evidence_quote="",
+                )
+                for qid in ["a", "b", "c", "d", "e"]
+            ]
+            output_dir = root / "out"
+
+            output_paths, _ = annotate_submission_pdfs(
+                submission=submission,
+                rubric=rubric,
+                question_results=question_results,
+                output_dir=output_dir,
+                submissions_root=submissions_root,
+                final_band="CHECK_MINUS",
+                dry_run=False,
+                annotate_dry_run_marks=False,
+            )
+
+            with fitz.open(output_paths[0]) as annotated:
+                widgets = list(annotated[0].widgets() or [])
+                qe_mark_widgets = [
+                    widget
+                    for widget in widgets
+                    if (widget.field_name or "").startswith("sda_grader_question_mark_e_")
+                ]
+                self.assertEqual(qe_mark_widgets, [])
+                values = [widget.field_value for widget in widgets]
+                self.assertTrue(any(value and value.startswith("x Qe:") for value in values))
 
 
 if __name__ == "__main__":

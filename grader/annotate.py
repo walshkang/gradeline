@@ -45,9 +45,6 @@ def annotate_submission_pdfs(
                 continue
             doc.need_appearances(True)
 
-            if pdf_path == submission.pdf_paths[0]:
-                add_band_header(doc[0], final_band=final_band, dry_run=dry_run)
-
             if render_question_marks:
                 for question in rubric.questions:
                     q_result = result_map.get(question.id)
@@ -90,6 +87,9 @@ def annotate_submission_pdfs(
                         "page_number": page_idx + 1,
                         "coords": normalized_coords,
                     }
+
+            if pdf_path == submission.pdf_paths[0]:
+                add_band_header(doc[0], final_band=final_band, dry_run=dry_run)
 
             doc.save(out_path)
             output_paths.append(out_path)
@@ -201,7 +201,6 @@ def build_anchor_tokens(question_id: str, label_patterns: list[str], explicit_to
         [
             f"{question_id})",
             f"{question_id}.",
-            f"{question_id}:",
             f"({question_id})",
             f"{question_id.upper()})",
             f"{question_id.upper()}.",
@@ -256,7 +255,9 @@ def find_anchor_in_doc(
 
 def mark_text_for_result(question_id: str, result: QuestionResult) -> str:
     symbol = "✓" if result.verdict == "correct" else "x"
-    reason = compact_reason(result.short_reason)
+    if result.verdict == "correct":
+        return f"{symbol} Q{question_id}"
+    reason = compact_reason(result.short_reason) or "Review manually."
     return f"{symbol} Q{question_id}: {reason}"
 
 
@@ -333,12 +334,13 @@ def insert_mark(
     is_correct: bool,
     question_id: str,
 ) -> None:
+    mark_point = offset_mark_point(page=page, point=point)
     fontsize = 12.0
     color = (0.0, 0.55, 0.0) if is_correct else (0.8, 0.0, 0.0)
     rect = text_widget_rect_from_baseline(
         page=page,
-        x=point.x,
-        y=point.y,
+        x=mark_point.x,
+        y=mark_point.y,
         text=mark_text,
         fontsize=fontsize,
         min_width=140.0,
@@ -347,8 +349,8 @@ def insert_mark(
         "question_mark",
         question_id,
         f"p{page.number + 1}",
-        f"x{int(point.x)}",
-        f"y{int(point.y)}",
+        f"x{int(mark_point.x)}",
+        f"y{int(mark_point.y)}",
     )
     add_editable_text_widget(
         page=page,
@@ -358,6 +360,19 @@ def insert_mark(
         color=color,
         field_name=field_name,
     )
+
+
+def offset_mark_point(
+    page: "fitz.Page",
+    point: "fitz.Point",
+    x_offset: float = 30.0,
+    y_offset: float = -18.0,
+) -> "fitz.Point":
+    import fitz
+
+    x = clamp(point.x + x_offset, 4.0, max(4.0, page.rect.width - 4.0))
+    y = clamp(point.y + y_offset, 4.0, max(4.0, page.rect.height - 4.0))
+    return fitz.Point(x, y)
 
 
 def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False) -> None:
@@ -410,10 +425,11 @@ def add_fallback_summary(page: "fitz.Page", unresolved: list, result_map: dict[s
     for idx, question in enumerate(unresolved, start=1):
         q_result = result_map.get(question.id)
         verdict = q_result.verdict if q_result else "needs_review"
-        symbol = "✓" if verdict == "correct" else "x"
-        note = compact_reason(q_result.short_reason if q_result else "No result.")
         color = (0.0, 0.55, 0.0) if verdict == "correct" else (0.8, 0.0, 0.0)
-        line_text = f"{symbol} Q{question.id}: {note}"
+        if q_result is None:
+            line_text = f"x Q{question.id}: No result."
+        else:
+            line_text = mark_text_for_result(question_id=question.id, result=q_result)
         line_size = 10.0
         line_rect = text_widget_rect_from_baseline(
             page=page,

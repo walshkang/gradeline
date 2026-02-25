@@ -72,6 +72,7 @@ def export_review_outputs(output_dir: Path) -> dict[str, Path]:
         )
 
     artifacts: dict[str, Path] = {}
+    artifacts["Reviewed PDFs folder"] = reviewed_pdf_root.resolve()
     artifacts["Grading audit reviewed CSV"] = write_grading_audit_csv(
         review_dir,
         results,

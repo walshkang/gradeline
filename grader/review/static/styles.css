@@ -44,6 +44,11 @@ body {
   align-items: center;
 }
 
+.toolbar-note {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .tab-btn {
   border: 1px solid var(--border);
   background: #f9fafb;
@@ -77,9 +82,30 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  max-height: calc(100vh - 240px);
+  max-height: calc(100vh - 360px);
   overflow: auto;
   margin-top: 0.6rem;
+}
+
+.run-outcomes {
+  margin-top: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.55rem;
+  background: #fbfcfe;
+}
+
+.run-outcomes h3 {
+  margin: 0 0 0.4rem 0;
+  font-size: 0.82rem;
+}
+
+.run-outcome-text {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--muted);
+  white-space: pre-wrap;
 }
 
 .queue-item {

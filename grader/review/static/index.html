@@ -10,6 +10,7 @@
     <header class="topbar">
       <h1>Grading Review</h1>
       <div class="toolbar">
+        <span class="toolbar-note">For final PDF edits, export and open reviewed PDFs in Finder.</span>
         <button id="tabReviewBtn" type="button" class="tab-btn active">Review</button>
         <button id="tabConfigBtn" type="button" class="tab-btn">Config</button>
         <button id="exportBtn" type="button">Export Reviewed Outputs</button>
@@ -24,11 +25,22 @@
           <input id="searchInput" type="text" placeholder="Student or folder" />
         </label>
         <button id="refreshBtn" type="button">Refresh</button>
+        <section class="run-outcomes">
+          <h3>Run Outcomes</h3>
+          <pre id="runOutcomeSummary" class="run-outcome-text">Loading…</pre>
+        </section>
         <div id="queueList" class="queue-list"></div>
       </aside>
 
       <section class="viewer">
         <div class="viewer-toolbar">
+          <label>
+            PDF Source
+            <select id="docSourceSelect">
+              <option value="original">original</option>
+              <option value="edited">edited</option>
+            </select>
+          </label>
           <label>
             Document
             <select id="docSelect"></select>

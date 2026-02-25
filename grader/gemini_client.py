@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -403,7 +404,11 @@ def build_legacy_grading_prompt(
         '"short_reason":"...", "evidence_quote":"..."}],'
         '"global_flags":["..."]'
         "}\n"
-        "No markdown fences. No extra fields.\n\n"
+        "No markdown fences. No extra fields.\n"
+        "Feedback rules:\n"
+        "- If verdict is correct, short_reason must be an empty string.\n"
+        "- If verdict is incorrect or partial, short_reason must be one short teacher-style sentence.\n"
+        "- Use direct second-person voice and avoid third-person phrasing.\n\n"
         f"Submission ID: {submission_id}\n\n"
         "Master solution text:\n"
         f"{solutions_text}\n\n"
@@ -438,6 +443,7 @@ def build_unified_grading_prompt(
         "Per question, include verdict, confidence, short_reason, evidence_quote, coords, page_number, source_file.\n"
         "Coordinate rule: if your detector yields [ymin, xmin, ymax, xmax], convert it to the center and return [y, x] integers on 0..1000.\n"
         "source_file must exactly match one attached student filename.\n"
+        "Feedback rules: correct => empty short_reason; incorrect/partial => one short teacher-style sentence in second-person voice.\n"
         "If uncertain, set verdict=needs_review and confidence near 0.0.\n\n"
         f"Submission ID: {submission_id}\n"
         f"Expected question IDs: {labels}\n"
@@ -491,7 +497,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                     id=question.id,
                     verdict="needs_review",
                     confidence=0.0,
-                    short_reason="Missing question verdict from model response.",
+                    short_reason="Review manually.",
                     evidence_quote="",
                 )
             )
@@ -499,13 +505,15 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
 
         verdict = normalize_verdict(raw.get("verdict"))
         confidence = normalize_confidence(raw.get("confidence"))
-        short_reason = str(raw.get("short_reason", "")).strip()[:300]
+        short_reason = normalize_short_reason(
+            verdict=verdict,
+            raw_reason=str(raw.get("short_reason", "")).strip()[:300],
+            fallback_fail_note=question.short_note_fail,
+        )
         evidence_quote = str(raw.get("evidence_quote", "")).strip()[:500]
         coords = parse_coords_0_to_1000(raw.get("coords"))
         page_number = parse_page_number(raw.get("page_number") or raw.get("page"))
         source_file = str(raw.get("source_file", "")).strip() or None
-        if not short_reason:
-            short_reason = "No reason provided by model."
         normalized_questions.append(
             QuestionResult(
                 id=question.id,
@@ -525,6 +533,57 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
         "questions": normalized_questions,
         "global_flags": merge_flags(global_flags),
     }
+
+
+def normalize_short_reason(
+    *,
+    verdict: str,
+    raw_reason: str,
+    fallback_fail_note: str,
+) -> str:
+    if verdict == "correct":
+        return ""
+    if verdict == "needs_review":
+        return "Review manually."
+
+    candidate = extract_pithy_sentence(raw_reason)
+    if candidate and (not is_third_person_feedback(candidate)):
+        return candidate
+
+    fallback = extract_pithy_sentence(fallback_fail_note)
+    if fallback:
+        return fallback
+    return "Check your work."
+
+
+def extract_pithy_sentence(text: str, max_chars: int = 90, max_words: int = 16) -> str:
+    first_line = re.split(r"[\r\n]+", str(text or ""), maxsplit=1)[0].strip()
+    if not first_line:
+        return ""
+    first_sentence = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
+    cleaned = " ".join(first_sentence.split())
+    if not cleaned:
+        return ""
+
+    lowered = cleaned.lower()
+    if lowered in {"n/a", "na", "none", "no reason provided by model."}:
+        return ""
+    if len(cleaned) > max_chars or len(cleaned.split()) > max_words:
+        return ""
+    return cleaned
+
+
+def is_third_person_feedback(text: str) -> bool:
+    lowered = f" {text.lower()} "
+    disallowed_tokens = (
+        " the student ",
+        " student ",
+        " they ",
+        " their ",
+        " this answer ",
+        " the response ",
+    )
+    return any(token in lowered for token in disallowed_tokens)
 
 
 def normalize_locator_response(

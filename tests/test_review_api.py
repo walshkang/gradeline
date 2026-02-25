@@ -180,6 +180,85 @@ class ReviewApiTests(unittest.TestCase):
             run_payload = api.get_run()
             self.assertIn("args_snapshot", run_payload["grading_context"])
 
+    def test_get_submission_supports_document_source_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+
+            original_pdf = output_dir / "subs" / "123 - Jane" / "submission.pdf"
+            original_pdf.parent.mkdir(parents=True, exist_ok=True)
+            original_pdf.write_bytes(b"%PDF-1.4")
+
+            edited_pdf = output_dir / "123 - Jane" / "submission.pdf"
+            edited_pdf.parent.mkdir(parents=True, exist_ok=True)
+            edited_pdf.write_bytes(b"%PDF-1.4")
+
+            api = ReviewApi(output_dir)
+            original_payload = api.get_submission("sub-1", document_source="original")
+            edited_payload = api.get_submission("sub-1", document_source="edited")
+
+            self.assertEqual(original_payload["document_source"], "original")
+            self.assertEqual(edited_payload["document_source"], "edited")
+            self.assertEqual(original_payload["documents"][0]["path"], str(original_pdf))
+            self.assertEqual(edited_payload["documents"][0]["path"], str(edited_pdf))
+            self.assertTrue(original_payload["documents"][0]["exists"])
+            self.assertTrue(edited_payload["documents"][0]["exists"])
+
+    def test_get_submission_rejects_invalid_document_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+            api = ReviewApi(output_dir)
+
+            with self.assertRaises(ReviewApiError):
+                api.get_submission("sub-1", document_source="nope")
+
+    def test_get_run_includes_deterministic_outcomes_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+
+            (output_dir / "grading_diagnostics.json").write_text(
+                json.dumps(
+                    {
+                        "totals": {
+                            "submissions_processed": 1,
+                            "success_count": 1,
+                            "review_required_count": 0,
+                            "failed_with_error_count": 0,
+                            "warning_count": 0,
+                            "by_code": {
+                                "context_cache_create_failed": 1,
+                                "context_cache_bypassed": 1,
+                            },
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (output_dir / "grading_audit.csv").write_text(
+                "folder,student_name,band,verdict,error\n"
+                "123 - Jane,Jane,Check Plus,correct,\n",
+                encoding="utf-8",
+            )
+            (output_dir / "brightspace_grades_import.csv").write_text(
+                "Username,Assignment 1 Points Grade <Numeric MaxPoints:2>\n"
+                "jane,\n",
+                encoding="utf-8",
+            )
+
+            api = ReviewApi(output_dir)
+            payload = api.get_run()
+            outcomes = payload.get("outcomes", {})
+
+            self.assertTrue(outcomes.get("available"))
+            self.assertEqual(outcomes.get("submissions_processed"), 1)
+            self.assertEqual(outcomes.get("success_count"), 1)
+            self.assertEqual(outcomes.get("cache_warning_count"), 2)
+            self.assertEqual(outcomes.get("unmatched_grade_rows"), 1)
+            self.assertEqual(outcomes.get("band_counts", {}).get("Check Plus"), 1)
+            self.assertEqual(outcomes.get("verdict_counts", {}).get("correct"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
