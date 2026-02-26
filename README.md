@@ -2,20 +2,52 @@
 
 This tool grades Brightspace PDF submissions with Gemini, annotates PDFs with movable/editable FreeText annotations (green checks/red `x` marks), and builds CSV outputs for grade import and review.
 
+## Quick Start
+
+```bash
+# 1. Activate the virtual environment
+source .venv/bin/activate
+
+# 2. Set your Gemini API key (or add to .env file)
+export GEMINI_API_KEY="your_api_key_here"
+
+# 3. Run the interactive CLI
+./gradeline
+```
+
+Running `./gradeline` with no arguments opens an interactive menu:
+
+```
+› quickstart  —  Auto-detect settings, grade, and review
+  run         —  Grade submissions and launch review server
+  regrade     —  Clear cache and re-run grading from scratch
+  serve       —  Launch review server for existing results
+  setup       —  Interactive profile setup wizard
+  list        —  List local workflow profiles
+```
+
+All commands can also be called directly:
+
+```bash
+./gradeline quickstart --profile a2
+./gradeline run --profile a2
+./gradeline regrade --profile a2
+./gradeline serve --profile a2
+./gradeline list
+```
+
 ## Requirements
 
 - macOS/Linux
-- Legacy mode only binaries:
-  - `pdftotext`
-  - `pdfinfo`
-  - `pdftoppm`
-  - `tesseract`
 - Python 3.11+
 - Python dependencies:
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+
+- Legacy mode only binaries (not needed for unified mode):
+  - `pdftotext`, `pdfinfo`, `pdftoppm`, `tesseract`
 
 ## Environment
 
@@ -31,45 +63,14 @@ Or create a local `.env` file in this repo root (auto-loaded by `grader.cli`):
 GEMINI_API_KEY="your_api_key_here"
 ```
 
-## Run
-
-```bash
-python3 -m grader.cli \
-  --submissions-dir "/Users/walsh.kang/Downloads/Assignment 1 Download Feb 24, 2026 742 PM" \
-  --solutions-pdf "/Users/walsh.kang/Downloads/execDC24n1soln.pdf" \
-  --rubric-yaml "/Users/walsh.kang/Documents/GitHub/sda-grader/configs/assignment1.yaml" \
-  --grades-template-csv "/path/to/brightspace_export_template.csv" \
-  --grade-column "Assignment 1 Points Grade" \
-  --identifier-column "OrgDefinedId" \
-  --grading-mode unified \
-  --model "gemini-3-flash-preview" \
-  --output-dir "/Users/walsh.kang/Downloads/Assignment 1 Graded Feb 2026"
-```
-
-Optional CLI UX and diagnostics flags:
-
-```bash
-# force plain text output (no Rich formatting)
---plain
-
-# write diagnostics JSON to a custom path
---diagnostics-file "/custom/path/grading_diagnostics.json"
-
-# use legacy OCR/text + optional locator pass
---grading-mode legacy --locator-model "gemini-3-flash-preview"
-
-# context cache controls for unified mode
---context-cache --context-cache-ttl-seconds 86400
-```
-
 ## Workflow CLI (Profile-Based)
 
-Use workflow profiles to avoid long flag lists for repeated assignment runs.
+Use workflow profiles to avoid long flag lists for repeated assignment runs. The `./gradeline` wrapper auto-activates the `.venv` and delegates to the workflow CLI.
 
 ### 1) Quickstart (recommended)
 
 ```bash
-python3 -m grader.workflow_cli quickstart --profile a2
+./gradeline quickstart --profile a2
 ```
 
 Quickstart behavior:
@@ -81,7 +82,7 @@ Quickstart behavior:
 Write profile only (do not run yet):
 
 ```bash
-python3 -m grader.workflow_cli quickstart --profile a2 --no-run
+./gradeline quickstart --profile a2 --no-run
 ```
 
 If the rubric path does not exist, quickstart can generate a starter rubric and prints a concise checklist:
@@ -92,16 +93,7 @@ If the rubric path does not exist, quickstart can generate a starter rubric and 
 ### 2) Manual setup wizard (fallback)
 
 ```bash
-mkdir -p .manual_runs/profiles
-cp configs/workflow_profile.example.toml .manual_runs/profiles/a2.toml
-```
-
-Edit `.manual_runs/profiles/a2.toml` with your Assignment 2 paths.
-
-Or use the interactive wizard:
-
-```bash
-python3 -m grader.workflow_cli setup --profile a2
+./gradeline setup --profile a2
 ```
 
 The wizard prompts for:
@@ -114,38 +106,51 @@ The wizard prompts for:
 ### 3) Run full workflow (grade + init + serve)
 
 ```bash
-python3 -m grader.workflow_cli run --profile a2
+./gradeline run --profile a2
 ```
 
 Behavior:
 - Loads `.manual_runs/profiles/a2.toml`
-- Runs `grader.cli` with mapped flags
+- Runs grading with mapped flags
 - Initializes review state
 - Starts review server on the requested port, or next free port (`+1`, up to 25 attempts)
-- If profile is missing (interactive terminal), CLI offers:
-  - `quickstart` first (recommended)
-  - `setup` fallback
-  - abort
-- In non-interactive mode, missing-profile behavior remains an explicit error.
+- If profile is missing (interactive terminal), CLI offers quickstart, setup, or abort
 
-### 4) Keep Assignment 1 and Assignment 2 open side-by-side
+### 4) Regrade (clear cache and re-run)
+
+```bash
+# Full regrade — clears all cache, outputs, and review state
+./gradeline regrade --profile a2
+
+# Regrade specific students only
+./gradeline regrade --profile a2 --student-filter "Kevin Swift|Shelly Marc"
+```
+
+Regrade behavior:
+- Deletes local results cache entries (all, or matching `--student-filter` regex)
+- Removes annotated PDF output folders
+- Full regrade also clears CSV artifacts, diagnostics, and review state
+- Re-runs grading with fresh Gemini API calls
+- Launches review server when done
+
+### 5) Keep Assignment 1 and Assignment 2 open side-by-side
 
 Terminal A:
 
 ```bash
-python3 -m grader.workflow_cli serve --profile a1 --port 8765
+./gradeline serve --profile a1 --port 8765
 ```
 
 Terminal B:
 
 ```bash
-python3 -m grader.workflow_cli run --profile a2
+./gradeline run --profile a2
 ```
 
-### 5) List profiles and state status
+### 6) List profiles and state status
 
 ```bash
-python3 -m grader.workflow_cli list
+./gradeline list
 ```
 
 The list view includes:
@@ -158,8 +163,36 @@ The list view includes:
 
 - `Profile file not found`: confirm profile is under `.manual_runs/profiles/<name>.toml` or pass an explicit path.
 - `Unknown keys in [grade]`: remove unsupported keys; profile validation is strict by design.
-- `Review state invalid`: run workflow `run` once, or run `grader.review_cli init --output-dir ...` manually.
+- `Review state invalid`: run `./gradeline run` once, or run `grader.review_cli init --output-dir ...` manually.
 - `Requested grade column was not found`: ensure profile `grade_column` matches your Brightspace template header.
+
+## Direct CLI Usage
+
+For advanced usage or scripting, you can bypass profiles and call the grading engine directly:
+
+```bash
+python3 -m grader.cli \
+  --submissions-dir "/path/to/submissions" \
+  --solutions-pdf "/path/to/solutions.pdf" \
+  --rubric-yaml "/path/to/rubric.yaml" \
+  --grades-template-csv "/path/to/template.csv" \
+  --grade-column "Assignment 1 Points Grade" \
+  --grading-mode unified \
+  --model "gemini-3-flash-preview" \
+  --output-dir "/path/to/output"
+```
+
+Optional flags:
+
+```bash
+--plain                          # force plain text output (no Rich formatting)
+--diagnostics-file "/custom/path/grading_diagnostics.json"
+--grading-mode legacy            # use legacy OCR/text + optional locator pass
+--locator-model "gemini-3-flash-preview"
+--context-cache --context-cache-ttl-seconds 86400
+--student-filter "Jane Doe"      # regex to grade specific students only
+--dry-run                        # skip API calls, test annotation layout
+```
 
 ## Outputs
 
@@ -174,37 +207,23 @@ Inside `--output-dir`:
 
 ## Manual Review Web App (Local)
 
-After a grading run finishes, you can do a second-pass manual review in a local browser app.
+After a grading run finishes, a local browser app launches for second-pass manual review. The review server is started automatically by `./gradeline run` and `./gradeline regrade`.
 
-### 1) Initialize review state
-
-```bash
-python3 -m grader.review_cli init --output-dir "/path/to/grading/output"
-```
-
-Optional rubric override:
+To start the review server manually:
 
 ```bash
-python3 -m grader.review_cli init \
-  --output-dir "/path/to/grading/output" \
-  --rubric-yaml "/path/to/rubric.yaml"
+./gradeline serve --profile a2
 ```
 
-### 2) Start review server
-
-```bash
-python3 -m grader.review_cli serve --output-dir "/path/to/grading/output"
-```
-
-Then open `http://127.0.0.1:8765`.
+Then open the URL shown in the terminal (default `http://127.0.0.1:8765`).
 
 Use the **Config** tab to inspect/update:
 - solutions/rubric paths captured from the CLI run
 - grade points mapping
 - rubric thresholds (`check_plus_min`, `check_min`), `partial_credit`
-- question label patterns and scoring rules (what the CLI is using as grading interpretation)
+- question label patterns and scoring rules
 
-### 3) Export reviewed artifacts
+### Export reviewed artifacts
 
 ```bash
 python3 -m grader.review_cli export --output-dir "/path/to/grading/output"
@@ -228,15 +247,6 @@ Reviewed artifacts are written into `output_dir/review/`:
 - In `legacy` mode, `--locator-model` is optional; if set, model-provided PDF coordinates are used before local anchor fallback.
 - In `unified` mode, `--locator-model` and `--ocr-char-threshold` are ignored with warnings.
 - Unified mode uses Gemini context caching for `solutions.pdf` unless `--no-context-cache` is passed.
-- Grade points are configurable via CLI flags:
-  - `--check-plus-points`
-  - `--check-points`
-  - `--check-minus-points`
-  - `--review-required-points`
-- `--dry-run` now defaults to header-only annotation (no per-question x/✓ marks).
-- Use `--annotate-dry-run-marks` if you want debug placement marks during dry-run.
-- Rich console output is used automatically in interactive terminals; use `--plain` for deterministic text output.
-- While grading runs, a single in-place status line updates stage progress (extracting, grading, locating, annotating), including question-level annotation progress like `annotating question 1a (3/7)`.
-- Diagnostics JSON includes:
-  - `run_id`, `started_at`, `ended_at`, `args_snapshot`, `totals`, `events`
-  - event fields: `timestamp`, `severity`, `code`, `stage`, `submission_folder`, `message`, `exception_type`, `traceback_snippet`
+- Grade points are configurable via CLI flags: `--check-plus-points`, `--check-points`, `--check-minus-points`, `--review-required-points`.
+- `--dry-run` defaults to header-only annotation (no per-question x/✓ marks). Use `--annotate-dry-run-marks` for debug placement marks.
+- Rich console output with section headings, colored bands, and progress bars is used automatically in interactive terminals; use `--plain` for deterministic text output.
