@@ -4,7 +4,8 @@ import argparse
 import os
 import re
 import sys
-from dataclasses import replace
+import time
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -30,6 +31,128 @@ LEGACY_MODE = "legacy"
 UNIFIED_MODE = "unified"
 DEFAULT_MODEL = "gemini-3-flash-preview"
 DEFAULT_OCR_CHAR_THRESHOLD = 200
+LOW_CONFIDENCE_THRESHOLD = 0.55
+
+VERDICT_SYMBOLS = {"correct": "✓", "partial": "◐", "incorrect": "✗", "needs_review": "⟳"}
+
+
+@dataclass
+class StageTiming:
+    name: str
+    start: float = 0.0
+    end: float = 0.0
+
+    @property
+    def duration(self) -> float:
+        return max(0.0, self.end - self.start) if self.end else 0.0
+
+
+@dataclass
+class SubmissionTelemetry:
+    stages: list[StageTiming] = field(default_factory=list)
+    start: float = 0.0
+    end: float = 0.0
+
+    @property
+    def total_seconds(self) -> float:
+        return max(0.0, self.end - self.start) if self.end else 0.0
+
+    def begin_stage(self, name: str) -> None:
+        self.stages.append(StageTiming(name=name, start=time.monotonic()))
+
+    def end_stage(self) -> None:
+        if self.stages and not self.stages[-1].end:
+            self.stages[-1].end = time.monotonic()
+
+
+@dataclass(frozen=True)
+class RollingSnapshot:
+    band_counts: dict[str, int]
+    failure_count: int
+    submissions_done: int
+    total_seconds: float
+    mean_seconds: float
+    eta_seconds: float
+
+
+def build_trust_rationale(
+    question_results: list[QuestionResult],
+    percent: float,
+    band: str,
+    rubric_bands: dict[str, float],
+    global_flags: list[str],
+) -> str:
+    """Build a deterministic one-line trust rationale for a graded submission."""
+    from .ui import _BAND_DISPLAY
+
+    band_label = _BAND_DISPLAY.get(band, band)
+    parts = [f"{band_label} ({percent:.2f}%)"]
+
+    counts = {"correct": 0, "partial": 0, "incorrect": 0, "needs_review": 0}
+    low_conf: list[str] = []
+    for qr in question_results:
+        counts[qr.verdict] = counts.get(qr.verdict, 0) + 1
+        if qr.verdict != "correct" and qr.confidence < LOW_CONFIDENCE_THRESHOLD:
+            low_conf.append(f"{qr.id}({qr.confidence:.2f})")
+
+    mix = f"{counts['correct']}✓ {counts['partial']}◐ {counts['incorrect']}✗ {counts['needs_review']}⟳"
+    parts.append(mix)
+
+    # Threshold delta to next band up
+    check_plus_pct = float(rubric_bands.get("check_plus_min", 0.9)) * 100.0
+    check_pct = float(rubric_bands.get("check_min", 0.7)) * 100.0
+    if band == "REVIEW_REQUIRED" or band == "CHECK_MINUS" or band == "Check Minus":
+        delta = check_pct - percent
+        parts.append(f"{delta:+.2f}→Check")
+    elif band == "CHECK" or band == "Check":
+        delta = check_plus_pct - percent
+        parts.append(f"{delta:+.2f}→Check+")
+
+    if low_conf:
+        parts.append(f"low-conf {','.join(low_conf[:4])}")
+
+    if global_flags:
+        parts.append(f"flags:{','.join(global_flags[:3])}")
+
+    return " | ".join(parts)
+
+
+def update_rolling_snapshot(
+    previous: RollingSnapshot | None,
+    result: SubmissionResult,
+    elapsed: float,
+    remaining: int,
+) -> RollingSnapshot:
+    """Accumulate rolling stats after each submission."""
+    if previous is None:
+        band_counts: dict[str, int] = {}
+        failure_count = 0
+        total_seconds = 0.0
+        submissions_done = 0
+    else:
+        band_counts = dict(previous.band_counts)
+        failure_count = previous.failure_count
+        total_seconds = previous.total_seconds
+        submissions_done = previous.submissions_done
+
+    submissions_done += 1
+    total_seconds += elapsed
+    band = result.grade_result.band
+    band_counts[band] = band_counts.get(band, 0) + 1
+    if result.error:
+        failure_count += 1
+
+    mean_seconds = total_seconds / submissions_done if submissions_done else 0.0
+    eta_seconds = mean_seconds * remaining
+
+    return RollingSnapshot(
+        band_counts=band_counts,
+        failure_count=failure_count,
+        submissions_done=submissions_done,
+        total_seconds=total_seconds,
+        mean_seconds=mean_seconds,
+        eta_seconds=eta_seconds,
+    )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -79,12 +202,17 @@ def main(argv: list[str] | None = None) -> int:
         "Review queue CSV": None,
         "Brightspace import CSV": None,
     }
+    rolling: RollingSnapshot | None = None
 
     def conclude(exit_code: int, submission_results: list[SubmissionResult], warnings: list[str]) -> int:
         ui.stop_progress()
         ui.clear_status()
         ui.section_heading("Results")
-        summary = summarize_results(submission_results=submission_results, warning_count=len(warnings))
+        summary = summarize_results(
+            submission_results=submission_results,
+            warning_count=len(warnings),
+            snapshot=rolling,
+        )
         diagnostics.set_run_totals(
             {
                 "submissions_processed": summary.submissions_processed,
@@ -308,6 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     ui.start_progress(len(units))
     for index, unit in enumerate(units, start=1):
         folder_name = unit.folder_path.name
+        sub_start = time.monotonic()
         ui.submission_started(index=index, total=len(units), folder_name=folder_name)
         status_prefix = f"[{index}/{len(units)}] {folder_name}"
         if args.grading_mode == LEGACY_MODE:
@@ -353,14 +482,29 @@ def main(argv: list[str] | None = None) -> int:
                 grade_points=grade_points,
                 error_message=message,
             )
+        sub_elapsed = time.monotonic() - sub_start
         ui.clear_status()
         submission_results.append(result)
+
+        rationale = build_trust_rationale(
+            question_results=result.question_results,
+            percent=result.grade_result.percent,
+            band=result.grade_result.band,
+            rubric_bands=rubric.bands,
+            global_flags=result.global_flags,
+        )
+        remaining = len(units) - index
+        rolling = update_rolling_snapshot(rolling, result, sub_elapsed, remaining)
+
         ui.submission_finished(
             index=index,
             total=len(units),
             folder_name=folder_name,
             band=result.grade_result.band,
             had_error=bool(result.error),
+            rationale=rationale,
+            elapsed_seconds=sub_elapsed,
+            snapshot=rolling,
         )
 
     warnings: list[str] = []
@@ -398,7 +542,11 @@ def main(argv: list[str] | None = None) -> int:
     return conclude(exit_code=0, submission_results=submission_results, warnings=warnings)
 
 
-def summarize_results(submission_results: list[SubmissionResult], warning_count: int) -> RunSummary:
+def summarize_results(
+    submission_results: list[SubmissionResult],
+    warning_count: int,
+    snapshot: RollingSnapshot | None = None,
+) -> RunSummary:
     submissions_processed = len(submission_results)
     failed_with_error_count = sum(1 for result in submission_results if result.error)
     review_required_count = sum(
@@ -413,6 +561,9 @@ def summarize_results(submission_results: list[SubmissionResult], warning_count:
         review_required_count=review_required_count,
         failed_with_error_count=failed_with_error_count,
         warning_count=warning_count,
+        band_counts=dict(snapshot.band_counts) if snapshot else None,
+        mean_seconds=snapshot.mean_seconds if snapshot else None,
+        total_seconds=snapshot.total_seconds if snapshot else None,
     )
 
 

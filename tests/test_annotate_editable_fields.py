@@ -192,5 +192,129 @@ class EditableAnnotationTests(unittest.TestCase):
                 self.assertTrue(any(value and value.startswith("x Qe:") for value in contents))
 
 
+    def test_annotation_uses_only_short_reason_not_detail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_root = root / "subs"
+            submission = make_submission(submissions_root=submissions_root, folder_name="800 - Student")
+            rubric = make_rubric("a")
+            short = "Check your formula"
+            detail = "You need to apply Bayes theorem correctly and show intermediate probability calculations step by step."
+            question_results = [
+                QuestionResult(
+                    id="a",
+                    verdict="incorrect",
+                    confidence=0.8,
+                    short_reason=short,
+                    detail_reason=detail,
+                    evidence_quote="...",
+                )
+            ]
+            output_dir = root / "out"
+
+            output_paths, _ = annotate_submission_pdfs(
+                submission=submission,
+                rubric=rubric,
+                question_results=question_results,
+                output_dir=output_dir,
+                submissions_root=submissions_root,
+                final_band="CHECK_MINUS",
+                dry_run=False,
+                annotate_dry_run_marks=False,
+            )
+
+            with fitz.open(output_paths[0]) as annotated:
+                page = annotated[0]
+                annots = list(page.annots() or [])
+                all_content = " ".join(annot.info.get("content", "") for annot in annots)
+                self.assertIn(short, all_content)
+                self.assertNotIn(detail, all_content)
+
+    def test_annotation_short_reason_within_42_chars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_root = root / "subs"
+            submission = make_submission(submissions_root=submissions_root, folder_name="801 - Student")
+            rubric = make_rubric("a")
+            short = "A very short note"
+            question_results = [
+                QuestionResult(
+                    id="a",
+                    verdict="incorrect",
+                    confidence=0.8,
+                    short_reason=short,
+                    evidence_quote="...",
+                )
+            ]
+            output_dir = root / "out"
+
+            output_paths, _ = annotate_submission_pdfs(
+                submission=submission,
+                rubric=rubric,
+                question_results=question_results,
+                output_dir=output_dir,
+                submissions_root=submissions_root,
+                final_band="CHECK_MINUS",
+                dry_run=False,
+                annotate_dry_run_marks=False,
+            )
+
+            with fitz.open(output_paths[0]) as annotated:
+                page = annotated[0]
+                annots = list(page.annots() or [])
+                mark_annot = next(
+                    annot
+                    for annot in annots
+                    if (annot.info.get("subject", "")).startswith("question_mark|q=a|")
+                )
+                content = mark_annot.info.get("content", "")
+                self.assertIn(short, content)
+
+    def test_annotation_long_short_reason_clipped_without_ellipsis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_root = root / "subs"
+            submission = make_submission(submissions_root=submissions_root, folder_name="802 - Student")
+            rubric = make_rubric("a")
+            long_reason = "This is a significantly longer reason that will exceed the forty two character limit"
+            question_results = [
+                QuestionResult(
+                    id="a",
+                    verdict="incorrect",
+                    confidence=0.8,
+                    short_reason=long_reason,
+                    evidence_quote="...",
+                )
+            ]
+            output_dir = root / "out"
+
+            output_paths, _ = annotate_submission_pdfs(
+                submission=submission,
+                rubric=rubric,
+                question_results=question_results,
+                output_dir=output_dir,
+                submissions_root=submissions_root,
+                final_band="CHECK_MINUS",
+                dry_run=False,
+                annotate_dry_run_marks=False,
+            )
+
+            with fitz.open(output_paths[0]) as annotated:
+                page = annotated[0]
+                annots = list(page.annots() or [])
+                mark_annot = next(
+                    annot
+                    for annot in annots
+                    if (annot.info.get("subject", "")).startswith("question_mark|q=a|")
+                )
+                content = mark_annot.info.get("content", "")
+                # Extract the reason part after "x Qa: "
+                prefix = "x Qa: "
+                self.assertTrue(content.startswith(prefix), f"Expected prefix '{prefix}', got: {content}")
+                reason_part = content[len(prefix):]
+                self.assertLessEqual(len(reason_part), 42)
+                self.assertFalse(reason_part.endswith("..."))
+
+
 if __name__ == "__main__":
     unittest.main()

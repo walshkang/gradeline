@@ -47,6 +47,9 @@ class RunSummary:
     review_required_count: int
     failed_with_error_count: int
     warning_count: int
+    band_counts: dict[str, int] | None = None
+    mean_seconds: float | None = None
+    total_seconds: float | None = None
 
 
 class ConsoleUI:
@@ -73,6 +76,9 @@ class ConsoleUI:
         *,
         band: str,
         had_error: bool,
+        rationale: str = "",
+        elapsed_seconds: float = 0.0,
+        snapshot: Any = None,
     ) -> None:
         raise NotImplementedError
 
@@ -137,6 +143,9 @@ class PlainConsoleUI(ConsoleUI):
         *,
         band: str,
         had_error: bool,
+        rationale: str = "",
+        elapsed_seconds: float = 0.0,
+        snapshot: Any = None,
     ) -> None:
         self.clear_status()
         if had_error:
@@ -145,7 +154,12 @@ class PlainConsoleUI(ConsoleUI):
             status = "REVIEW"
         else:
             status = "OK"
-        print(f"[{index}/{total}] {status} {folder_name} -> {_BAND_DISPLAY.get(band, band)}")
+        line = f"[{index}/{total}] {status} {folder_name} -> {_BAND_DISPLAY.get(band, band)}"
+        if elapsed_seconds:
+            line += f" ({elapsed_seconds:.1f}s)"
+        print(line)
+        if rationale:
+            print(f"  {rationale}")
 
     def emit_artifacts(self, artifacts: dict[str, Path | None]) -> None:
         self.clear_status()
@@ -163,6 +177,13 @@ class PlainConsoleUI(ConsoleUI):
         print(f"  Review required count: {summary.review_required_count}")
         print(f"  Failed with error count: {summary.failed_with_error_count}")
         print(f"  Warning count: {summary.warning_count}")
+        if summary.band_counts:
+            dist = ", ".join(f"{_BAND_DISPLAY.get(b, b)}: {c}" for b, c in sorted(summary.band_counts.items()))
+            print(f"  Band distribution: {dist}")
+        if summary.mean_seconds is not None:
+            print(f"  Mean time per submission: {summary.mean_seconds:.1f}s")
+        if summary.total_seconds is not None:
+            print(f"  Total grading time: {summary.total_seconds:.1f}s")
 
     def section_heading(self, title: str) -> None:
         self.clear_status()
@@ -222,6 +243,9 @@ class RichConsoleUI(ConsoleUI):
         *,
         band: str,
         had_error: bool,
+        rationale: str = "",
+        elapsed_seconds: float = 0.0,
+        snapshot: Any = None,
     ) -> None:
         self.clear_status()
         if had_error:
@@ -232,9 +256,12 @@ class RichConsoleUI(ConsoleUI):
             status = "[green]✓ OK[/green]"
         band_color = _BAND_COLORS.get(band, "white")
         band_label = _BAND_DISPLAY.get(band, band)
+        time_str = f" [dim]({elapsed_seconds:.1f}s)[/dim]" if elapsed_seconds else ""
         self.console.print(
-            f"[cyan][{index}/{total}][/cyan] {status} [bold]{folder_name}[/bold] → [{band_color}]{band_label}[/{band_color}]"
+            f"[cyan][{index}/{total}][/cyan] {status} [bold]{folder_name}[/bold] → [{band_color}]{band_label}[/{band_color}]{time_str}"
         )
+        if rationale:
+            self.console.print(f"  [dim]{rationale}[/dim]")
         self.advance_progress()
 
     def emit_artifacts(self, artifacts: dict[str, Path | None]) -> None:
@@ -270,6 +297,16 @@ class RichConsoleUI(ConsoleUI):
             "Warnings",
             f"[yellow]{summary.warning_count}[/yellow]" if summary.warning_count else "0",
         )
+        if summary.band_counts:
+            dist = ", ".join(
+                f"[{_BAND_COLORS.get(b, 'white')}]{_BAND_DISPLAY.get(b, b)}: {c}[/{_BAND_COLORS.get(b, 'white')}]"
+                for b, c in sorted(summary.band_counts.items())
+            )
+            table.add_row("Band distribution", dist)
+        if summary.mean_seconds is not None:
+            table.add_row("Mean time/submission", f"{summary.mean_seconds:.1f}s")
+        if summary.total_seconds is not None:
+            table.add_row("Total grading time", f"{summary.total_seconds:.1f}s")
         self.console.print(table)
 
     def section_heading(self, title: str) -> None:

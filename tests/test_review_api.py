@@ -298,6 +298,51 @@ class ReviewApiTests(unittest.TestCase):
             outcomes = payload.get("outcomes", {})
             self.assertEqual(outcomes.get("unmatched_grade_rows"), 1)
 
+    def test_detail_reason_final_patch_persists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+            api = ReviewApi(output_dir)
+
+            response = api.patch_question(
+                "sub-1",
+                "a",
+                {"detail_reason_final": "Use Bayes theorem step by step"},
+            )
+
+            self.assertEqual(
+                response["question"]["final"]["detail_reason"],
+                "Use Bayes theorem step by step",
+            )
+
+            persisted = json.loads((output_dir / "review" / "review_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                persisted["submissions"]["sub-1"]["questions"]["a"]["final"]["detail_reason"],
+                "Use Bayes theorem step by step",
+            )
+
+    def test_backward_compat_missing_detail_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+
+            # Verify the fixture has no detail_reason in the question payloads
+            state_file = output_dir / "review" / "review_state.json"
+            raw = json.loads(state_file.read_text(encoding="utf-8"))
+            auto_payload = raw["submissions"]["sub-1"]["questions"]["a"]["auto"]
+            final_payload = raw["submissions"]["sub-1"]["questions"]["a"]["final"]
+            self.assertNotIn("detail_reason", auto_payload)
+            self.assertNotIn("detail_reason", final_payload)
+
+            # Load via ReviewApi — should succeed without errors
+            api = ReviewApi(output_dir)
+            submission = api.get_submission("sub-1")
+            question = submission["questions"]["a"]
+
+            # Patch a different field to trigger recompute through question_result_from_payload
+            response = api.patch_question("sub-1", "a", {"verdict_final": "correct"})
+            self.assertEqual(response["question"]["final"].get("detail_reason", ""), "")
+
     def test_get_run_falls_back_to_assignment_n_points_grade(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp)

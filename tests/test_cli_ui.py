@@ -179,5 +179,118 @@ class CliUiTests(unittest.TestCase):
         self.assertNotIn("CHECK_PLUS", rendered)
 
 
+class TrustUxTests(unittest.TestCase):
+    def test_build_trust_rationale_correct_band_and_mix(self) -> None:
+        from grader.cli import build_trust_rationale
+
+        results = [
+            QuestionResult(id="q1", verdict="correct", confidence=0.95, short_reason="ok", evidence_quote="e"),
+            QuestionResult(id="q2", verdict="correct", confidence=0.90, short_reason="ok", evidence_quote="e"),
+            QuestionResult(id="q3", verdict="incorrect", confidence=0.80, short_reason="wrong", evidence_quote="e"),
+        ]
+        rubric_bands = {"check_plus_min": 0.9, "check_min": 0.7}
+        out = build_trust_rationale(results, 66.67, "CHECK_MINUS", rubric_bands, [])
+        self.assertIn("Check−", out)
+        self.assertIn("66.67%", out)
+        self.assertIn("2✓", out)
+        self.assertIn("1✗", out)
+        self.assertIn("→Check", out)
+
+    def test_build_trust_rationale_low_confidence_items(self) -> None:
+        from grader.cli import build_trust_rationale
+
+        results = [
+            QuestionResult(id="q1", verdict="correct", confidence=0.95, short_reason="ok", evidence_quote="e"),
+            QuestionResult(id="q2", verdict="partial", confidence=0.40, short_reason="maybe", evidence_quote="e"),
+        ]
+        rubric_bands = {"check_plus_min": 0.9, "check_min": 0.7}
+        out = build_trust_rationale(results, 75.0, "CHECK", rubric_bands, [])
+        self.assertIn("low-conf", out)
+        self.assertIn("q2", out)
+
+    def test_build_trust_rationale_flags(self) -> None:
+        from grader.cli import build_trust_rationale
+
+        results = [
+            QuestionResult(id="q1", verdict="correct", confidence=0.95, short_reason="ok", evidence_quote="e"),
+        ]
+        rubric_bands = {"check_plus_min": 0.9, "check_min": 0.7}
+        out = build_trust_rationale(results, 95.0, "CHECK_PLUS", rubric_bands, ["dry_run"])
+        self.assertIn("flags:dry_run", out)
+
+    def test_update_rolling_snapshot_accumulates(self) -> None:
+        from grader.cli import RollingSnapshot, update_rolling_snapshot
+        from grader.types import GradeResult, SubmissionResult, SubmissionUnit
+
+        unit = SubmissionUnit(
+            folder_path=Path("/tmp/s1"), folder_relpath=Path("s1"),
+            folder_token="tok1", student_name="A", pdf_paths=[],
+        )
+        grade1 = GradeResult(percent=80.0, band="CHECK", points="8", has_needs_review=False, per_question_scores={})
+        res1 = SubmissionResult(
+            submission=unit, question_results=[], grade_result=grade1,
+            output_pdf_paths=[], extraction_sources={}, global_flags=[],
+        )
+        grade2 = GradeResult(percent=60.0, band="CHECK_MINUS", points="6", has_needs_review=False, per_question_scores={})
+        res2 = SubmissionResult(
+            submission=unit, question_results=[], grade_result=grade2,
+            output_pdf_paths=[], extraction_sources={}, global_flags=[],
+        )
+
+        snap1 = update_rolling_snapshot(None, res1, elapsed=2.0, remaining=4)
+        snap2 = update_rolling_snapshot(snap1, res2, elapsed=4.0, remaining=3)
+
+        self.assertEqual(snap2.submissions_done, 2)
+        self.assertEqual(snap2.band_counts, {"CHECK": 1, "CHECK_MINUS": 1})
+        self.assertAlmostEqual(snap2.mean_seconds, 3.0)
+        self.assertAlmostEqual(snap2.eta_seconds, 9.0)
+
+    def test_plain_submission_finished_prints_rationale(self) -> None:
+        ui = PlainConsoleUI()
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            ui.submission_finished(
+                1, 5, "student-folder", band="CHECK", had_error=False,
+                rationale="Check (78.50%) | 3✓ 0◐ 0✗ 0⟳",
+                elapsed_seconds=2.5,
+            )
+        rendered = stdout.getvalue()
+        self.assertIn("Check (78.50%) | 3✓ 0◐ 0✗ 0⟳", rendered)
+        self.assertIn("2.5s", rendered)
+
+    def test_plain_emit_summary_includes_distribution_and_timing(self) -> None:
+        from grader.ui import RunSummary
+
+        summary = RunSummary(
+            submissions_processed=3, success_count=3, review_required_count=0,
+            failed_with_error_count=0, warning_count=0,
+            band_counts={"CHECK": 2, "CHECK_MINUS": 1},
+            mean_seconds=3.5, total_seconds=10.5,
+        )
+        ui = PlainConsoleUI()
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            ui.emit_summary(summary)
+        rendered = stdout.getvalue()
+        self.assertIn("Band distribution", rendered)
+        self.assertIn("Mean time", rendered)
+        self.assertIn("Total grading time", rendered)
+
+    def test_stage_timing_duration(self) -> None:
+        from grader.cli import StageTiming
+
+        st = StageTiming(name="extract", start=100.0, end=102.5)
+        self.assertAlmostEqual(st.duration, 2.5)
+
+    def test_submission_telemetry_begin_end_stage(self) -> None:
+        from grader.cli import SubmissionTelemetry
+
+        tel = SubmissionTelemetry()
+        tel.begin_stage("extract")
+        tel.end_stage()
+        self.assertEqual(len(tel.stages), 1)
+        self.assertGreater(tel.stages[0].duration, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
