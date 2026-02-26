@@ -81,7 +81,9 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     def conclude(exit_code: int, submission_results: list[SubmissionResult], warnings: list[str]) -> int:
+        ui.stop_progress()
         ui.clear_status()
+        ui.section_heading("Results")
         summary = summarize_results(submission_results=submission_results, warning_count=len(warnings))
         diagnostics.set_run_totals(
             {
@@ -302,6 +304,8 @@ def main(argv: list[str] | None = None) -> int:
             return conclude(exit_code=1, submission_results=[], warnings=[])
 
     submission_results: list[SubmissionResult] = []
+    ui.section_heading("Grading")
+    ui.start_progress(len(units))
     for index, unit in enumerate(units, start=1):
         folder_name = unit.folder_path.name
         ui.submission_started(index=index, total=len(units), folder_name=folder_name)

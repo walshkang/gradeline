@@ -224,6 +224,8 @@ def first_query_value(query: dict[str, list[str]], key: str) -> str | None:
 
 
 def run_review_server(output_dir: Path, host: str = "127.0.0.1", port: int = 8765) -> None:
+    from ..prompts import styled_info, styled_url
+
     api = ReviewApi(output_dir)
     static_root = Path(__file__).parent / "static"
 
@@ -234,11 +236,11 @@ def run_review_server(output_dir: Path, host: str = "127.0.0.1", port: int = 876
     BoundHandler.static_root = static_root
 
     server = ThreadingHTTPServer((host, port), BoundHandler)
-    print(f"Review server running at http://{host}:{port}")
-    print(f"Using review state: {api.state_path}")
+    styled_url("Review server running", f"http://{host}:{port}")
+    styled_info(f"Using review state: {api.state_path}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping review server.")
+        styled_info("\nStopping review server.")
     finally:
         server.server_close()

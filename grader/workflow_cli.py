@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shutil
 import socket
 import sys
 from dataclasses import dataclass
@@ -24,6 +26,7 @@ from .prompts import (
     styled_banner,
     styled_error,
     styled_info,
+    styled_section_heading,
     styled_success,
     styled_table,
     styled_url,
@@ -151,7 +154,7 @@ _OPTIONAL_POINTS_FIELDS = {
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Workflow CLI for profile-based grading runs.")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     run_parser = subparsers.add_parser(
         "run",
@@ -186,27 +189,98 @@ def build_parser() -> argparse.ArgumentParser:
     quickstart_parser.add_argument("--force", action="store_true", help="Alias for --overwrite")
 
     subparsers.add_parser("list", help="List local workflow profiles.")
+
+    regrade_parser = subparsers.add_parser(
+        "regrade",
+        help="Clear cached results and annotated outputs, then re-run grading from scratch.",
+    )
+    regrade_parser.add_argument("--profile", required=True)
+    regrade_parser.add_argument("--student-filter", default="", help="Regex to regrade specific students only.")
+    regrade_parser.add_argument("--host", default=None)
+    regrade_parser.add_argument("--port", type=int, default=None)
+
     return parser
+
+
+_MENU_COMMANDS: list[tuple[str, str]] = [
+    ("quickstart", "Auto-detect settings, grade, and review"),
+    ("run", "Grade submissions and launch review server"),
+    ("regrade", "Clear cache and re-run grading from scratch"),
+    ("serve", "Launch review server for existing results"),
+    ("setup", "Interactive profile setup wizard"),
+    ("list", "List local workflow profiles"),
+]
+
+_COMMANDS_NEEDING_PROFILE = {"quickstart", "run", "serve", "setup"}
+
+
+def interactive_command_menu() -> str:
+    """Show an arrow-key menu and return the chosen command name."""
+    styled_banner("Gradeline", "SDA Grader workflow CLI")
+    choices = [f"{name}  —  {desc}" for name, desc in _MENU_COMMANDS]
+    idx = prompt_select("Choose a command", choices, default=0)
+    return _MENU_COMMANDS[idx][0]
+
+
+def prompt_profile_interactive() -> str:
+    """Prompt the user to pick or type a profile name."""
+    paths = list_profile_paths()
+    if paths:
+        names = [p.stem for p in paths] + ["Enter name manually"]
+        idx = prompt_select("Profile", names, default=0)
+        if idx < len(paths):
+            return paths[idx].stem
+    return prompt_text("Profile name", required=True)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv if argv is not None else sys.argv[1:])
 
+    command = args.command
+    if command is None:
+        if not is_interactive_terminal():
+            build_parser().print_help()
+            return 2
+        command = interactive_command_menu()
+
     try:
-        if args.command == "run":
-            return run_with_optional_setup(profile_spec=args.profile, host_override=args.host, port_override=args.port)
-        if args.command == "serve":
-            return serve_with_optional_setup(profile_spec=args.profile, host_override=args.host, port_override=args.port)
-        if args.command == "setup":
-            return setup_profile_interactive(profile_spec=args.profile, overwrite=args.overwrite)
-        if args.command == "quickstart":
-            return quickstart_profile_interactive(
-                profile_spec=args.profile,
-                overwrite=bool(args.overwrite or args.force),
-                auto_run=not bool(args.no_run),
+        if command == "run":
+            profile = getattr(args, "profile", None) or prompt_profile_interactive()
+            return run_with_optional_setup(
+                profile_spec=profile,
+                host_override=getattr(args, "host", None),
+                port_override=getattr(args, "port", None),
             )
-        if args.command == "list":
+        if command == "serve":
+            profile = getattr(args, "profile", None) or prompt_profile_interactive()
+            return serve_with_optional_setup(
+                profile_spec=profile,
+                host_override=getattr(args, "host", None),
+                port_override=getattr(args, "port", None),
+            )
+        if command == "setup":
+            profile = getattr(args, "profile", None) or prompt_profile_interactive()
+            return setup_profile_interactive(
+                profile_spec=profile,
+                overwrite=getattr(args, "overwrite", False),
+            )
+        if command == "quickstart":
+            profile = getattr(args, "profile", None) or prompt_profile_interactive()
+            return quickstart_profile_interactive(
+                profile_spec=profile,
+                overwrite=bool(getattr(args, "overwrite", False) or getattr(args, "force", False)),
+                auto_run=not bool(getattr(args, "no_run", False)),
+            )
+        if command == "list":
             return list_profiles()
+        if command == "regrade":
+            profile = getattr(args, "profile", None) or prompt_profile_interactive()
+            return regrade_from_profile(
+                profile_spec=profile,
+                student_filter=getattr(args, "student_filter", ""),
+                host_override=getattr(args, "host", None),
+                port_override=getattr(args, "port", None),
+            )
     except WorkflowProfileError as exc:
         styled_error(str(exc))
         return 2
@@ -238,6 +312,7 @@ def run_from_profile(*, profile_spec: str, host_override: str | None, port_overr
     requested_port = resolve_requested_port(profile=profile, port_override=port_override)
     port, shifted = resolve_available_port(host=host, preferred_port=requested_port)
 
+    styled_section_heading("Review Server")
     styled_info(f"Profile: {profile.name}")
     styled_info(f"Output dir: {profile.grade.output_dir}")
     if shifted:
@@ -245,6 +320,114 @@ def run_from_profile(*, profile_spec: str, host_override: str | None, port_overr
     styled_url("Review URL", f"http://{host}:{port}")
     run_review_server(output_dir=profile.grade.output_dir, host=host, port=port)
     return 0
+
+
+def regrade_from_profile(
+    *,
+    profile_spec: str,
+    student_filter: str = "",
+    host_override: str | None,
+    port_override: int | None,
+) -> int:
+    """Clear cached results and output artifacts, then re-run grading."""
+    profile = load_workflow_profile(profile_spec)
+    output_dir = profile.grade.output_dir
+    cache_dir = profile.grade.cache_dir or Path(".grader_cache")
+    if not cache_dir.is_absolute():
+        cache_dir = Path.cwd() / cache_dir
+
+    # Compile optional student filter
+    pattern: re.Pattern[str] | None = None
+    if student_filter.strip():
+        pattern = re.compile(student_filter, flags=re.IGNORECASE)
+
+    styled_section_heading("Regrade")
+
+    # --- Clear local results cache ---
+    cache_file = cache_dir / "cache.json"
+    if cache_file.exists():
+        if pattern is None:
+            cache_file.unlink()
+            styled_info("Cleared entire results cache.")
+        else:
+            _purge_cache_entries(cache_file, pattern)
+
+    # --- Remove annotated output folders ---
+    removed = 0
+    if output_dir.is_dir():
+        for child in sorted(output_dir.iterdir()):
+            if not child.is_dir():
+                continue
+            if pattern is not None and not pattern.search(child.name):
+                continue
+            shutil.rmtree(child)
+            removed += 1
+    styled_info(f"Removed {removed} output folder(s).")
+
+    # --- Remove report artifacts (only on full regrade) ---
+    if pattern is None:
+        for artifact in (
+            "grading_audit.csv",
+            "review_queue.csv",
+            "brightspace_grades_import.csv",
+            "grading_diagnostics.json",
+            "index_audit.csv",
+        ):
+            artifact_path = output_dir / artifact
+            if artifact_path.exists():
+                artifact_path.unlink()
+        review_dir = output_dir / "review"
+        if review_dir.is_dir():
+            shutil.rmtree(review_dir)
+        styled_info("Cleared report artifacts and review state.")
+
+    # --- Re-run grading ---
+    grading_argv = build_grading_argv(profile.grade)
+    if student_filter.strip():
+        grading_argv.extend(["--student-filter", student_filter])
+
+    exit_code = invoke_grading_main(grading_argv)
+    if exit_code != 0:
+        return exit_code
+
+    # --- Launch review server ---
+    state_path = initialize_review_state(output_dir=output_dir, rubric_yaml=None)
+    status, reason = review_state_status(output_dir)
+    if status != "valid":
+        raise ValueError(f"Review state invalid at {state_path}: {reason}")
+
+    host = resolve_host(profile=profile, host_override=host_override)
+    requested_port = resolve_requested_port(profile=profile, port_override=port_override)
+    port, shifted = resolve_available_port(host=host, preferred_port=requested_port)
+
+    styled_section_heading("Review Server")
+    styled_info(f"Profile: {profile.name}")
+    styled_info(f"Output dir: {output_dir}")
+    if shifted:
+        styled_warning(f"Port {requested_port} is busy. Using {port}.")
+    styled_url("Review URL", f"http://{host}:{port}")
+    run_review_server(output_dir=output_dir, host=host, port=port)
+    return 0
+
+
+def _purge_cache_entries(cache_file: Path, pattern: re.Pattern[str]) -> None:
+    """Remove cache entries whose keys match the student filter pattern."""
+    try:
+        payload = json.loads(cache_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    if not isinstance(payload, dict):
+        return
+    before = len(payload)
+    # Cache keys are hashes, but values contain submission_id — check both key and serialized value
+    to_remove = [
+        k for k, v in payload.items()
+        if pattern.search(k) or pattern.search(json.dumps(v))
+    ]
+    for k in to_remove:
+        del payload[k]
+    cache_file.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    styled_info(f"Purged {len(to_remove)} of {before} cache entries matching filter.")
 
 
 def run_with_optional_setup(*, profile_spec: str, host_override: str | None, port_override: int | None) -> int:
@@ -271,6 +454,7 @@ def serve_from_profile(*, profile_spec: str, host_override: str | None, port_ove
     requested_port = resolve_requested_port(profile=profile, port_override=port_override)
     port, shifted = resolve_available_port(host=host, preferred_port=requested_port)
 
+    styled_section_heading("Review Server")
     styled_info(f"Profile: {profile.name}")
     styled_info(f"Output dir: {profile.grade.output_dir}")
     if shifted:

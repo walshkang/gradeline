@@ -162,6 +162,22 @@ class CliUiTests(unittest.TestCase):
         callback(3, 7, "1a")
         self.assertEqual(captured, ["annotating question 1a (3/7)"])
 
+    def test_section_heading_plain(self) -> None:
+        ui = PlainConsoleUI()
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            ui.section_heading("Grading")
+        self.assertIn("--- Grading ---", stdout.getvalue())
+
+    def test_submission_finished_uses_human_band_names(self) -> None:
+        ui = PlainConsoleUI()
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            ui.submission_finished(1, 5, "student-folder", band="CHECK_PLUS", had_error=False)
+        rendered = stdout.getvalue()
+        self.assertIn("Check+", rendered)
+        self.assertNotIn("CHECK_PLUS", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

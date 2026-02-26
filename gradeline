@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# gradeline — short alias for the SDA Grader workflow CLI.
+# Usage: ./gradeline [command] [options]
+#   e.g. ./gradeline quickstart --profile smoke-test
+#        ./gradeline list
+#        ./gradeline              # interactive menu
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="${SCRIPT_DIR}/.venv"
+
+if [ -f "${VENV_DIR}/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source "${VENV_DIR}/bin/activate"
+fi
+
+exec python3 -m grader.workflow_cli "$@"

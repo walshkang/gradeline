@@ -15,6 +15,7 @@ try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.prompt import Confirm, IntPrompt, Prompt
+    from rich.rule import Rule
     from rich.table import Table
     from rich.theme import Theme
 
@@ -92,6 +93,15 @@ def styled_url(label: str, url: str, *, force_plain: bool = False) -> None:
         )
     else:
         print(f"{label}: {url}")
+
+
+def styled_section_heading(title: str, *, force_plain: bool = False) -> None:
+    if _use_rich(force_plain):
+        c = _console()
+        c.print()
+        c.print(Rule(f"[bold blue]{title}[/bold blue]", style="blue"))
+    else:
+        print(f"\n--- {title} ---")
 
 
 def styled_table(

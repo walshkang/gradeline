@@ -10,12 +10,14 @@ try:  # pragma: no cover - exercised through create_console_ui tests.
     from rich.console import Console
     from rich.panel import Panel
     from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+    from rich.rule import Rule
     from rich.table import Table
 
     _RICH_AVAILABLE = True
 except Exception:  # noqa: BLE001
     Console = None  # type: ignore[assignment]
     Panel = None  # type: ignore[assignment]
+    Rule = None  # type: ignore[assignment]
     Table = None  # type: ignore[assignment]
     Progress = None  # type: ignore[assignment]
     _RICH_AVAILABLE = False
@@ -27,6 +29,14 @@ _BAND_COLORS: dict[str, str] = {
     "CHECK": "cyan",
     "CHECK_MINUS": "yellow",
     "REVIEW_REQUIRED": "red",
+}
+
+# Human-friendly band display names
+_BAND_DISPLAY: dict[str, str] = {
+    "CHECK_PLUS": "Check+",
+    "CHECK": "Check",
+    "CHECK_MINUS": "Check−",
+    "REVIEW_REQUIRED": "Review Required",
 }
 
 
@@ -87,6 +97,10 @@ class ConsoleUI:
     def stop_progress(self) -> None:
         """Stop and remove the progress bar."""
 
+    def section_heading(self, title: str) -> None:
+        """Print a prominent section divider."""
+        raise NotImplementedError
+
 
 class PlainConsoleUI(ConsoleUI):
     def __init__(self) -> None:
@@ -131,7 +145,7 @@ class PlainConsoleUI(ConsoleUI):
             status = "REVIEW"
         else:
             status = "OK"
-        print(f"[{index}/{total}] {status} {folder_name} -> {band}")
+        print(f"[{index}/{total}] {status} {folder_name} -> {_BAND_DISPLAY.get(band, band)}")
 
     def emit_artifacts(self, artifacts: dict[str, Path | None]) -> None:
         self.clear_status()
@@ -149,6 +163,10 @@ class PlainConsoleUI(ConsoleUI):
         print(f"  Review required count: {summary.review_required_count}")
         print(f"  Failed with error count: {summary.failed_with_error_count}")
         print(f"  Warning count: {summary.warning_count}")
+
+    def section_heading(self, title: str) -> None:
+        self.clear_status()
+        print(f"\n--- {title} ---")
 
     def status(self, message: str) -> None:
         clean = " ".join(message.split())
@@ -213,8 +231,9 @@ class RichConsoleUI(ConsoleUI):
         else:
             status = "[green]✓ OK[/green]"
         band_color = _BAND_COLORS.get(band, "white")
+        band_label = _BAND_DISPLAY.get(band, band)
         self.console.print(
-            f"[cyan][{index}/{total}][/cyan] {status} [bold]{folder_name}[/bold] → [{band_color}]{band}[/{band_color}]"
+            f"[cyan][{index}/{total}][/cyan] {status} [bold]{folder_name}[/bold] → [{band_color}]{band_label}[/{band_color}]"
         )
         self.advance_progress()
 
@@ -252,6 +271,11 @@ class RichConsoleUI(ConsoleUI):
             f"[yellow]{summary.warning_count}[/yellow]" if summary.warning_count else "0",
         )
         self.console.print(table)
+
+    def section_heading(self, title: str) -> None:
+        self.clear_status()
+        self.console.print()
+        self.console.print(Rule(f"[bold blue]{title}[/bold blue]", style="blue"))
 
     def status(self, message: str) -> None:
         text = " ".join(message.split())

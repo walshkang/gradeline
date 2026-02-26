@@ -385,6 +385,29 @@ class WorkflowCliTests(unittest.TestCase):
             quickstart_mock.assert_called_once_with(profile_spec="a9", overwrite=False, auto_run=False)
             grade_mock.assert_not_called()
 
+    def test_no_command_non_tty_prints_help(self) -> None:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            exit_code = main([])
+        self.assertEqual(exit_code, 2)
+
+    def test_interactive_menu_selects_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile_dir = root / ".manual_runs" / "profiles"
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.is_interactive_terminal", return_value=True),
+                patch("grader.workflow_cli.prompt_select", return_value=5) as select_mock,
+                patch("grader.workflow_cli.list_profiles", return_value=0) as list_mock,
+            ):
+                exit_code = main([])
+
+            self.assertEqual(exit_code, 0)
+            select_mock.assert_called_once()
+            list_mock.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
