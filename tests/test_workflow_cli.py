@@ -239,7 +239,7 @@ class WorkflowCliTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             rendered = stdout.getvalue()
-            self.assertIn("name\toutput_dir\trubric_yaml\treview_state", rendered)
+            self.assertIn("Workflow Profiles", rendered)
             self.assertIn("a1", rendered)
             self.assertIn("valid", rendered)
             self.assertIn("a2", rendered)

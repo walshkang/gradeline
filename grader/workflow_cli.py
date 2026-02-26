@@ -13,6 +13,22 @@ from .report import read_csv_rows, resolve_column_name
 from .review.importer import ReviewInitError, initialize_review_state
 from .review.server import run_review_server
 from .review.state import state_path_for_output
+from .prompts import (
+    prompt_int,
+    prompt_path,
+    prompt_path_candidate,
+    prompt_select,
+    prompt_text,
+    prompt_text_candidate,
+    prompt_yes_no,
+    styled_banner,
+    styled_error,
+    styled_info,
+    styled_success,
+    styled_table,
+    styled_url,
+    styled_warning,
+)
 from .workflow_detect import DetectedConfig, default_question_ids, detect_defaults
 from .workflow_profile import (
     DEFAULT_CONTEXT_CACHE_TTL_SECONDS,
@@ -192,16 +208,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "list":
             return list_profiles()
     except WorkflowProfileError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        styled_error(str(exc))
         return 2
     except ReviewInitError as exc:
-        print(f"[ERROR] Review init failed: {exc}", file=sys.stderr)
+        styled_error(f"Review init failed: {exc}")
         return 2
     except ValueError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        styled_error(str(exc))
         return 2
 
-    print("[ERROR] Unknown command.", file=sys.stderr)
+    styled_error("Unknown command.")
     return 2
 
 
@@ -222,11 +238,11 @@ def run_from_profile(*, profile_spec: str, host_override: str | None, port_overr
     requested_port = resolve_requested_port(profile=profile, port_override=port_override)
     port, shifted = resolve_available_port(host=host, preferred_port=requested_port)
 
-    print(f"Profile: {profile.name}")
-    print(f"Output dir: {profile.grade.output_dir}")
+    styled_info(f"Profile: {profile.name}")
+    styled_info(f"Output dir: {profile.grade.output_dir}")
     if shifted:
-        print(f"[WARN] Port {requested_port} is busy. Using {port}.")
-    print(f"Review URL: http://{host}:{port}")
+        styled_warning(f"Port {requested_port} is busy. Using {port}.")
+    styled_url("Review URL", f"http://{host}:{port}")
     run_review_server(output_dir=profile.grade.output_dir, host=host, port=port)
     return 0
 
@@ -237,7 +253,7 @@ def run_with_optional_setup(*, profile_spec: str, host_override: str | None, por
     except WorkflowProfileError as exc:
         if not is_profile_not_found_error(exc) or not is_interactive_terminal():
             raise
-        print(f"[WARN] {exc}")
+        styled_warning(str(exc))
         bootstrap_code = bootstrap_missing_profile(profile_spec=profile_spec)
         if bootstrap_code != 0:
             return bootstrap_code
@@ -255,11 +271,11 @@ def serve_from_profile(*, profile_spec: str, host_override: str | None, port_ove
     requested_port = resolve_requested_port(profile=profile, port_override=port_override)
     port, shifted = resolve_available_port(host=host, preferred_port=requested_port)
 
-    print(f"Profile: {profile.name}")
-    print(f"Output dir: {profile.grade.output_dir}")
+    styled_info(f"Profile: {profile.name}")
+    styled_info(f"Output dir: {profile.grade.output_dir}")
     if shifted:
-        print(f"[WARN] Port {requested_port} is busy. Using {port}.")
-    print(f"Review URL: http://{host}:{port}")
+        styled_warning(f"Port {requested_port} is busy. Using {port}.")
+    styled_url("Review URL", f"http://{host}:{port}")
     run_review_server(output_dir=profile.grade.output_dir, host=host, port=port)
     return 0
 
@@ -270,7 +286,7 @@ def serve_with_optional_setup(*, profile_spec: str, host_override: str | None, p
     except WorkflowProfileError as exc:
         if not is_profile_not_found_error(exc) or not is_interactive_terminal():
             raise
-        print(f"[WARN] {exc}")
+        styled_warning(str(exc))
         bootstrap_code = bootstrap_missing_profile(profile_spec=profile_spec)
         if bootstrap_code != 0:
             return bootstrap_code
@@ -298,24 +314,14 @@ def bootstrap_missing_profile(*, profile_spec: str) -> int:
 
 
 def prompt_missing_profile_bootstrap_choice() -> str:
-    print("Create missing profile with:")
-    print("  1) quickstart (recommended)")
-    print("  2) setup")
-    print("  3) abort")
-    while True:
-        raw = input("Select option [1]: ").strip().lower()
-        if raw in {"", "1", "quickstart", "q"}:
-            return "quickstart"
-        if raw in {"2", "setup", "s"}:
-            return "setup"
-        if raw in {"3", "abort", "a"}:
-            return "abort"
-        print("Please choose 1, 2, or 3.")
+    choices = ["quickstart (recommended)", "setup", "abort"]
+    idx = prompt_select("Create missing profile with", choices, default=0)
+    return ["quickstart", "setup", "abort"][idx]
 
 
 def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_run: bool) -> int:
     if not is_interactive_terminal():
-        print("[ERROR] quickstart requires an interactive terminal (TTY).", file=sys.stderr)
+        styled_error("quickstart requires an interactive terminal (TTY).")
         return 2
 
     cwd = Path.cwd()
@@ -324,7 +330,7 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
 
     if profile_path.exists() and not overwrite:
         if not prompt_yes_no(f"Profile already exists at {profile_path}. Overwrite?", default=False):
-            print("Aborted.")
+            styled_warning("Aborted.")
             return 2
 
     detected = detect_defaults(profile_spec=profile_spec, cwd=cwd)
@@ -332,26 +338,26 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
 
     while True:
         render_quickstart_summary(values=values, metadata=metadata)
-        raw = input("Press Enter to accept, choose field number to edit, or q to abort: ").strip()
+        raw = input("Enter to accept, field # to edit, q to abort: ").strip()
         if raw.lower() == "q":
-            print("Aborted.")
+            styled_warning("Aborted.")
             return 2
         if raw == "":
             errors = validate_quickstart_values(values)
             if errors:
-                print("Fix required fields before continuing:")
+                styled_warning("Fix required fields before continuing:")
                 for error in errors:
-                    print(f"- {error}")
+                    styled_warning(f"  • {error}")
                 continue
             break
 
         try:
             index = int(raw)
         except ValueError:
-            print("Please enter a valid field number.")
+            styled_warning("Please enter a valid field number.")
             continue
         if index < 1 or index > len(QUICKSTART_FIELDS):
-            print(f"Please choose 1..{len(QUICKSTART_FIELDS)}.")
+            styled_warning(f"Please choose 1..{len(QUICKSTART_FIELDS)}.")
             continue
 
         field = QUICKSTART_FIELDS[index - 1]
@@ -372,11 +378,11 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
             )
             question_ids = parse_question_ids(question_ids_raw)
             write_starter_rubric(rubric_path, assignment_id=assignment_id, question_ids=question_ids)
-            print(f"Created starter rubric: {rubric_path}")
-            print("Rubric checklist:")
-            print("- Update scoring_rules per question.")
-            print("- Confirm label_patterns and anchor_tokens match your answer key.")
-            print("- Verify bands thresholds for your class policy.")
+            styled_success(f"Created starter rubric: {rubric_path}")
+            styled_info("Rubric checklist:")
+            styled_info("  • Update scoring_rules per question.")
+            styled_info("  • Confirm label_patterns and anchor_tokens match your answer key.")
+            styled_info("  • Verify bands thresholds for your class policy.")
 
     profile_text = render_profile_toml(
         submissions_dir=must_path(values["submissions_dir"], "submissions_dir"),
@@ -390,12 +396,12 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
         optional_grade_values=detected.optional_grade_values,
     )
     profile_path.write_text(profile_text, encoding="utf-8")
-    print(f"Wrote profile: {profile_path}")
+    styled_success(f"Wrote profile: {profile_path}")
 
     if auto_run:
         return run_from_profile(profile_spec=profile_spec, host_override=None, port_override=None)
 
-    print(f"Next step: python3 -m grader.workflow_cli run --profile {profile_path.stem}")
+    styled_info(f"Next step: python3 -m grader.workflow_cli run --profile {profile_path.stem}")
     return 0
 
 
@@ -439,37 +445,20 @@ def render_quickstart_summary(*, values: dict[str, Any], metadata: dict[str, tup
     rows = []
     for index, field in enumerate(QUICKSTART_FIELDS, start=1):
         source, confidence = metadata.get(field.key, ("manual", 1.0))
-        rows.append(
-            (
-                str(index),
-                field.label,
-                format_quickstart_value(values.get(field.key)),
-                source,
-                f"{int(round(confidence * 100))}%",
-            )
-        )
+        conf_pct = f"{int(round(confidence * 100))}%"
+        rows.append((str(index), field.label, format_quickstart_value(values.get(field.key)), source, conf_pct))
 
-    if sys.stdout.isatty():
-        try:
-            from rich.console import Console
-            from rich.table import Table
-
-            table = Table(title="Quickstart Review")
-            table.add_column("#", justify="right")
-            table.add_column("Field")
-            table.add_column("Value")
-            table.add_column("Source")
-            table.add_column("Confidence", justify="right")
-            for row in rows:
-                table.add_row(*row)
-            Console().print(table)
-            return
-        except Exception:  # noqa: BLE001
-            pass
-
-    print("Quickstart Review")
-    for row in rows:
-        print(f"{row[0]:>2}. {row[1]} = {row[2]}  [{row[3]}, {row[4]}]")
+    styled_table(
+        "Quickstart Review",
+        [
+            ("#", {"justify": "right", "style": "dim"}),
+            ("Field", {}),
+            ("Value", {"overflow": "fold"}),
+            ("Source", {}),
+            ("Confidence", {"justify": "right"}),
+        ],
+        rows,
+    )
 
 
 def format_quickstart_value(value: Any) -> str:
@@ -529,57 +518,15 @@ def edit_quickstart_field(
 
 
 def prompt_path_candidate(*, label: str, current: Path | None, candidates: list[Path], cwd: Path) -> Path:
-    options = dedupe_paths(([current] if current is not None else []) + candidates)
-    while True:
-        if options:
-            print(f"{label} options:")
-            for idx, option in enumerate(options[:3], start=1):
-                print(f"  {idx}) {option}")
-            print("  m) Enter path manually")
-            choice = input("Select option [Enter keeps current]: ").strip().lower()
-            if choice == "" and current is not None:
-                return current
-            if choice == "m":
-                raw = prompt_text(f"{label} path", default=str(current) if current else None, required=True)
-                return normalize_user_path(raw, cwd=cwd)
-            try:
-                index = int(choice)
-            except ValueError:
-                print("Please choose a number or 'm'.")
-                continue
-            if 1 <= index <= min(3, len(options)):
-                return options[index - 1]
-            print("Invalid option.")
-            continue
+    from .prompts import prompt_path_candidate as _ppc
 
-        raw = prompt_text(f"{label} path", default=str(current) if current else None, required=True)
-        return normalize_user_path(raw, cwd=cwd)
+    return _ppc(label=label, current=current, candidates=candidates, cwd=cwd)
 
 
 def prompt_text_candidate(*, label: str, current: str | None, candidates: list[str]) -> str:
-    options = dedupe_strings(([current] if current else []) + candidates)
-    while True:
-        if options:
-            print(f"{label} options:")
-            for idx, option in enumerate(options[:3], start=1):
-                print(f"  {idx}) {option}")
-            print("  m) Enter manually")
-            choice = input("Select option [Enter keeps current]: ").strip().lower()
-            if choice == "" and current:
-                return current
-            if choice == "m":
-                return prompt_text(label, default=current, required=True)
-            try:
-                index = int(choice)
-            except ValueError:
-                print("Please choose a number or 'm'.")
-                continue
-            if 1 <= index <= min(3, len(options)):
-                return options[index - 1]
-            print("Invalid option.")
-            continue
+    from .prompts import prompt_text_candidate as _ptc
 
-        return prompt_text(label, default=current, required=True)
+    return _ptc(label=label, current=current, candidates=candidates)
 
 
 def validate_quickstart_values(values: dict[str, Any]) -> list[str]:
@@ -688,10 +635,10 @@ def list_profiles() -> int:
     profiles = list_profile_paths(cwd=cwd, profile_dir=DEFAULT_PROFILE_DIR)
     root = (cwd / DEFAULT_PROFILE_DIR).resolve()
     if not profiles:
-        print(f"No profiles found under {root}")
+        styled_info(f"No profiles found under {root}")
         return 0
 
-    print("name\toutput_dir\trubric_yaml\treview_state")
+    rows = []
     for path in profiles:
         name = path.stem
         output_dir = "-"
@@ -707,7 +654,13 @@ def list_profiles() -> int:
         except WorkflowProfileError as exc:
             status = f"profile_invalid:{exc}"
 
-        print(f"{name}\t{output_dir}\t{rubric_yaml}\t{status}")
+        rows.append((name, output_dir, rubric_yaml, status))
+
+    styled_table(
+        "Workflow Profiles",
+        [("Name", {}), ("Output Dir", {"overflow": "fold"}), ("Rubric", {"overflow": "fold"}), ("Review State", {})],
+        rows,
+    )
     return 0
 
 
@@ -718,12 +671,11 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
 
     if profile_path.exists() and not overwrite:
         if not prompt_yes_no(f"Profile already exists at {profile_path}. Overwrite?", default=False):
-            print("Aborted.")
+            styled_warning("Aborted.")
             return 2
 
     profile_name = profile_path.stem
-    print(f"Configuring profile: {profile_name}")
-    print(f"Profile path: {profile_path}")
+    styled_banner(f"Configuring profile: {profile_name}", str(profile_path))
 
     submissions_dir = prompt_path(
         "Submissions directory",
@@ -755,7 +707,7 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
             )
             question_ids = parse_question_ids(question_ids_raw)
             write_starter_rubric(rubric_yaml, assignment_id=assignment_id, question_ids=question_ids)
-            print(f"Created starter rubric: {rubric_yaml}")
+            styled_success(f"Created starter rubric: {rubric_yaml}")
 
     grades_template_csv = prompt_path(
         "Brightspace grades template CSV",
@@ -788,8 +740,8 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
         port=port,
     )
     profile_path.write_text(profile_text, encoding="utf-8")
-    print(f"Wrote profile: {profile_path}")
-    print(f"Next step: python3 -m grader.workflow_cli run --profile {profile_name}")
+    styled_success(f"Wrote profile: {profile_path}")
+    styled_info(f"Next step: python3 -m grader.workflow_cli run --profile {profile_name}")
     return 0
 
 
@@ -814,58 +766,6 @@ def build_grading_argv(profile: GradeProfile) -> list[str]:
 
 def is_profile_not_found_error(exc: WorkflowProfileError) -> bool:
     return "Profile file not found:" in str(exc)
-
-
-def prompt_text(label: str, *, default: str | None, required: bool) -> str:
-    while True:
-        suffix = f" [{default}]" if default is not None else ""
-        raw = input(f"{label}{suffix}: ").strip()
-        if raw:
-            return raw
-        if default is not None:
-            return str(default)
-        if not required:
-            return ""
-        print("Value is required.")
-
-
-def prompt_yes_no(label: str, *, default: bool) -> bool:
-    default_text = "Y/n" if default else "y/N"
-    while True:
-        raw = input(f"{label} [{default_text}]: ").strip().lower()
-        if raw in {"y", "yes"}:
-            return True
-        if raw in {"n", "no"}:
-            return False
-        if raw == "":
-            return default
-        print("Please answer y or n.")
-
-
-def prompt_int(label: str, *, default: int, minimum: int, maximum: int) -> int:
-    while True:
-        raw = input(f"{label} [{default}]: ").strip()
-        if raw == "":
-            return default
-        try:
-            value = int(raw)
-        except ValueError:
-            print("Please enter an integer.")
-            continue
-        if value < minimum or value > maximum:
-            print(f"Please enter a value between {minimum} and {maximum}.")
-            continue
-        return value
-
-
-def prompt_path(label: str, *, default: str | None, required: bool, cwd: Path) -> Path:
-    while True:
-        raw = prompt_text(label, default=default, required=required)
-        value = raw.strip()
-        if not value and not required:
-            return cwd
-        resolved = normalize_user_path(value, cwd=cwd)
-        return resolved
 
 
 def normalize_user_path(raw: str, *, cwd: Path) -> Path:

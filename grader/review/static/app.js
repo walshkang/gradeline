@@ -28,10 +28,13 @@
     docSourceSelect: document.getElementById("docSourceSelect"),
     docSelect: document.getElementById("docSelect"),
     pageInput: document.getElementById("pageInput"),
+    prevPageBtn: document.getElementById("prevPageBtn"),
+    nextPageBtn: document.getElementById("nextPageBtn"),
     scaleInput: document.getElementById("scaleInput"),
     loadPageBtn: document.getElementById("loadPageBtn"),
     imageWrap: document.getElementById("imageWrap"),
     pageImage: document.getElementById("pageImage"),
+    emptyViewer: document.getElementById("emptyViewer"),
     marker: document.getElementById("marker"),
     viewerMeta: document.getElementById("viewerMeta"),
     submissionTitle: document.getElementById("submissionTitle"),
@@ -57,7 +60,22 @@
     reloadConfigBtn: document.getElementById("reloadConfigBtn"),
     saveConfigBtn: document.getElementById("saveConfigBtn"),
     configStatus: document.getElementById("configStatus"),
+    toastContainer: document.getElementById("toastContainer"),
   };
+
+  // --- Toast notifications ---
+
+  function showToast(message, type = "default") {
+    const toast = document.createElement("div");
+    toast.className = `toast${type !== "default" ? ` toast-${type}` : ""}`;
+    toast.textContent = message;
+    ui.toastContainer.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentNode) toast.parentNode.removeChild(toast);
+    }, 3200);
+  }
+
+  // --- API helpers ---
 
   async function apiGet(path) {
     const res = await fetch(path);
@@ -111,6 +129,25 @@
     ui.configPanel.classList.toggle("hidden", reviewActive);
   }
 
+  // --- Badge helper ---
+
+  function bandBadgeClass(band) {
+    if (!band) return "badge";
+    const b = band.toUpperCase();
+    if (b === "CHECK_PLUS" || b === "CHECK PLUS") return "badge badge-check-plus";
+    if (b === "CHECK") return "badge badge-check";
+    if (b === "CHECK_MINUS" || b === "CHECK MINUS") return "badge badge-check-minus";
+    if (b === "REVIEW_REQUIRED") return "badge badge-review";
+    return "badge";
+  }
+
+  function bandLabel(band) {
+    if (!band) return "—";
+    return band.replace(/_/g, " ");
+  }
+
+  // --- Data fetching ---
+
   async function refreshRun() {
     state.runInfo = await apiGet("/api/run");
     state.documentSource = ui.docSourceSelect.value || "original";
@@ -121,7 +158,7 @@
   function renderRunOutcomes() {
     const outcomes = state.runInfo?.outcomes;
     if (!outcomes || !outcomes.available) {
-      ui.runOutcomeSummary.textContent = "No run summary found for this output folder yet.";
+      ui.runOutcomeSummary.textContent = "No run summary available yet.";
       return;
     }
 
@@ -143,7 +180,7 @@
       lines.push("Bands:");
       bandEntries
         .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-        .forEach(([band, count]) => lines.push(`- ${band}: ${count}`));
+        .forEach(([band, count]) => lines.push(`  ${band}: ${count}`));
     }
 
     const errorSubmissions = Array.isArray(outcomes.error_submissions) ? outcomes.error_submissions : [];
@@ -151,15 +188,15 @@
       lines.push("");
       lines.push("Failures:");
       errorSubmissions.slice(0, 3).forEach((item) => {
-        const name = item.student_name || item.folder || "Unknown submission";
-        lines.push(`- ${name}`);
+        const name = item.student_name || item.folder || "Unknown";
+        lines.push(`  ${name}`);
       });
     }
 
     const unmatched = Number(outcomes.unmatched_grade_rows || 0);
     if (unmatched > 0) {
       lines.push("");
-      lines.push(`Unmatched grade rows: ${unmatched}`);
+      lines.push(`Unmatched rows: ${unmatched}`);
     }
 
     ui.runOutcomeSummary.textContent = lines.join("\n");
@@ -184,11 +221,43 @@
       btn.className =
         "queue-item" +
         (state.currentSubmission && state.currentSubmission.submission_id === item.submission_id ? " active" : "");
-      btn.textContent = `${item.student_name} | ${item.final_band} | needs_review:${item.needs_review_count}`;
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "student-name";
+      nameSpan.textContent = item.student_name;
+
+      const metaDiv = document.createElement("div");
+      metaDiv.className = "queue-meta";
+
+      const bandSpan = document.createElement("span");
+      bandSpan.className = bandBadgeClass(item.final_band);
+      bandSpan.textContent = bandLabel(item.final_band);
+      metaDiv.appendChild(bandSpan);
+
+      if (item.needs_review_count > 0) {
+        const reviewBadge = document.createElement("span");
+        reviewBadge.className = "badge badge-count";
+        reviewBadge.textContent = `${item.needs_review_count} review`;
+        metaDiv.appendChild(reviewBadge);
+      }
+
+      btn.appendChild(nameSpan);
+      btn.appendChild(metaDiv);
       btn.addEventListener("click", () => selectSubmission(item.submission_id));
       ui.queueList.appendChild(btn);
     });
+
+    scrollToActiveItem();
   }
+
+  function scrollToActiveItem() {
+    const active = ui.queueList.querySelector(".queue-item.active");
+    if (active) {
+      active.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
+  // --- Submission selection ---
 
   async function selectSubmission(submissionId) {
     await flushPatch();
@@ -205,19 +274,36 @@
     buildDocSelect();
     buildQuestionSelect();
     renderSubmission();
+
+    // Show/hide empty state
     if (docs.length === 0) {
-      ui.pageImage.removeAttribute("src");
-      ui.marker.hidden = true;
-      setStatus("No PDF documents available for this submission.");
+      showEmptyViewer("No PDF documents available.");
       return;
     }
     if (firstExistingDocIdx < 0) {
-      ui.pageImage.removeAttribute("src");
-      ui.marker.hidden = true;
-      setStatus(`No ${state.documentSource} PDFs found. Switch source or run export/annotation first.`);
+      showEmptyViewer(`No ${state.documentSource} PDFs found. Switch source or run export first.`);
       return;
     }
+    hideEmptyViewer();
     await loadCurrentPage();
+  }
+
+  function showEmptyViewer(message) {
+    ui.pageImage.style.display = "none";
+    ui.pageImage.removeAttribute("src");
+    ui.marker.hidden = true;
+    if (ui.emptyViewer) {
+      ui.emptyViewer.classList.remove("hidden");
+      ui.emptyViewer.querySelector(".empty-state-text").textContent = message;
+    }
+    setStatus(message);
+  }
+
+  function hideEmptyViewer() {
+    ui.pageImage.style.display = "block";
+    if (ui.emptyViewer) {
+      ui.emptyViewer.classList.add("hidden");
+    }
   }
 
   function firstQuestionId(submission) {
@@ -261,7 +347,7 @@
     const identity = submission.identity || {};
     const summary = submission.final_summary || {};
     ui.submissionTitle.textContent = identity.student_name || "Submission";
-    ui.summaryBox.textContent = `Band: ${summary.band || ""} | Percent: ${summary.percent || 0} | Points: ${summary.points || ""}`;
+    ui.summaryBox.textContent = `Band: ${summary.band || "—"} · Percent: ${summary.percent || 0}% · Points: ${summary.points || "—"}`;
 
     const question = getCurrentQuestion();
     if (!question) {
@@ -326,7 +412,7 @@
       id.textContent = `Q${question.id || "?"}`;
 
       const labels = document.createElement("label");
-      labels.textContent = "Label Patterns (comma separated)";
+      labels.textContent = "Label Patterns";
       const labelsInput = document.createElement("input");
       labelsInput.type = "text";
       labelsInput.className = "rule-label-patterns";
@@ -391,15 +477,11 @@
     const docs = Array.isArray(submission.documents) ? submission.documents : [];
     const currentDoc = docs[state.currentDocIdx];
     if (!currentDoc) {
-      ui.pageImage.removeAttribute("src");
-      ui.marker.hidden = true;
-      setStatus("Selected document is unavailable.");
+      showEmptyViewer("Selected document is unavailable.");
       return;
     }
     if (!currentDoc.exists) {
-      ui.pageImage.removeAttribute("src");
-      ui.marker.hidden = true;
-      setStatus(`Missing file for selected source: ${currentDoc.filename}`);
+      showEmptyViewer(`Missing file: ${currentDoc.filename}`);
       return;
     }
     const scale = Number(ui.scaleInput.value || state.scale || 1.2);
@@ -411,9 +493,10 @@
     const meta = await apiGet(
       `/api/submissions/${submission.submission_id}/documents/${state.currentDocIdx}/pages/${state.currentPageIdx}/meta?scale=${state.scale}&doc_source=${sourceQueryParam()}`
     );
+    hideEmptyViewer();
     ui.pageImage.src = meta.image_url;
     setStatus(
-      `${state.documentSource} | Doc ${state.currentDocIdx + 1}, page ${state.currentPageIdx + 1} | ${meta.image_width_px}x${meta.image_height_px}px`
+      `${state.documentSource} · Doc ${state.currentDocIdx + 1}, page ${state.currentPageIdx + 1} · ${meta.image_width_px}×${meta.image_height_px}px`
     );
   }
 
@@ -435,7 +518,7 @@
       clearTimeout(state.pendingPatchTimer);
     }
     state.pendingPatchTimer = setTimeout(() => {
-      flushPatch().catch((error) => alert(error.message));
+      flushPatch().catch((error) => showToast(error.message, "error"));
     }, delayMs);
   }
 
@@ -471,7 +554,7 @@
       clearTimeout(state.pendingNoteTimer);
     }
     state.pendingNoteTimer = setTimeout(() => {
-      flushNote().catch((error) => alert(error.message));
+      flushNote().catch((error) => showToast(error.message, "error"));
     }, delayMs);
   }
 
@@ -551,19 +634,44 @@
     if (state.currentSubmission) {
       await selectSubmission(state.currentSubmission.submission_id);
     }
-    setConfigStatus(`Saved config. Recomputed ${response.recomputed_submissions} submissions.`);
+    showToast(`Config saved. Recomputed ${response.recomputed_submissions} submissions.`, "success");
+    setConfigStatus(`Saved. Recomputed ${response.recomputed_submissions} submissions.`);
   }
+
+  // --- Navigation helpers ---
+
+  function navigateSubmission(delta) {
+    if (!state.submissions.length) return;
+    const currentIdx = state.submissions.findIndex(
+      (s) => state.currentSubmission && s.submission_id === state.currentSubmission.submission_id
+    );
+    const nextIdx = Math.max(0, Math.min(state.submissions.length - 1, currentIdx + delta));
+    if (nextIdx !== currentIdx) {
+      selectSubmission(state.submissions[nextIdx].submission_id).catch((e) =>
+        showToast(e.message, "error")
+      );
+    }
+  }
+
+  function navigatePage(delta) {
+    const current = Number(ui.pageInput.value || "1");
+    const next = Math.max(1, current + delta);
+    ui.pageInput.value = String(next);
+    loadCurrentPage().then(renderMarker).catch((e) => showToast(e.message, "error"));
+  }
+
+  // --- Event binding ---
 
   function bindEvents() {
     ui.tabReviewBtn.addEventListener("click", () => setTab("review"));
     ui.tabConfigBtn.addEventListener("click", () => setTab("config"));
 
     ui.refreshBtn.addEventListener("click", () => {
-      refreshQueue().catch((error) => alert(error.message));
+      refreshQueue().catch((error) => showToast(error.message, "error"));
     });
 
     ui.searchInput.addEventListener("input", () => {
-      refreshQueue().catch((error) => alert(error.message));
+      refreshQueue().catch((error) => showToast(error.message, "error"));
     });
 
     ui.docSourceSelect.addEventListener("change", async () => {
@@ -577,24 +685,30 @@
     ui.exportBtn.addEventListener("click", async () => {
       await flushPatch();
       await flushNote();
-      const result = await apiPost("/api/export", {});
-      const artifacts = result.artifacts || {};
-      const reviewedFolder = artifacts["Reviewed PDFs folder"];
-      const details = reviewedFolder
-        ? `\nReviewed PDFs folder:\n${reviewedFolder}\n\nOpen this folder in Finder for final PDF edits.`
-        : "";
-      alert(`Export complete. Artifacts: ${Object.keys(artifacts).length}${details}`);
+      try {
+        const result = await apiPost("/api/export", {});
+        const artifacts = result.artifacts || {};
+        const count = Object.keys(artifacts).length;
+        const reviewedFolder = artifacts["Reviewed PDFs folder"];
+        showToast(`Export complete — ${count} artifacts written.`, "success");
+        if (reviewedFolder) {
+          setStatus(`Reviewed PDFs: ${reviewedFolder}`);
+        }
+      } catch (e) {
+        showToast(`Export failed: ${e.message}`, "error");
+      }
     });
 
     ui.reloadConfigBtn.addEventListener("click", async () => {
       await refreshRun();
-      setConfigStatus("Reloaded config from state.");
+      showToast("Config reloaded.", "success");
+      setConfigStatus("Reloaded from state.");
     });
 
     ui.saveConfigBtn.addEventListener("click", () => {
       saveConfig().catch((error) => {
         setConfigStatus(`Save failed: ${error.message}`);
-        alert(error.message);
+        showToast(error.message, "error");
       });
     });
 
@@ -607,8 +721,12 @@
     });
 
     ui.loadPageBtn.addEventListener("click", () => {
-      loadCurrentPage().then(renderMarker).catch((error) => alert(error.message));
+      loadCurrentPage().then(renderMarker).catch((error) => showToast(error.message, "error"));
     });
+
+    // Prev/next page buttons
+    ui.prevPageBtn.addEventListener("click", () => navigatePage(-1));
+    ui.nextPageBtn.addEventListener("click", () => navigatePage(1));
 
     ui.pageImage.addEventListener("load", () => {
       renderMarker();
@@ -642,7 +760,7 @@
 
     ui.noteInput.addEventListener("input", () => queueNoteSave(600));
     ui.noteInput.addEventListener("blur", () => {
-      flushNote().catch((error) => alert(error.message));
+      flushNote().catch((error) => showToast(error.message, "error"));
     });
 
     ui.imageWrap.addEventListener("click", (event) => {
@@ -690,6 +808,27 @@
       ui.marker.classList.remove("dragging");
       await flushPatch();
     });
+
+    // Keyboard shortcuts
+    document.addEventListener("keydown", (event) => {
+      // Skip if user is typing in an input/textarea
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (event.key === "j" || event.key === "ArrowDown") {
+        event.preventDefault();
+        navigateSubmission(1);
+      } else if (event.key === "k" || event.key === "ArrowUp") {
+        event.preventDefault();
+        navigateSubmission(-1);
+      } else if (event.key === "[") {
+        event.preventDefault();
+        navigatePage(-1);
+      } else if (event.key === "]") {
+        event.preventDefault();
+        navigatePage(1);
+      }
+    });
   }
 
   async function init() {
@@ -704,7 +843,7 @@
   }
 
   init().catch((error) => {
-    setStatus(`Failed to initialize UI: ${error.message}`);
-    alert(error.message);
+    setStatus(`Failed to initialize: ${error.message}`);
+    showToast(error.message, "error");
   });
 })();

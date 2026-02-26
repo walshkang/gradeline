@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import sys
@@ -8,6 +9,7 @@ from typing import Any
 try:  # pragma: no cover - exercised through create_console_ui tests.
     from rich.console import Console
     from rich.panel import Panel
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
     from rich.table import Table
 
     _RICH_AVAILABLE = True
@@ -15,7 +17,17 @@ except Exception:  # noqa: BLE001
     Console = None  # type: ignore[assignment]
     Panel = None  # type: ignore[assignment]
     Table = None  # type: ignore[assignment]
+    Progress = None  # type: ignore[assignment]
     _RICH_AVAILABLE = False
+
+
+# Band color mapping
+_BAND_COLORS: dict[str, str] = {
+    "CHECK_PLUS": "green",
+    "CHECK": "cyan",
+    "CHECK_MINUS": "yellow",
+    "REVIEW_REQUIRED": "red",
+}
 
 
 @dataclass(frozen=True)
@@ -65,6 +77,15 @@ class ConsoleUI:
 
     def clear_status(self) -> None:
         raise NotImplementedError
+
+    def start_progress(self, total: int) -> None:
+        """Start a progress bar for batch grading."""
+
+    def advance_progress(self) -> None:
+        """Advance the progress bar by one step."""
+
+    def stop_progress(self) -> None:
+        """Stop and remove the progress bar."""
 
 
 class PlainConsoleUI(ConsoleUI):
@@ -151,11 +172,13 @@ class RichConsoleUI(ConsoleUI):
         self.console = Console()  # type: ignore[misc]
         self.err_console = Console(stderr=True)  # type: ignore[misc]
         self._status_ctx: Any | None = None
+        self._progress: Any | None = None
+        self._progress_task: Any | None = None
 
     def banner(self, title: str, subtitle: str = "") -> None:
         self.clear_status()
         text = title if not subtitle else f"{title}\n[dim]{subtitle}[/dim]"
-        self.console.print(Panel.fit(text, border_style="cyan"))
+        self.console.print(Panel.fit(text, border_style="blue"))
 
     def info(self, message: str) -> None:
         self.clear_status()
@@ -163,11 +186,11 @@ class RichConsoleUI(ConsoleUI):
 
     def warning(self, message: str) -> None:
         self.clear_status()
-        self.console.print(f"[yellow][WARN][/yellow] {message}")
+        self.console.print(f"[yellow]⚠[/yellow] {message}")
 
     def error(self, message: str) -> None:
         self.clear_status()
-        self.err_console.print(f"[red][ERROR][/red] {message}")
+        self.err_console.print(f"[red bold]✗[/red bold] {message}")
 
     def submission_started(self, index: int, total: int, folder_name: str) -> None:
         self.clear_status()
@@ -184,16 +207,20 @@ class RichConsoleUI(ConsoleUI):
     ) -> None:
         self.clear_status()
         if had_error:
-            status = "[red]FAILED[/red]"
+            status = "[red]✗ FAILED[/red]"
         elif band == "REVIEW_REQUIRED":
-            status = "[yellow]REVIEW[/yellow]"
+            status = "[yellow]⟳ REVIEW[/yellow]"
         else:
-            status = "[green]OK[/green]"
-        self.console.print(f"[cyan][{index}/{total}][/cyan] {status} [bold]{folder_name}[/bold] -> {band}")
+            status = "[green]✓ OK[/green]"
+        band_color = _BAND_COLORS.get(band, "white")
+        self.console.print(
+            f"[cyan][{index}/{total}][/cyan] {status} [bold]{folder_name}[/bold] → [{band_color}]{band}[/{band_color}]"
+        )
+        self.advance_progress()
 
     def emit_artifacts(self, artifacts: dict[str, Path | None]) -> None:
         self.clear_status()
-        table = Table(title="Artifacts", show_header=True, header_style="bold cyan")
+        table = Table(title="Artifacts", show_header=True, header_style="bold blue", border_style="dim")
         table.add_column("Output")
         table.add_column("Path", overflow="fold")
         for label, path in artifacts.items():
@@ -204,14 +231,26 @@ class RichConsoleUI(ConsoleUI):
 
     def emit_summary(self, summary: RunSummary) -> None:
         self.clear_status()
-        table = Table(title="Run Summary", show_header=True, header_style="bold cyan")
+        table = Table(title="Run Summary", show_header=True, header_style="bold blue", border_style="dim")
         table.add_column("Metric")
         table.add_column("Value", justify="right")
         table.add_row("Submissions processed", str(summary.submissions_processed))
-        table.add_row("Success count", str(summary.success_count))
-        table.add_row("Review required count", str(summary.review_required_count))
-        table.add_row("Failed with error count", str(summary.failed_with_error_count))
-        table.add_row("Warning count", str(summary.warning_count))
+        table.add_row(
+            "Success count",
+            f"[green]{summary.success_count}[/green]" if summary.success_count else "0",
+        )
+        table.add_row(
+            "Review required",
+            f"[yellow]{summary.review_required_count}[/yellow]" if summary.review_required_count else "0",
+        )
+        table.add_row(
+            "Failed with error",
+            f"[red]{summary.failed_with_error_count}[/red]" if summary.failed_with_error_count else "0",
+        )
+        table.add_row(
+            "Warnings",
+            f"[yellow]{summary.warning_count}[/yellow]" if summary.warning_count else "0",
+        )
         self.console.print(table)
 
     def status(self, message: str) -> None:
@@ -227,6 +266,30 @@ class RichConsoleUI(ConsoleUI):
             return
         self._status_ctx.__exit__(None, None, None)
         self._status_ctx = None
+
+    def start_progress(self, total: int) -> None:
+        if self._progress is not None:
+            return
+        self._progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]Grading"),
+            BarColumn(bar_width=30),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            console=self.console,
+        )
+        self._progress_task = self._progress.add_task("grading", total=total)
+        self._progress.__enter__()
+
+    def advance_progress(self) -> None:
+        if self._progress is not None and self._progress_task is not None:
+            self._progress.advance(self._progress_task)
+
+    def stop_progress(self) -> None:
+        if self._progress is not None:
+            self._progress.__exit__(None, None, None)
+            self._progress = None
+            self._progress_task = None
 
 
 def create_console_ui(

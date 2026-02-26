@@ -1,9 +1,11 @@
+
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
 
+from .prompts import styled_error, styled_info, styled_success, styled_url
 from .review.exporter import ReviewExportError, export_review_outputs
 from .review.importer import ReviewInitError, initialize_review_state
 from .review.server import run_review_server
@@ -36,12 +38,13 @@ def main(argv: list[str] | None = None) -> int:
         try:
             state_path = initialize_review_state(output_dir=args.output_dir, rubric_yaml=args.rubric_yaml)
         except ReviewInitError as exc:
-            print(f"[ERROR] {exc}", file=sys.stderr)
+            styled_error(str(exc))
             return 2
-        print(f"Initialized review state: {state_path}")
+        styled_success(f"Initialized review state: {state_path}")
         return 0
 
     if args.command == "serve":
+        styled_url("Review server", f"http://{args.host}:{args.port}")
         run_review_server(output_dir=args.output_dir, host=args.host, port=args.port)
         return 0
 
@@ -49,11 +52,11 @@ def main(argv: list[str] | None = None) -> int:
         try:
             artifacts = export_review_outputs(output_dir=args.output_dir)
         except ReviewExportError as exc:
-            print(f"[ERROR] {exc}", file=sys.stderr)
+            styled_error(str(exc))
             return 2
-        print("Exported reviewed artifacts:")
+        styled_success("Exported reviewed artifacts:")
         for label, path in artifacts.items():
-            print(f"  {label}: {path}")
+            styled_info(f"  {label}: {path}")
         return 0
 
     parser.print_help()

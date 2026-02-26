@@ -4,41 +4,45 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Grading Review</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✓</text></svg>" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
     <header class="topbar">
-      <h1>Grading Review</h1>
+      <h1>📋 Grading Review</h1>
       <div class="toolbar">
-        <span class="toolbar-note">For final PDF edits, export and open reviewed PDFs in Finder.</span>
-        <button id="tabReviewBtn" type="button" class="tab-btn active">Review</button>
-        <button id="tabConfigBtn" type="button" class="tab-btn">Config</button>
-        <button id="exportBtn" type="button">Export Reviewed Outputs</button>
+        <span class="toolbar-note">Export reviewed PDFs for final edits in Finder.</span>
+        <div class="tab-group">
+          <button id="tabReviewBtn" type="button" class="tab-btn active">Review</button>
+          <button id="tabConfigBtn" type="button" class="tab-btn">Config</button>
+        </div>
+        <button id="exportBtn" type="button" class="btn-primary">Export</button>
       </div>
     </header>
 
     <main id="reviewPanel" class="layout">
       <aside class="queue">
-        <h2>Queue</h2>
-        <label>
-          Search
-          <input id="searchInput" type="text" placeholder="Student or folder" />
-        </label>
-        <button id="refreshBtn" type="button">Refresh</button>
+        <h2>Submissions</h2>
+        <div class="queue-search">
+          <input id="searchInput" type="text" placeholder="Search students…" />
+        </div>
+        <div class="queue-actions">
+          <button id="refreshBtn" type="button">↻ Refresh</button>
+        </div>
+        <div id="queueList" class="queue-list"></div>
         <section class="run-outcomes">
-          <h3>Run Outcomes</h3>
+          <h3>Run Summary</h3>
           <pre id="runOutcomeSummary" class="run-outcome-text">Loading…</pre>
         </section>
-        <div id="queueList" class="queue-list"></div>
       </aside>
 
       <section class="viewer">
         <div class="viewer-toolbar">
           <label>
-            PDF Source
+            Source
             <select id="docSourceSelect">
-              <option value="original">original</option>
-              <option value="edited">edited</option>
+              <option value="original">Original</option>
+              <option value="edited">Edited</option>
             </select>
           </label>
           <label>
@@ -47,17 +51,25 @@
           </label>
           <label>
             Page
-            <input id="pageInput" type="number" min="1" step="1" value="1" />
+            <div style="display: flex; gap: 0.3rem; align-items: center;">
+              <button id="prevPageBtn" type="button" title="Previous page">‹</button>
+              <input id="pageInput" type="number" min="1" step="1" value="1" style="width: 3.5rem;" />
+              <button id="nextPageBtn" type="button" title="Next page">›</button>
+            </div>
           </label>
           <label>
             Scale
-            <input id="scaleInput" type="number" min="0.5" max="3" step="0.1" value="1.2" />
+            <input id="scaleInput" type="number" min="0.5" max="3" step="0.1" value="1.2" style="width: 4rem;" />
           </label>
-          <button id="loadPageBtn" type="button">Load Page</button>
+          <button id="loadPageBtn" type="button" style="align-self: flex-end;">Load</button>
         </div>
 
         <div id="imageWrap" class="image-wrap">
-          <img id="pageImage" alt="Submission page" />
+          <div id="emptyViewer" class="empty-state">
+            <div class="empty-state-icon">📄</div>
+            <div class="empty-state-text">Select a submission to view</div>
+          </div>
+          <img id="pageImage" alt="Submission page" style="display: none;" />
           <div id="marker" class="marker" hidden>●</div>
         </div>
 
@@ -65,106 +77,137 @@
       </section>
 
       <aside class="editor">
-        <h2 id="submissionTitle">Submission</h2>
-        <div class="summary" id="summaryBox"></div>
+        <div class="editor-section">
+          <h2 id="submissionTitle">Submission</h2>
+          <div class="summary" id="summaryBox"></div>
+        </div>
 
-        <label>
-          Question
-          <select id="questionSelect"></select>
-        </label>
+        <div class="editor-section">
+          <h3>Grading</h3>
+          <label>
+            Question
+            <select id="questionSelect"></select>
+          </label>
 
-        <label>
-          Verdict
-          <select id="verdictSelect">
-            <option value="correct">correct</option>
-            <option value="partial">partial</option>
-            <option value="incorrect">incorrect</option>
-            <option value="needs_review">needs_review</option>
-          </select>
-        </label>
+          <label>
+            Verdict
+            <select id="verdictSelect">
+              <option value="correct">✓ Correct</option>
+              <option value="partial">◐ Partial</option>
+              <option value="incorrect">✗ Incorrect</option>
+              <option value="needs_review">⟳ Needs Review</option>
+            </select>
+          </label>
 
-        <label>
-          Confidence
-          <input id="confidenceInput" type="number" min="0" max="1" step="0.01" />
-        </label>
+          <label>
+            Confidence
+            <input id="confidenceInput" type="number" min="0" max="1" step="0.01" />
+          </label>
+        </div>
 
-        <label>
-          Source File
-          <select id="sourceFileSelect"></select>
-        </label>
+        <div class="editor-section">
+          <h3>Location</h3>
+          <label>
+            Source File
+            <select id="sourceFileSelect"></select>
+          </label>
 
-        <label>
-          Page Number
-          <input id="pageNumberInput" type="number" min="1" step="1" />
-        </label>
+          <label>
+            Page Number
+            <input id="pageNumberInput" type="number" min="1" step="1" />
+          </label>
+        </div>
 
-        <label>
-          Short Reason
-          <textarea id="reasonInput" rows="3"></textarea>
-        </label>
+        <div class="editor-section">
+          <h3>Details</h3>
+          <label>
+            Short Reason
+            <textarea id="reasonInput" rows="2"></textarea>
+          </label>
 
-        <label>
-          Evidence Quote
-          <textarea id="evidenceInput" rows="3"></textarea>
-        </label>
+          <label>
+            Evidence Quote
+            <textarea id="evidenceInput" rows="2"></textarea>
+          </label>
 
-        <label>
-          Submission Note
-          <textarea id="noteInput" rows="3"></textarea>
-        </label>
+          <label>
+            Submission Note
+            <textarea id="noteInput" rows="2"></textarea>
+          </label>
+        </div>
       </aside>
     </main>
 
     <section id="configPanel" class="config-panel hidden">
-      <h2>Grading Config</h2>
-      <div class="config-grid">
-        <label>
-          Solutions PDF
-          <input id="solutionsPathInput" type="text" readonly />
-        </label>
-        <label>
-          Rubric YAML
-          <input id="rubricPathInput" type="text" readonly />
-        </label>
-        <label>
-          Grade Points: Check Plus
-          <input id="gpCheckPlus" type="text" />
-        </label>
-        <label>
-          Grade Points: Check
-          <input id="gpCheck" type="text" />
-        </label>
-        <label>
-          Grade Points: Check Minus
-          <input id="gpCheckMinus" type="text" />
-        </label>
-        <label>
-          Grade Points: REVIEW_REQUIRED
-          <input id="gpReviewRequired" type="text" />
-        </label>
-        <label>
-          Band: check_plus_min
-          <input id="bandCheckPlusMin" type="number" min="0" max="1" step="0.01" />
-        </label>
-        <label>
-          Band: check_min
-          <input id="bandCheckMin" type="number" min="0" max="1" step="0.01" />
-        </label>
-        <label>
-          Partial Credit
-          <input id="partialCreditInput" type="number" min="0" max="1" step="0.01" />
-        </label>
+      <h2>Grading Configuration</h2>
+
+      <div class="config-section">
+        <h3>Paths</h3>
+        <div class="config-grid">
+          <label>
+            Solutions PDF
+            <input id="solutionsPathInput" type="text" readonly />
+          </label>
+          <label>
+            Rubric YAML
+            <input id="rubricPathInput" type="text" readonly />
+          </label>
+        </div>
       </div>
 
-      <h3>Question Interpretation</h3>
-      <div id="questionRulesList" class="question-rules"></div>
+      <div class="config-section">
+        <h3>Grade Points</h3>
+        <div class="config-grid">
+          <label>
+            Check Plus
+            <input id="gpCheckPlus" type="text" />
+          </label>
+          <label>
+            Check
+            <input id="gpCheck" type="text" />
+          </label>
+          <label>
+            Check Minus
+            <input id="gpCheckMinus" type="text" />
+          </label>
+          <label>
+            Review Required
+            <input id="gpReviewRequired" type="text" />
+          </label>
+        </div>
+      </div>
+
+      <div class="config-section">
+        <h3>Band Thresholds</h3>
+        <div class="config-grid">
+          <label>
+            Check Plus Min
+            <input id="bandCheckPlusMin" type="number" min="0" max="1" step="0.01" />
+          </label>
+          <label>
+            Check Min
+            <input id="bandCheckMin" type="number" min="0" max="1" step="0.01" />
+          </label>
+          <label>
+            Partial Credit
+            <input id="partialCreditInput" type="number" min="0" max="1" step="0.01" />
+          </label>
+        </div>
+      </div>
+
+      <div class="config-section">
+        <h3>Question Interpretation</h3>
+        <div id="questionRulesList" class="question-rules"></div>
+      </div>
 
       <div class="config-actions">
-        <button id="reloadConfigBtn" type="button">Reload Config</button>
-        <button id="saveConfigBtn" type="button">Save Config</button>
+        <button id="reloadConfigBtn" type="button">↻ Reload Config</button>
+        <button id="saveConfigBtn" type="button" class="btn-primary">Save Config</button>
       </div>
       <div id="configStatus" class="viewer-meta"></div>
     </section>
+
+    <div id="toastContainer" class="toast-container"></div>
 
     <script src="/static/app.js"></script>
   </body>
