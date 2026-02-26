@@ -255,6 +255,7 @@ def row_to_question_payload(row: dict[str, str]) -> dict[str, Any]:
         verdict=str(row.get("verdict", "needs_review")).strip().lower(),
         confidence=parse_float(row.get("confidence"), default=0.0) or 0.0,
         short_reason=str(row.get("reason", "")),
+        detail_reason=str(row.get("detail_reason", "")),
         evidence_quote=str(row.get("evidence_quote", "")),
         coords=(coords[0], coords[1]) if coords else None,
         page_number=parse_int(row.get("page_number"), default=None),

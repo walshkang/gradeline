@@ -243,6 +243,9 @@ class ReviewApi:
             if "short_reason_final" in payload:
                 final_payload["short_reason"] = str(payload["short_reason_final"] or "")
 
+            if "detail_reason_final" in payload:
+                final_payload["detail_reason"] = str(payload["detail_reason_final"] or "")
+
             if "evidence_quote_final" in payload:
                 final_payload["evidence_quote"] = str(payload["evidence_quote_final"] or "")
 
@@ -572,6 +575,7 @@ def compare_question_payloads(auto_payload: dict[str, Any], final_payload: dict[
         "verdict",
         "confidence",
         "short_reason",
+        "detail_reason",
         "evidence_quote",
         "coords",
         "page_number",

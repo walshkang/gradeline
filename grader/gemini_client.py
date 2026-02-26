@@ -13,8 +13,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from .types import JsonDict, QuestionResult, RubricConfig
 
 
-PROMPT_VERSION = "2026-02-25-gemini-brightspace-v3"
+PROMPT_VERSION = "2026-02-26-gemini-brightspace-v4"
 DEFAULT_CONTEXT_CACHE_TTL_SECONDS = 86400
+SHORT_REASON_MAX_CHARS = 42
+SHORT_REASON_MAX_WORDS = 12
+DETAIL_REASON_MAX_CHARS = 260
+DETAIL_REASON_MAX_WORDS = 48
 NUMERIC_EQUIVALENCE_RULE = (
     "SYSTEM RULE: You must treat decimal and percentage notation as strictly equivalent when they express "
     "the same quantity (for example: .45, 0.45, and 45%)."
@@ -28,6 +32,7 @@ class UnifiedQuestionItem(BaseModel):
     verdict: Literal["correct", "partial", "incorrect", "needs_review"]
     confidence: float = 0.0
     short_reason: str = ""
+    detail_reason: str = ""
     evidence_quote: str = ""
     coords: list[int] | None = None
     page_number: int | None = None
@@ -405,13 +410,14 @@ def build_legacy_grading_prompt(
         "{"
         '"student_submission_id":"...",'
         '"questions":[{"id":"a","verdict":"correct|partial|incorrect|needs_review","confidence":0.0,'
-        '"short_reason":"...", "evidence_quote":"..."}],'
+        '"short_reason":"...", "detail_reason":"...", "evidence_quote":"..."}],'
         '"global_flags":["..."]'
         "}\n"
         "No markdown fences. No extra fields.\n"
         "Feedback rules:\n"
         "- If verdict is correct, short_reason must be an empty string.\n"
-        "- If verdict is incorrect or partial, short_reason must be one short teacher-style sentence.\n"
+        "- If verdict is incorrect or partial, short_reason must be a pithy correction under 42 characters.\n"
+        "- detail_reason is optional and may expand with one concise coaching sentence.\n"
         "- Use direct second-person voice and avoid third-person phrasing.\n\n"
         f"{NUMERIC_EQUIVALENCE_RULE}\n\n"
         f"Submission ID: {submission_id}\n\n"
@@ -446,11 +452,11 @@ def build_unified_grading_prompt(
     return (
         "Grade this student submission using the attached student PDF files and cached master-solution context.\n"
         "Return ONLY JSON that matches the response schema exactly.\n"
-        "Per question, include verdict, confidence, short_reason, evidence_quote, coords, page_number, source_file.\n"
+        "Per question, include verdict, confidence, short_reason, detail_reason, evidence_quote, coords, page_number, source_file.\n"
         "Coordinate rule: if your detector yields [ymin, xmin, ymax, xmax], convert it to the center and return [y, x] integers on 0..1000.\n"
         "source_file must exactly match one attached student filename.\n"
         f"{NUMERIC_EQUIVALENCE_RULE}\n"
-        "Feedback rules: correct => empty short_reason; incorrect/partial => one short teacher-style sentence in second-person voice.\n"
+        "Feedback rules: correct => empty short_reason/detail_reason; incorrect/partial => short_reason under 42 chars plus optional one-sentence detail_reason in second-person voice.\n"
         "If uncertain, set verdict=needs_review and confidence near 0.0.\n\n"
         f"Submission ID: {submission_id}\n"
         f"Expected question IDs: {labels}\n"
@@ -505,6 +511,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                     verdict="needs_review",
                     confidence=0.0,
                     short_reason="Review manually.",
+                    detail_reason="",
                     evidence_quote="",
                 )
             )
@@ -512,9 +519,10 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
 
         verdict = normalize_verdict(raw.get("verdict"))
         confidence = normalize_confidence(raw.get("confidence"))
-        short_reason = normalize_short_reason(
+        short_reason, detail_reason = normalize_feedback(
             verdict=verdict,
-            raw_reason=str(raw.get("short_reason", "")).strip()[:300],
+            raw_short_reason=str(raw.get("short_reason", "")).strip()[:500],
+            raw_detail_reason=str(raw.get("detail_reason", "")).strip()[:900],
             fallback_fail_note=question.short_note_fail,
         )
         evidence_quote = str(raw.get("evidence_quote", "")).strip()[:500]
@@ -527,6 +535,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                 verdict=verdict,
                 confidence=confidence,
                 short_reason=short_reason,
+                detail_reason=detail_reason,
                 evidence_quote=evidence_quote,
                 coords=coords,
                 page_number=page_number,
@@ -542,25 +551,96 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
     }
 
 
-def normalize_short_reason(
+def normalize_feedback(
     *,
     verdict: str,
-    raw_reason: str,
+    raw_short_reason: str,
+    raw_detail_reason: str,
     fallback_fail_note: str,
-) -> str:
+) -> tuple[str, str]:
     if verdict == "correct":
-        return ""
+        return "", ""
     if verdict == "needs_review":
-        return "Review manually."
+        return "Review manually.", ""
 
-    candidate = extract_pithy_sentence(raw_reason)
+    short_reason = derive_short_reason(raw_short_reason=raw_short_reason, fallback_fail_note=fallback_fail_note)
+    detail_reason = derive_detail_reason(
+        raw_short_reason=raw_short_reason,
+        raw_detail_reason=raw_detail_reason,
+        short_reason=short_reason,
+    )
+    return short_reason, detail_reason
+
+
+def derive_short_reason(*, raw_short_reason: str, fallback_fail_note: str) -> str:
+    candidate = extract_pithy_sentence(
+        raw_short_reason,
+        max_chars=SHORT_REASON_MAX_CHARS,
+        max_words=SHORT_REASON_MAX_WORDS,
+    )
     if candidate and (not is_third_person_feedback(candidate)):
-        return candidate
+        return clamp_short_reason(candidate)
 
-    fallback = extract_pithy_sentence(fallback_fail_note)
+    fallback = extract_pithy_sentence(
+        fallback_fail_note,
+        max_chars=SHORT_REASON_MAX_CHARS,
+        max_words=SHORT_REASON_MAX_WORDS,
+    )
     if fallback:
-        return fallback
+        return clamp_short_reason(fallback)
     return "Check your work."
+
+
+def derive_detail_reason(*, raw_short_reason: str, raw_detail_reason: str, short_reason: str) -> str:
+    direct_detail = extract_detail_reason(raw_detail_reason)
+    if direct_detail:
+        return direct_detail
+
+    overflow = extract_overflow_detail(raw_short_reason, short_reason)
+    return extract_detail_reason(overflow)
+
+
+def extract_detail_reason(text: str) -> str:
+    cleaned = " ".join(str(text or "").split())
+    if not cleaned:
+        return ""
+    lowered = cleaned.lower()
+    if lowered in {"n/a", "na", "none", "no reason provided by model."}:
+        return ""
+    words = cleaned.split()
+    if len(words) > DETAIL_REASON_MAX_WORDS:
+        cleaned = " ".join(words[:DETAIL_REASON_MAX_WORDS]).rstrip()
+    if len(cleaned) > DETAIL_REASON_MAX_CHARS:
+        cleaned = cleaned[:DETAIL_REASON_MAX_CHARS].rstrip()
+        if " " in cleaned:
+            cleaned = cleaned.rsplit(" ", 1)[0].rstrip()
+    return cleaned
+
+
+def extract_overflow_detail(raw_short_reason: str, short_reason: str) -> str:
+    cleaned = " ".join(str(raw_short_reason or "").split())
+    if not cleaned:
+        return ""
+    if not short_reason:
+        return cleaned
+    if cleaned == short_reason:
+        return ""
+    if cleaned.startswith(short_reason):
+        return cleaned[len(short_reason) :].lstrip(" .;:-")
+    idx = cleaned.find(short_reason)
+    if idx >= 0:
+        return cleaned[idx + len(short_reason) :].lstrip(" .;:-")
+    return ""
+
+
+def clamp_short_reason(text: str) -> str:
+    cleaned = " ".join(str(text or "").split())
+    if len(cleaned) <= SHORT_REASON_MAX_CHARS:
+        return cleaned
+    clipped = cleaned[:SHORT_REASON_MAX_CHARS].rstrip()
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0].rstrip()
+    return clipped or cleaned[:SHORT_REASON_MAX_CHARS].rstrip()
 
 
 def extract_pithy_sentence(text: str, max_chars: int = 90, max_words: int = 16) -> str:

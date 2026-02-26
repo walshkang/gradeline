@@ -2,7 +2,7 @@
   "args_snapshot": {
     "annotate_dry_run_marks": false,
     "api_key_env": "GEMINI_API_KEY",
-    "cache_dir": ".grader_cache",
+    "cache_dir": "/Users/walsh.kang/Documents/GitHub/sda-grader/.grader_cache",
     "check_minus_points": "65",
     "check_plus_points": "100",
     "check_points": "85",
@@ -25,9 +25,9 @@
     "solutions_pdf": "/Users/walsh.kang/Downloads/execDC24n2soln - Copy.pdf",
     "student_filter": "",
     "submissions_dir": "/Users/walsh.kang/Downloads/Assignment 2 Download Feb 25, 2026 233 PM",
-    "temp_dir": ".grader_tmp"
+    "temp_dir": "/Users/walsh.kang/Documents/GitHub/sda-grader/.grader_tmp"
   },
-  "ended_at": "2026-02-25T20:07:56Z",
+  "ended_at": "2026-02-26T13:54:47Z",
   "events": [
     {
       "code": "report_mapping_warning",
@@ -36,12 +36,12 @@
       "severity": "warning",
       "stage": "report_write",
       "submission_folder": null,
-      "timestamp": "2026-02-25T20:07:56Z",
+      "timestamp": "2026-02-26T13:54:47Z",
       "traceback_snippet": null
     }
   ],
-  "run_id": "854b4fd0e59740529ba29f6e9c070bd4",
-  "started_at": "2026-02-25T19:53:12Z",
+  "run_id": "f5e4461bff1d48ca80a59c23de44efe9",
+  "started_at": "2026-02-26T13:54:45Z",
   "totals": {
     "by_code": {
       "report_mapping_warning": 1

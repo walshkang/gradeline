@@ -257,7 +257,7 @@ def mark_text_for_result(question_id: str, result: QuestionResult) -> str:
     symbol = "✓" if result.verdict == "correct" else "x"
     if result.verdict == "correct":
         return f"{symbol} Q{question_id}"
-    reason = compact_reason(result.short_reason) or "Review manually."
+    reason = compact_reason(result.short_reason, max_chars=42) or "Review manually."
     return f"{symbol} Q{question_id}: {reason}"
 
 
@@ -265,7 +265,10 @@ def compact_reason(text: str, max_chars: int = 42) -> str:
     cleaned = " ".join(text.split())
     if len(cleaned) <= max_chars:
         return cleaned
-    return cleaned[: max_chars - 3].rstrip() + "..."
+    clipped = cleaned[:max_chars].rstrip()
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0].rstrip()
+    return clipped or cleaned[:max_chars].rstrip()
 
 
 def sanitize_subject_component(value: str) -> str:

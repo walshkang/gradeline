@@ -50,6 +50,7 @@ class QuestionResult:
     confidence: float
     short_reason: str
     evidence_quote: str
+    detail_reason: str = ""
     coords: tuple[float, float] | None = None  # [y, x] in 0..1000 normalized space
     page_number: int | None = None
     source_file: str | None = None

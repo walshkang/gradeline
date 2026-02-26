@@ -45,6 +45,7 @@
     sourceFileSelect: document.getElementById("sourceFileSelect"),
     pageNumberInput: document.getElementById("pageNumberInput"),
     reasonInput: document.getElementById("reasonInput"),
+    detailReasonInput: document.getElementById("detailReasonInput"),
     evidenceInput: document.getElementById("evidenceInput"),
     noteInput: document.getElementById("noteInput"),
     solutionsPathInput: document.getElementById("solutionsPathInput"),
@@ -360,6 +361,7 @@
     ui.confidenceInput.value = String(finalData.confidence ?? 0);
     ui.pageNumberInput.value = finalData.page_number || "";
     ui.reasonInput.value = finalData.short_reason || "";
+    ui.detailReasonInput.value = finalData.detail_reason || "";
     ui.evidenceInput.value = finalData.evidence_quote || "";
     ui.noteInput.value = submission.note || "";
 
@@ -747,6 +749,9 @@
       queuePatch({ confidence_final: Number(ui.confidenceInput.value || "0") }, 550)
     );
     ui.reasonInput.addEventListener("input", () => queuePatch({ short_reason_final: ui.reasonInput.value || "" }, 550));
+    ui.detailReasonInput.addEventListener("input", () =>
+      queuePatch({ detail_reason_final: ui.detailReasonInput.value || "" }, 550)
+    );
     ui.evidenceInput.addEventListener("input", () =>
       queuePatch({ evidence_quote_final: ui.evidenceInput.value || "" }, 550)
     );
