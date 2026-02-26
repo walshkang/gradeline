@@ -29,7 +29,9 @@ from .ui import RunSummary, args_to_subtitle, create_console_ui
 
 LEGACY_MODE = "legacy"
 UNIFIED_MODE = "unified"
+AGENT_MODE = "agent"
 DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_AGENT_TYPE = "gemini"
 DEFAULT_OCR_CHAR_THRESHOLD = 200
 LOW_CONFIDENCE_THRESHOLD = 0.55
 
@@ -164,7 +166,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--temp-dir", type=Path, default=Path(".grader_tmp"))
     parser.add_argument("--cache-dir", type=Path, default=Path(".grader_cache"))
-    parser.add_argument("--grading-mode", choices=(LEGACY_MODE, UNIFIED_MODE), default=LEGACY_MODE)
+    parser.add_argument("--grading-mode", choices=(LEGACY_MODE, UNIFIED_MODE, AGENT_MODE), default=LEGACY_MODE)
+    parser.add_argument("--agent-type", choices=("gemini", "codex", "claude"), default=DEFAULT_AGENT_TYPE)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--locator-model", default="")
     parser.add_argument("--api-key-env", default="GEMINI_API_KEY")
@@ -245,6 +248,22 @@ def main(argv: list[str] | None = None) -> int:
             diagnostics.record(
                 severity="error",
                 code="preflight_missing_binaries",
+                stage="preflight",
+                message=message,
+            )
+            ui.error(message)
+            return conclude(exit_code=2, submission_results=[], warnings=[])
+    elif args.grading_mode == AGENT_MODE:
+        import shutil
+        agent_binary = args.agent_type
+        if args.agent_type == "claude":
+            agent_binary = "claude"
+        
+        if shutil.which(agent_binary) is None:
+            message = f"Agent CLI '{agent_binary}' not found in path. Required for agentic grading mode."
+            diagnostics.record(
+                severity="error",
+                code="preflight_missing_agent_cli",
                 stage="preflight",
                 message=message,
             )
@@ -458,6 +477,7 @@ def main(argv: list[str] | None = None) -> int:
                 grade_points=grade_points,
                 grader=grader,
                 grading_mode=args.grading_mode,
+                agent_type=args.agent_type,
                 context_cache=args.context_cache,
                 context_cache_ttl_seconds=args.context_cache_ttl_seconds,
                 dry_run=args.dry_run,
@@ -644,6 +664,7 @@ def grade_one_submission(
     grade_points: dict[str, str],
     grader: GeminiGrader | None,
     grading_mode: str,
+    agent_type: str,
     context_cache: bool,
     context_cache_ttl_seconds: int,
     dry_run: bool,
@@ -722,7 +743,7 @@ def grade_one_submission(
                     solutions_text=solutions_text or "",
                 )
                 global_flags.extend(model_flags)
-            else:
+            elif grading_mode == UNIFIED_MODE:
                 if status_update is not None:
                     status_update(f"unified grading {len(rubric.questions)} questions")
                 question_results, model_flags = grader.grade_submission_unified(
@@ -748,6 +769,19 @@ def grade_one_submission(
                                 message=context_cache_flag_message(flag),
                                 submission_folder=unit.folder_path.name,
                             )
+            elif grading_mode == AGENT_MODE:
+                if status_update is not None:
+                    status_update(f"agentic grading ({agent_type}) {len(rubric.questions)} questions")
+                question_results, model_flags = grader.grade_submission_agent(
+                    submission_id=unit.folder_path.name,
+                    pdf_paths=unit.pdf_paths,
+                    rubric=rubric,
+                    solutions_pdf_path=solutions_pdf_path,
+                    agent_type=agent_type,
+                )
+                global_flags.extend(model_flags)
+            else:
+                raise ValueError(f"Unsupported grading mode: {grading_mode}")
         except ValueError as exc:
             if grading_mode == UNIFIED_MODE:
                 grading_error = f"Unified Gemini schema validation failed: {exc}"

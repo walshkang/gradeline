@@ -188,6 +188,8 @@ Optional flags:
 --plain                          # force plain text output (no Rich formatting)
 --diagnostics-file "/custom/path/grading_diagnostics.json"
 --grading-mode legacy            # use legacy OCR/text + optional locator pass
+--grading-mode agent             # agentic mode: uses an external CLI agent for multi-step reasoning
+--agent-type "gemini"            # choices: gemini (default), codex, claude
 --locator-model "gemini-3-flash-preview"
 --context-cache --context-cache-ttl-seconds 86400
 --student-filter "Jane Doe"      # regex to grade specific students only
@@ -244,6 +246,10 @@ Reviewed artifacts are written into `output_dir/review/`:
 - If any question is `needs_review`, final band is `REVIEW_REQUIRED`.
 - `--grading-mode` defaults to `legacy` for phased rollout.
 - In `unified` mode, grading and coordinate locating happen in one structured Gemini call.
+- In `agent` mode, the tool uses an installed CLI agent (like `gemini`, `codex`, or `claude`) to perform multi-step reasoning. This is often more robust for complex or handwritten submissions.
+- `gemini` agent requires the `gemini` CLI.
+- `codex` agent requires the `codex` CLI.
+- `claude` agent requires the `claude` CLI (Claude Code).
 - In `legacy` mode, `--locator-model` is optional; if set, model-provided PDF coordinates are used before local anchor fallback.
 - In `unified` mode, `--locator-model` and `--ocr-char-threshold` are ignored with warnings.
 - Unified mode uses Gemini context caching for `solutions.pdf` unless `--no-context-cache` is passed.

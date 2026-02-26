@@ -377,6 +377,8 @@ def args_to_subtitle(args: Any) -> str:
         locator_model = getattr(args, "locator_model", "")
         locator_text = locator_model if locator_model else "disabled"
         return f"mode={mode} | grading={grading_mode} | model={model} | locator={locator_text}"
+    if grading_mode == "agent":
+        return f"mode={mode} | grading={grading_mode} | model={model}"
     cache_enabled = bool(getattr(args, "context_cache", True))
     cache_text = "on" if cache_enabled else "off"
     return f"mode={mode} | grading={grading_mode} | model={model} | cache={cache_text}"

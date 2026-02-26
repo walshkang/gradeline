@@ -4,6 +4,7 @@ import hashlib
 import json
 import random
 import re
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -175,6 +176,79 @@ class GeminiGrader:
 
         payload = call_with_backoff(invoke, max_retries=self.max_retries)
         payload["global_flags"] = merge_flags(payload.get("global_flags", []), cache_flags)
+        normalized = normalize_model_response(payload, rubric)
+        self._cache[cache_key] = payload
+        self._save_cache()
+        return normalized["questions"], normalized["global_flags"]
+
+    def grade_submission_agent(
+        self,
+        submission_id: str,
+        pdf_paths: list[Path],
+        rubric: RubricConfig,
+        solutions_pdf_path: Path,
+        agent_type: str = "gemini",
+    ) -> tuple[list[QuestionResult], list[str]]:
+        cache_key = compute_agent_grade_cache_key(
+            submission_id=submission_id,
+            pdf_paths=pdf_paths,
+            rubric=rubric,
+            model=self.model,
+            agent_type=agent_type,
+        )
+        cached = self._cache.get(cache_key)
+        if cached:
+            normalized = normalize_model_response(cached, rubric)
+            return normalized["questions"], normalized["global_flags"]
+
+        prompt = build_agent_grading_prompt(
+            submission_id=submission_id,
+            rubric=rubric,
+            pdf_paths=pdf_paths,
+            solutions_pdf_path=solutions_pdf_path,
+            agent_type=agent_type,
+        )
+
+        def invoke() -> JsonDict:
+            if agent_type == "gemini":
+                cmd = ["gemini", "-p", prompt, "-o", "json"]
+                if self.model:
+                    cmd.extend(["-m", self.model])
+            elif agent_type == "codex":
+                cmd = ["codex", "exec", prompt]
+                if self.model:
+                    cmd.extend(["-m", self.model])
+            elif agent_type == "claude":
+                cmd = ["claude", "-p", prompt]
+            else:
+                raise ValueError(f"Unsupported agent type: {agent_type}")
+
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                raise RuntimeError(f"Agent CLI '{agent_type}' failed with exit code {result.returncode}: {result.stderr or result.stdout}")
+
+            output = result.stdout
+            if agent_type == "gemini":
+                try:
+                    agent_response = json.loads(output)
+                    # Extract content from 'response' (most common) or fallback to 'turns'.
+                    content = agent_response.get("response")
+                    if not content:
+                        turns = agent_response.get("turns", [])
+                        if turns:
+                            content = turns[-1].get("content")
+                    if not content:
+                        raise ValueError("Agent response has no extractable content.")
+                    output = content
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(f"Failed to parse gemini CLI JSON output: {exc}") from exc
+
+            # The output should contain the JSON payload.
+            payload = parse_json_maybe_fenced(output)
+            return payload
+
+        payload = call_with_backoff(invoke, max_retries=self.max_retries)
+        payload["global_flags"] = merge_flags(payload.get("global_flags", []), [f"agent_mode", f"agent_{agent_type}"])
         normalized = normalize_model_response(payload, rubric)
         self._cache[cache_key] = payload
         self._save_cache()
@@ -461,6 +535,66 @@ def build_unified_grading_prompt(
         f"Submission ID: {submission_id}\n"
         f"Expected question IDs: {labels}\n"
         f"Attached student files: {files}\n"
+    )
+
+
+def build_agent_grading_prompt(
+    submission_id: str,
+    rubric: RubricConfig,
+    pdf_paths: list[Path],
+    solutions_pdf_path: Path,
+    agent_type: str = "gemini",
+) -> str:
+    labels = ", ".join(question.id for question in rubric.questions)
+    files_info = "\n".join([f"- Student File: {path.absolute()}" for path in pdf_paths])
+    rubric_lines = build_rubric_lines(rubric)
+
+    agent_flavor = ""
+    if agent_type == "gemini":
+        agent_flavor = "Use your ability to read and analyze PDF files directly."
+    elif agent_type == "codex":
+        agent_flavor = "Use your code execution and file reading tools to analyze the PDF contents."
+    elif agent_type == "claude":
+        agent_flavor = "Analyze the PDF files provided in the context."
+
+    return (
+        "You are an expert statistics grader. Your goal is to grade a student submission accurately.\n\n"
+        f"{agent_flavor}\n\n"
+        "### STEP 1: READ THE SOURCE OF TRUTH\n"
+        f"Read the master solution PDF at: {solutions_pdf_path.absolute()}\n"
+        "Understand the correct answers and the following rubric rules:\n"
+        f"{chr(10).join(rubric_lines)}\n\n"
+        "### STEP 2: READ THE STUDENT SUBMISSION\n"
+        "Use your tools to read the following student PDF files:\n"
+        f"{files_info}\n\n"
+        "### STEP 3: PERFORM GRADING\n"
+        "Carefully evaluate the student's work against the master solution for each question.\n"
+        "Handwritten work must be analyzed with high precision.\n\n"
+        "### STEP 4: OUTPUT RESULTS\n"
+        "Output ONLY a valid JSON object (enclosed in markdown ```json blocks if possible) matching this schema:\n"
+        "{\n"
+        '  "student_submission_id": "...",\n'
+        '  "questions": [\n'
+        '    {\n'
+        '      "id": "question_id",\n'
+        '      "verdict": "correct|partial|incorrect|needs_review",\n'
+        '      "confidence": 0.0 to 1.0,\n'
+        '      "short_reason": "under 42 chars",\n'
+        '      "detail_reason": "one concise coaching sentence",\n'
+        '      "evidence_quote": "relevant text from submission",\n'
+        '      "coords": [y, x], // 0-1000 normalized center of the answer\n'
+        '      "page_number": 1-indexed,\n'
+        '      "source_file": "filename.pdf"\n'
+        "    }\n"
+        "  ],\n"
+        '  "global_flags": []\n'
+        "}\n\n"
+        "Rules:\n"
+        "- If verdict is correct, short_reason and detail_reason MUST be empty.\n"
+        "- Use direct second-person voice ('You did X') for feedback.\n"
+        f"- {NUMERIC_EQUIVALENCE_RULE}\n"
+        f"Submission ID: {submission_id}\n"
+        f"Expected question IDs: {labels}\n"
     )
 
 
@@ -845,6 +979,26 @@ def compute_context_cache_key(
     hasher.update(model.encode("utf-8"))
     hasher.update(hash_file(solutions_pdf_path).encode("utf-8"))
     hasher.update(json.dumps(rubric_to_cache_payload(rubric), sort_keys=True).encode("utf-8"))
+    return hasher.hexdigest()
+
+
+def compute_agent_grade_cache_key(
+    submission_id: str,
+    pdf_paths: list[Path],
+    rubric: RubricConfig,
+    model: str,
+    agent_type: str = "gemini",
+) -> str:
+    hasher = hashlib.sha256()
+    hasher.update(PROMPT_VERSION.encode("utf-8"))
+    hasher.update(b"agent")
+    hasher.update(agent_type.encode("utf-8"))
+    hasher.update(model.encode("utf-8"))
+    hasher.update(submission_id.encode("utf-8"))
+    hasher.update(json.dumps(rubric_to_cache_payload(rubric), sort_keys=True).encode("utf-8"))
+    for path in sorted(pdf_paths, key=lambda p: str(p)):
+        hasher.update(str(path).encode("utf-8"))
+        hasher.update(hash_file(path).encode("utf-8"))
     return hasher.hexdigest()
 
 
