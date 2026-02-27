@@ -5,6 +5,8 @@ import os
 import re
 import sys
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
@@ -30,12 +32,12 @@ from .ui import RunSummary, args_to_subtitle, create_console_ui
 LEGACY_MODE = "legacy"
 UNIFIED_MODE = "unified"
 AGENT_MODE = "agent"
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_AGENT_TYPE = "gemini"
 DEFAULT_OCR_CHAR_THRESHOLD = 200
 LOW_CONFIDENCE_THRESHOLD = 0.55
 
-VERDICT_SYMBOLS = {"correct": "✓", "partial": "◐", "incorrect": "✗", "needs_review": "⟳"}
+VERDICT_SYMBOLS = {"correct": "✓", "partial": "◐", "rounding_error": "≈", "incorrect": "✗", "needs_review": "⟳"}
 
 
 @dataclass
@@ -166,7 +168,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--temp-dir", type=Path, default=Path(".grader_tmp"))
     parser.add_argument("--cache-dir", type=Path, default=Path(".grader_cache"))
-    parser.add_argument("--grading-mode", choices=(LEGACY_MODE, UNIFIED_MODE, AGENT_MODE), default=LEGACY_MODE)
+    parser.add_argument("--grading-mode", choices=(LEGACY_MODE, UNIFIED_MODE, AGENT_MODE), default=UNIFIED_MODE)
     parser.add_argument("--agent-type", choices=("gemini", "codex", "claude"), default=DEFAULT_AGENT_TYPE)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--locator-model", default="")
@@ -186,6 +188,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--no-context-cache", dest="context_cache", action="store_false")
     parser.set_defaults(context_cache=True)
     parser.add_argument("--context-cache-ttl-seconds", type=int, default=86400)
+    parser.add_argument("--concurrency", type=int, default=5)
     parser.add_argument("--plain", action="store_true")
     parser.add_argument("--diagnostics-file", type=Path, default=None)
     return parser.parse_args(argv)
@@ -453,17 +456,31 @@ def main(argv: list[str] | None = None) -> int:
     submission_results: list[SubmissionResult] = []
     ui.section_heading("Grading")
     ui.start_progress(len(units))
-    for index, unit in enumerate(units, start=1):
+    
+    ui_lock = threading.Lock()
+    rolling_lock = threading.Lock()
+    completed_submissions = 0
+
+    def locked_status_update(prefix: str) -> Callable[[str], None]:
+        def update(message: str) -> None:
+            with ui_lock:
+                ui.status(f"{prefix} :: {message}")
+        return update
+
+    def process_student(index: int, unit) -> tuple[int, SubmissionResult, float]:
         folder_name = unit.folder_path.name
         sub_start = time.monotonic()
-        ui.submission_started(index=index, total=len(units), folder_name=folder_name)
+        with ui_lock:
+            ui.submission_started(index=index, total=len(units), folder_name=folder_name)
         status_prefix = f"[{index}/{len(units)}] {folder_name}"
         if args.grading_mode == LEGACY_MODE:
-            ui.status(f"{status_prefix} :: preparing extraction")
+            with ui_lock:
+                ui.status(f"{status_prefix} :: preparing extraction")
         else:
-            ui.status(f"{status_prefix} :: preparing unified grading")
+            with ui_lock:
+                ui.status(f"{status_prefix} :: preparing unified grading")
 
-        status_update = build_status_updater(ui=ui, prefix=status_prefix)
+        status_update = locked_status_update(prefix=status_prefix)
         try:
             result = grade_one_submission(
                 unit=unit,
@@ -488,23 +505,57 @@ def main(argv: list[str] | None = None) -> int:
             )
         except Exception as exc:  # noqa: BLE001
             message = f"Unhandled submission failure: {exc}"
-            diagnostics.record(
-                severity="error",
-                code="grading_unhandled_submission",
-                stage="grading",
-                message=message,
-                submission_folder=folder_name,
-                exc=exc,
-            )
+            with rolling_lock:
+                diagnostics.record(
+                    severity="error",
+                    code="grading_unhandled_submission",
+                    stage="grading",
+                    message=message,
+                    submission_folder=folder_name,
+                    exc=exc,
+                )
             result = build_failed_submission_result(
                 unit=unit,
                 rubric=rubric,
                 grade_points=grade_points,
                 error_message=message,
             )
+        
         sub_elapsed = time.monotonic() - sub_start
-        ui.clear_status()
-        submission_results.append(result)
+        with ui_lock:
+            ui.clear_status()
+
+        return index, result, sub_elapsed
+
+    def annotate_and_finish(index: int, result: SubmissionResult, sub_elapsed: float) -> SubmissionResult:
+        nonlocal rolling, completed_submissions
+        folder_name = result.submission.folder_path.name
+        
+        try:
+            output_pdf_paths, updated_question_results = annotate_submission_pdfs(
+                submission=result.submission,
+                rubric=rubric,
+                question_results=result.question_results,
+                output_dir=args.output_dir,
+                submissions_root=args.submissions_dir,
+                final_band=result.grade_result.band,
+                dry_run=args.dry_run,
+                annotate_dry_run_marks=args.annotate_dry_run_marks,
+            )
+            result.output_pdf_paths = output_pdf_paths
+            result.question_results = updated_question_results
+        except Exception as exc:  # noqa: BLE001
+            annotation_error = f"Annotation failed: {exc}"
+            with rolling_lock:
+                diagnostics.record(
+                    severity="error",
+                    code="annotation_failed",
+                    stage="annotation",
+                    message=annotation_error,
+                    submission_folder=folder_name,
+                    exc=exc,
+                )
+            result.error = append_error(result.error, annotation_error)
 
         rationale = build_trust_rationale(
             question_results=result.question_results,
@@ -513,19 +564,38 @@ def main(argv: list[str] | None = None) -> int:
             rubric_bands=rubric.bands,
             global_flags=result.global_flags,
         )
-        remaining = len(units) - index
-        rolling = update_rolling_snapshot(rolling, result, sub_elapsed, remaining)
+        
+        with rolling_lock:
+            completed_submissions += 1
+            remaining = len(units) - completed_submissions
+            rolling = update_rolling_snapshot(rolling, result, sub_elapsed, remaining)
+            current_rolling = rolling
 
-        ui.submission_finished(
-            index=index,
-            total=len(units),
-            folder_name=folder_name,
-            band=result.grade_result.band,
-            had_error=bool(result.error),
-            rationale=rationale,
-            elapsed_seconds=sub_elapsed,
-            snapshot=rolling,
-        )
+        with ui_lock:
+            ui.submission_finished(
+                index=index,
+                total=len(units),
+                folder_name=folder_name,
+                band=result.grade_result.band,
+                had_error=bool(result.error),
+                rationale=rationale,
+                elapsed_seconds=sub_elapsed,
+                snapshot=current_rolling,
+            )
+        return result
+
+    with ThreadPoolExecutor(max_workers=args.concurrency) as api_executor:
+        with ThreadPoolExecutor(max_workers=max(1, args.concurrency // 2)) as annotation_executor:
+            # Map API calls
+            api_futures = {api_executor.submit(process_student, i, unit): i for i, unit in enumerate(units, start=1)}
+            annotation_futures = []
+            
+            for future in as_completed(api_futures):
+                idx, result, elapsed = future.result()
+                annotation_futures.append(annotation_executor.submit(annotate_and_finish, idx, result, elapsed))
+
+            for future in as_completed(annotation_futures):
+                submission_results.append(future.result())
 
     warnings: list[str] = []
     try:
@@ -810,6 +880,7 @@ def grade_one_submission(
                     id=question.id,
                     verdict="needs_review",
                     confidence=0.0,
+                    logic_analysis="",
                     short_reason=grading_error,
                     evidence_quote="",
                 )
@@ -838,6 +909,7 @@ def grade_one_submission(
                     id=question.id,
                     verdict="needs_review",
                     confidence=0.0,
+                    logic_analysis="",
                     short_reason=grading_error,
                     evidence_quote="",
                 )
@@ -875,39 +947,12 @@ def grade_one_submission(
         question_results=question_results,
         grade_points=grade_points,
     )
-    if status_update is not None:
-        status_update("annotating submission")
-    try:
-        output_pdf_paths, question_results = annotate_submission_pdfs(
-            submission=unit,
-            rubric=rubric,
-            question_results=question_results,
-            output_dir=output_dir,
-            submissions_root=submissions_root,
-            final_band=grade_result.band,
-            dry_run=dry_run,
-            annotate_dry_run_marks=annotate_dry_run_marks,
-            progress_callback=build_annotation_progress_callback(status_update, len(rubric.questions)),
-        )
-    except Exception as exc:  # noqa: BLE001
-        output_pdf_paths = []
-        annotation_error = f"Annotation failed: {exc}"
-        if diagnostics is not None:
-            diagnostics.record(
-                severity="error",
-                code="annotation_failed",
-                stage="annotation",
-                message=annotation_error,
-                submission_folder=unit.folder_path.name,
-                exc=exc,
-            )
-        accumulated_error = append_error(accumulated_error, annotation_error)
 
     return SubmissionResult(
         submission=unit,
         question_results=question_results,
         grade_result=grade_result,
-        output_pdf_paths=output_pdf_paths,
+        output_pdf_paths=[],
         extraction_sources=extraction_sources,
         global_flags=dedupe_flags(global_flags),
         error=accumulated_error,

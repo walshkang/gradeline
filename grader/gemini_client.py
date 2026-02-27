@@ -4,8 +4,10 @@ import hashlib
 import json
 import random
 import re
+import sqlite3
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -22,7 +24,10 @@ DETAIL_REASON_MAX_CHARS = 260
 DETAIL_REASON_MAX_WORDS = 48
 NUMERIC_EQUIVALENCE_RULE = (
     "SYSTEM RULE: You must treat decimal and percentage notation as strictly equivalent when they express "
-    "the same quantity (for example: .45, 0.45, and 45%)."
+    "the same quantity (for example: .45, 0.45, and 45%).\n"
+    "MATH EVALUATION: You must distinguish between minor intermediate rounding differences and fundamentally flawed logic. "
+    "If the student's formula and logic are correct but the final answer is off by a small rounding margin, assign 'rounding_error'. "
+    "If the underlying equation or logic is wrong, assign 'incorrect'."
 )
 
 
@@ -30,7 +35,8 @@ class UnifiedQuestionItem(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str
-    verdict: Literal["correct", "partial", "incorrect", "needs_review"]
+    logic_analysis: str
+    verdict: Literal["correct", "partial", "rounding_error", "incorrect", "needs_review"]
     confidence: float = 0.0
     short_reason: str = ""
     detail_reason: str = ""
@@ -61,10 +67,7 @@ class GeminiGrader:
         self.cache_dir = cache_dir
         self.max_retries = max_retries
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_path = self.cache_dir / "cache.json"
-        self.context_cache_path = self.cache_dir / "context_cache.json"
-        self._cache = self._load_cache()
-        self._context_cache = self._load_context_cache()
+        self._init_db()
         self._resolved_context_names: dict[str, str] = {}
 
         from google import genai  # Lazy import for testability without dependency.
@@ -87,12 +90,14 @@ class GeminiGrader:
             solutions_text=solutions_text,
             model=self.model,
         )
-        cached = self._cache.get(cache_key)
+        cached = self._get_cache(cache_key)
         if cached:
             normalized = normalize_model_response(cached, rubric)
             return normalized["questions"], normalized["global_flags"]
 
-        files = [self._upload_and_wait(pdf_path) for pdf_path in pdf_paths]
+        with ThreadPoolExecutor(max_workers=min(4, len(pdf_paths) or 1)) as executor:
+            files = list(executor.map(self._upload_and_wait, pdf_paths))
+
         prompt = build_legacy_grading_prompt(
             submission_id=submission_id,
             rubric=rubric,
@@ -112,8 +117,7 @@ class GeminiGrader:
 
         payload = call_with_backoff(invoke, max_retries=self.max_retries)
         normalized = normalize_model_response(payload, rubric)
-        self._cache[cache_key] = payload
-        self._save_cache()
+        self._set_cache(cache_key, payload)
         return normalized["questions"], normalized["global_flags"]
 
     def grade_submission_unified(
@@ -137,12 +141,16 @@ class GeminiGrader:
             model=self.model,
             context_key=context_key,
         )
-        cached = self._cache.get(cache_key)
+        cached = self._get_cache(cache_key)
         if cached:
             normalized = normalize_model_response(cached, rubric)
             return normalized["questions"], normalized["global_flags"]
 
-        files = [self._upload_and_wait(pdf_path) for pdf_path in pdf_paths]
+        # ... (file uploads remain same here for now, will refactor concurrently later)
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(4, len(pdf_paths) or 1)) as executor:
+            files = list(executor.map(self._upload_and_wait, pdf_paths))
+
         prompt = build_unified_grading_prompt(
             submission_id=submission_id,
             rubric=rubric,
@@ -177,8 +185,7 @@ class GeminiGrader:
         payload = call_with_backoff(invoke, max_retries=self.max_retries)
         payload["global_flags"] = merge_flags(payload.get("global_flags", []), cache_flags)
         normalized = normalize_model_response(payload, rubric)
-        self._cache[cache_key] = payload
-        self._save_cache()
+        self._set_cache(cache_key, payload)
         return normalized["questions"], normalized["global_flags"]
 
     def grade_submission_agent(
@@ -196,7 +203,7 @@ class GeminiGrader:
             model=self.model,
             agent_type=agent_type,
         )
-        cached = self._cache.get(cache_key)
+        cached = self._get_cache(cache_key)
         if cached:
             normalized = normalize_model_response(cached, rubric)
             return normalized["questions"], normalized["global_flags"]
@@ -230,7 +237,8 @@ class GeminiGrader:
             output = result.stdout
             if agent_type == "gemini":
                 try:
-                    agent_response = json.loads(output)
+                    # gemini CLI output may contain non-JSON noise (warnings, credential messages)
+                    agent_response = parse_json_maybe_fenced(output)
                     # Extract content from 'response' (most common) or fallback to 'turns'.
                     content = agent_response.get("response")
                     if not content:
@@ -239,7 +247,7 @@ class GeminiGrader:
                             content = turns[-1].get("content")
                     if not content:
                         raise ValueError("Agent response has no extractable content.")
-                    output = content
+                    return parse_json_maybe_fenced(content)
                 except json.JSONDecodeError as exc:
                     raise RuntimeError(f"Failed to parse gemini CLI JSON output: {exc}") from exc
 
@@ -250,8 +258,7 @@ class GeminiGrader:
         payload = call_with_backoff(invoke, max_retries=self.max_retries)
         payload["global_flags"] = merge_flags(payload.get("global_flags", []), [f"agent_mode", f"agent_{agent_type}"])
         normalized = normalize_model_response(payload, rubric)
-        self._cache[cache_key] = payload
-        self._save_cache()
+        self._set_cache(cache_key, payload)
         return normalized["questions"], normalized["global_flags"]
 
     def locate_answers_for_pdf(
@@ -265,7 +272,7 @@ class GeminiGrader:
             rubric=rubric,
             locator_model=locator_model,
         )
-        cached = self._cache.get(cache_key)
+        cached = self._get_cache(cache_key)
         if cached:
             return normalize_locator_response(cached, rubric=rubric, default_source_file=pdf_path.name)
 
@@ -283,8 +290,7 @@ class GeminiGrader:
 
         payload = call_with_backoff(invoke, max_retries=self.max_retries)
         normalized = normalize_locator_response(payload, rubric=rubric, default_source_file=pdf_path.name)
-        self._cache[cache_key] = payload
-        self._save_cache()
+        self._set_cache(cache_key, payload)
         return normalized
 
     def _upload_and_wait(self, pdf_path: Path) -> Any:
@@ -311,7 +317,7 @@ class GeminiGrader:
             return resolved, flags
 
         now = int(time.time())
-        entry = self._context_cache.get(context_key)
+        entry = self._get_context_cache(context_key)
         if isinstance(entry, dict):
             cache_name = str(entry.get("cache_name", "")).strip()
             expires_at = int(entry.get("expires_at", 0))
@@ -325,8 +331,7 @@ class GeminiGrader:
                     return cache_name, flags
                 except Exception:
                     flags.append("context_cache_lookup_failed")
-                    self._context_cache.pop(context_key, None)
-                    self._save_context_cache()
+                    self._delete_context_cache(context_key)
 
         ttl = max(60, int(ttl_seconds))
         try:
@@ -346,52 +351,62 @@ class GeminiGrader:
             cache_name = str(getattr(cache, "name", "")).strip()
             if not cache_name:
                 raise ValueError("Context cache create returned no cache name.")
-            self._context_cache[context_key] = {
+            
+            self._set_context_cache(context_key, {
                 "cache_name": cache_name,
                 "created_at": now,
                 "expires_at": now + ttl,
                 "model": self.model,
-            }
-            self._save_context_cache()
+            })
             self._resolved_context_names[context_key] = cache_name
             return cache_name, flags
         except Exception:
             flags.extend(["context_cache_create_failed", "context_cache_bypassed"])
             return None, flags
 
-    def _load_cache(self) -> dict[str, JsonDict]:
-        if not self.cache_path.exists():
-            return {}
-        try:
-            payload = json.loads(self.cache_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return {}
-        if not isinstance(payload, dict):
-            return {}
-        return {str(k): v for k, v in payload.items() if isinstance(v, dict)}
+    def _init_db(self) -> None:
+        self.db_path = self.cache_dir / "cache.db"
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS grading_cache (hash_key TEXT PRIMARY KEY, payload TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS context_cache (hash_key TEXT PRIMARY KEY, payload TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)"
+            )
 
-    def _save_cache(self) -> None:
-        self.cache_path.write_text(
-            json.dumps(self._cache, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+    def _get_cache(self, key: str) -> JsonDict | None:
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("SELECT payload FROM grading_cache WHERE hash_key = ?", (key,))
+            row = cur.fetchone()
+            if row:
+                return json.loads(row[0])
+        return None
 
-    def _load_context_cache(self) -> dict[str, JsonDict]:
-        if not self.context_cache_path.exists():
-            return {}
-        try:
-            payload = json.loads(self.context_cache_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return {}
-        if not isinstance(payload, dict):
-            return {}
-        return {str(k): v for k, v in payload.items() if isinstance(v, dict)}
+    def _set_cache(self, key: str, payload: JsonDict) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO grading_cache (hash_key, payload) VALUES (?, ?)",
+                (key, json.dumps(payload)),
+            )
 
-    def _save_context_cache(self) -> None:
-        self.context_cache_path.write_text(
-            json.dumps(self._context_cache, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
+    def _get_context_cache(self, key: str) -> JsonDict | None:
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute("SELECT payload FROM context_cache WHERE hash_key = ?", (key,))
+            row = cur.fetchone()
+            if row:
+                return json.loads(row[0])
+        return None
+
+    def _set_context_cache(self, key: str, payload: JsonDict) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO context_cache (hash_key, payload) VALUES (?, ?)",
+                (key, json.dumps(payload)),
+            )
+            
+    def _delete_context_cache(self, key: str) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM context_cache WHERE hash_key = ?", (key,))
 
 
 def structured_response_payload(response: Any) -> JsonDict:
@@ -483,12 +498,13 @@ def build_legacy_grading_prompt(
         "Return ONLY strict JSON with this shape:\n"
         "{"
         '"student_submission_id":"...",'
-        '"questions":[{"id":"a","verdict":"correct|partial|incorrect|needs_review","confidence":0.0,'
+        '"questions":[{"id":"a","logic_analysis":"...","verdict":"correct|partial|rounding_error|incorrect|needs_review","confidence":0.0,'
         '"short_reason":"...", "detail_reason":"...", "evidence_quote":"..."}],'
         '"global_flags":["..."]'
         "}\n"
         "No markdown fences. No extra fields.\n"
         "Feedback rules:\n"
+        "- Generate logic_analysis to reason through the answer before assigning a verdict.\n"
         "- If verdict is correct, short_reason must be an empty string.\n"
         "- If verdict is incorrect or partial, short_reason must be a pithy correction under 42 characters.\n"
         "- detail_reason is optional and may expand with one concise coaching sentence.\n"
@@ -504,18 +520,6 @@ def build_legacy_grading_prompt(
     )
 
 
-def build_context_system_instruction(rubric: RubricConfig) -> str:
-    rubric_lines = build_rubric_lines(rubric)
-    return (
-        "You are the grading policy context for one statistics assignment.\n"
-        "Use the attached master solution PDF and rubric rules below as the source of truth.\n"
-        "Return judgments only from the student's provided work and these rubric rules.\n"
-        f"{NUMERIC_EQUIVALENCE_RULE}\n"
-        "Rubric rules:\n"
-        f"{chr(10).join(rubric_lines)}"
-    )
-
-
 def build_unified_grading_prompt(
     submission_id: str,
     rubric: RubricConfig,
@@ -524,19 +528,26 @@ def build_unified_grading_prompt(
     labels = ", ".join(question.id for question in rubric.questions)
     files = ", ".join(path.name for path in pdf_paths)
     return (
-        "Grade this student submission using the attached student PDF files and cached master-solution context.\n"
-        "Return ONLY JSON that matches the response schema exactly.\n"
-        "Per question, include verdict, confidence, short_reason, detail_reason, evidence_quote, coords, page_number, source_file.\n"
-        "Coordinate rule: if your detector yields [ymin, xmin, ymax, xmax], convert it to the center and return [y, x] integers on 0..1000.\n"
-        "source_file must exactly match one attached student filename.\n"
-        f"{NUMERIC_EQUIVALENCE_RULE}\n"
-        "Feedback rules: correct => empty short_reason/detail_reason; incorrect/partial => short_reason under 42 chars plus optional one-sentence detail_reason in second-person voice.\n"
-        "If uncertain, set verdict=needs_review and confidence near 0.0.\n\n"
         f"Submission ID: {submission_id}\n"
         f"Expected question IDs: {labels}\n"
         f"Attached student files: {files}\n"
+        "Grade this submission exactly according to the cached rubric and master solution."
     )
 
+def build_context_system_instruction(rubric: RubricConfig) -> str:
+    rubric_lines = build_rubric_lines(rubric)
+    return (
+        "You are the grading policy context for one statistics assignment.\n"
+        "Use the attached master solution PDF and rubric rules below as the source of truth.\n"
+        "Return judgments only from the student's provided work and these rubric rules.\n"
+        f"{NUMERIC_EQUIVALENCE_RULE}\n"
+        "Feedback rules: correct => empty short_reason/detail_reason; incorrect/partial => short_reason under 42 chars plus optional one-sentence detail_reason in second-person voice.\n"
+        "Coordinate rule: if your detector yields [ymin, xmin, ymax, xmax], convert it to the center and return [y, x] integers on 0..1000.\n"
+        "If uncertain, set verdict=needs_review and confidence near 0.0.\n"
+        "You must generate logic_analysis BEFORE determining the verdict.\n"
+        "Rubric rules:\n"
+        f"{chr(10).join(rubric_lines)}"
+    )
 
 def build_agent_grading_prompt(
     submission_id: str,
@@ -577,7 +588,8 @@ def build_agent_grading_prompt(
         '  "questions": [\n'
         '    {\n'
         '      "id": "question_id",\n'
-        '      "verdict": "correct|partial|incorrect|needs_review",\n'
+        '      "logic_analysis": "step-by-step reasoning",\n'
+        '      "verdict": "correct|partial|rounding_error|incorrect|needs_review",\n'
         '      "confidence": 0.0 to 1.0,\n'
         '      "short_reason": "under 42 chars",\n'
         '      "detail_reason": "one concise coaching sentence",\n'
@@ -590,6 +602,7 @@ def build_agent_grading_prompt(
         '  "global_flags": []\n'
         "}\n\n"
         "Rules:\n"
+        "- IMPORTANT: You must write logic_analysis BEFORE the verdict.\n"
         "- If verdict is correct, short_reason and detail_reason MUST be empty.\n"
         "- Use direct second-person voice ('You did X') for feedback.\n"
         f"- {NUMERIC_EQUIVALENCE_RULE}\n"
@@ -644,6 +657,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                     id=question.id,
                     verdict="needs_review",
                     confidence=0.0,
+                    logic_analysis="",
                     short_reason="Review manually.",
                     detail_reason="",
                     evidence_quote="",
@@ -653,6 +667,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
 
         verdict = normalize_verdict(raw.get("verdict"))
         confidence = normalize_confidence(raw.get("confidence"))
+        logic_analysis = str(raw.get("logic_analysis", "")).strip()
         short_reason, detail_reason = normalize_feedback(
             verdict=verdict,
             raw_short_reason=str(raw.get("short_reason", "")).strip()[:500],
@@ -668,6 +683,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                 id=question.id,
                 verdict=verdict,
                 confidence=confidence,
+                logic_analysis=logic_analysis,
                 short_reason=short_reason,
                 detail_reason=detail_reason,
                 evidence_quote=evidence_quote,
@@ -851,6 +867,7 @@ def normalize_verdict(value: Any) -> str:
         "correct": "correct",
         "partial": "partial",
         "partially_correct": "partial",
+        "rounding_error": "rounding_error",
         "incorrect": "incorrect",
         "wrong": "incorrect",
         "needs_review": "needs_review",
