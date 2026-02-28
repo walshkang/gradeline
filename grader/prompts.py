@@ -206,12 +206,21 @@ def prompt_select(
     *,
     default: int = 0,
     force_plain: bool = False,
-) -> int:
-    """Arrow-key selection menu. Returns selected index."""
+    instruction: str | None = None,
+) -> int | None:
+    """Arrow-key selection menu. Returns selected index, or None if cancelled."""
     if not choices:
         raise ValueError("prompt_select requires at least one choice.")
     if _use_rich(force_plain):
-        return _rich_select(label, choices, default=default)
+        result = _inquirerpy_select(
+            label,
+            choices,
+            default=default,
+            instruction=instruction if instruction is not None else "Type to filter, ↑/↓ to move, Enter to select",
+        )
+        if result is not None:
+            return result
+        return None  # User cancelled (e.g. Ctrl+Z)
     return _plain_select(label, choices, default=default)
 
 
@@ -235,6 +244,8 @@ def prompt_path_candidate(
 
     display = [str(p) for p in options[:3]] + ["Enter path manually"]
     idx = prompt_select(label, display, default=0, force_plain=force_plain)
+    if idx is None:
+        raise KeyboardInterrupt
 
     if idx < len(options[:3]):
         return options[idx]
@@ -260,65 +271,38 @@ def prompt_text_candidate(
 
     display = list(options[:3]) + ["Enter manually"]
     idx = prompt_select(label, display, default=0, force_plain=force_plain)
+    if idx is None:
+        raise KeyboardInterrupt
 
     if idx < len(options[:3]):
         return options[idx]
     return prompt_text(label, default=current, required=True, force_plain=force_plain)
 
 
-# --- Rich interactive selection ---
+# --- Interactive selection (InquirerPy fuzzy when available) ---
 
 
-def _rich_select(label: str, choices: list[str], *, default: int = 0) -> int:
-    selected = default
+def _inquirerpy_select(
+    label: str,
+    choices: list[str],
+    *,
+    default: int = 0,
+    instruction: str = "Type to filter, ↑/↓ to move, Enter to select",
+) -> int | None:
+    """Use InquirerPy fuzzy for searchable menu; returns index or None if unavailable."""
     try:
-        import termios
-        import tty
-
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-
-        try:
-            tty.setraw(fd)
-            total_lines = len(choices) + 2
-
-            sys.stdout.write(f"\n\033[1m{label}\033[0m\n")
-            for i, choice in enumerate(choices):
-                if i == selected:
-                    sys.stdout.write(f"  \033[34m› {choice}\033[0m\n")
-                else:
-                    sys.stdout.write(f"    \033[2m{choice}\033[0m\n")
-            sys.stdout.write("\033[2m↑/↓ to move, Enter to select\033[0m\n")
-            sys.stdout.flush()
-
-            while True:
-                ch = sys.stdin.read(1)
-                if ch in ("\r", "\n"):
-                    break
-                if ch == "\x1b":
-                    seq = sys.stdin.read(2)
-                    if seq == "[A":  # up
-                        selected = (selected - 1) % len(choices)
-                    elif seq == "[B":  # down
-                        selected = (selected + 1) % len(choices)
-
-                    sys.stdout.write(f"\033[{total_lines}A")
-                    sys.stdout.write(f"\033[1m{label}\033[0m\033[K\n")
-                    for i, choice in enumerate(choices):
-                        if i == selected:
-                            sys.stdout.write(f"  \033[34m› {choice}\033[0m\033[K\n")
-                        else:
-                            sys.stdout.write(f"    \033[2m{choice}\033[0m\033[K\n")
-                    sys.stdout.write("\033[2m↑/↓ to move, Enter to select\033[0m\033[K\n")
-                    sys.stdout.flush()
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-            sys.stdout.write("\n")
-            sys.stdout.flush()
-
-        return selected
-    except (ImportError, OSError):
-        return _plain_select(label, choices, default=default)
+        from InquirerPy import inquirer
+        from InquirerPy.base import Choice
+    except ImportError:
+        return None
+    q_choices = [Choice(i, name=c) for i, c in enumerate(choices)]
+    result = inquirer.fuzzy(
+        message=label,
+        choices=q_choices,
+        instruction=instruction,
+        mandatory=False,
+    ).execute()
+    return result
 
 
 # --- Plain fallbacks ---
@@ -398,7 +382,11 @@ def normalize_user_path(raw: str, *, cwd: Path) -> Path:
 
 
 def _use_rich(force_plain: bool) -> bool:
-    return _RICH_AVAILABLE and not force_plain and sys.stdout.isatty()
+    if force_plain:
+        return False
+    if os.environ.get("GRADELINE_PLAIN", "").lower() in {"1", "true", "yes"}:
+        return False
+    return _RICH_AVAILABLE and sys.stdout.isatty()
 
 
 def _dedupe_paths(paths: list[Path]) -> list[Path]:

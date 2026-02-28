@@ -52,6 +52,10 @@ from .workflow_profile import (
 REQUIRED_STATE_KEYS = {"schema_version", "run_metadata", "grading_context", "submissions"}
 
 
+class AbortToMenu(Exception):
+    """Raised when user aborts an operation; in interactive mode, return to main menu."""
+
+
 @dataclass(frozen=True)
 class CliValueMapping:
     field: str
@@ -89,6 +93,7 @@ CLI_VALUE_MAPPINGS: tuple[CliValueMapping, ...] = (
     CliValueMapping("check_minus_points", "--check-minus-points", "str"),
     CliValueMapping("review_required_points", "--review-required-points", "str", emit_if_empty=False),
     CliValueMapping("context_cache_ttl_seconds", "--context-cache-ttl-seconds", "int"),
+    CliValueMapping("concurrency", "--concurrency", "int"),
     CliValueMapping("diagnostics_file", "--diagnostics-file", "path"),
 )
 
@@ -209,90 +214,143 @@ _MENU_COMMANDS: list[tuple[str, str]] = [
     ("serve", "Launch review server for existing results"),
     ("setup", "Interactive profile setup wizard"),
     ("list", "List local workflow profiles"),
+    ("exit", "Exit"),
 ]
 
 _COMMANDS_NEEDING_PROFILE = {"quickstart", "run", "serve", "setup"}
+_COMMANDS_WITH_REVIEW_SERVER = {"run", "serve", "regrade"}
 
 
-def interactive_command_menu() -> str:
-    """Show an arrow-key menu and return the chosen command name."""
+def interactive_command_menu() -> str | None:
+    """Show an arrow-key menu and return the chosen command name, or None if cancelled."""
     styled_banner("Gradeline", "SDA Grader workflow CLI")
     choices = [f"{name}  —  {desc}" for name, desc in _MENU_COMMANDS]
-    idx = prompt_select("Choose a command", choices, default=0)
-    return _MENU_COMMANDS[idx][0]
+    idx = prompt_select(
+            "Choose a command",
+            choices,
+            default=0,
+            instruction="Type to filter, ↑/↓ to move, Enter to select, Ctrl+Z to exit",
+        )
+    if idx is None:
+        return None
+    cmd = _MENU_COMMANDS[idx][0]
+    return None if cmd == "exit" else cmd
 
 
-def prompt_profile_interactive() -> str:
-    """Prompt the user to pick or type a profile name."""
+def prompt_profile_interactive() -> str | None:
+    """Prompt the user to pick or type a profile name. Returns None if user selects Back."""
     paths = list_profile_paths()
     if paths:
-        names = [p.stem for p in paths] + ["Enter name manually"]
-        idx = prompt_select("Profile", names, default=0)
-        if idx < len(paths):
-            return paths[idx].stem
+        names = ["← Back to commands"] + [p.stem for p in paths] + ["Enter name manually"]
+        idx = prompt_select(
+            "Profile",
+            names,
+            default=1,
+            instruction="Type to filter, ↑/↓ to move, Enter to select, Ctrl+Z to go back",
+        )
+        if idx is None or idx == 0:
+            return None
+        if 1 <= idx <= len(paths):
+            return paths[idx - 1].stem
+        if idx == len(paths) + 1:
+            return prompt_text("Profile name", required=True)
     return prompt_text("Profile name", required=True)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv if argv is not None else sys.argv[1:])
+    interactive_session = args.command is None and is_interactive_terminal()
 
-    command = args.command
-    if command is None:
-        if not is_interactive_terminal():
-            build_parser().print_help()
+    while True:
+        command = args.command
+        if command is None:
+            if not is_interactive_terminal():
+                build_parser().print_help()
+                return 2
+            while True:
+                command = interactive_command_menu()
+                if command is None:
+                    return 0
+                if command not in _COMMANDS_NEEDING_PROFILE:
+                    break
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    continue
+                setattr(args, "profile", profile)
+                break
+
+        try:
+            if command == "run":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    return 0
+                exit_code = run_with_optional_setup(
+                    profile_spec=profile,
+                    host_override=getattr(args, "host", None),
+                    port_override=getattr(args, "port", None),
+                )
+            elif command == "serve":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    return 0
+                exit_code = serve_with_optional_setup(
+                    profile_spec=profile,
+                    host_override=getattr(args, "host", None),
+                    port_override=getattr(args, "port", None),
+                )
+            elif command == "setup":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    return 0
+                exit_code = setup_profile_interactive(
+                    profile_spec=profile,
+                    overwrite=getattr(args, "overwrite", False),
+                )
+            elif command == "quickstart":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    return 0
+                exit_code = quickstart_profile_interactive(
+                    profile_spec=profile,
+                    overwrite=bool(getattr(args, "overwrite", False) or getattr(args, "force", False)),
+                    auto_run=not bool(getattr(args, "no_run", False)),
+                )
+            elif command == "list":
+                exit_code = list_profiles()
+            elif command == "regrade":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    return 0
+                exit_code = regrade_from_profile(
+                    profile_spec=profile,
+                    student_filter=getattr(args, "student_filter", ""),
+                    host_override=getattr(args, "host", None),
+                    port_override=getattr(args, "port", None),
+                )
+            else:
+                styled_error("Unknown command.")
+                return 2
+        except AbortToMenu:
+            if interactive_session:
+                styled_info("Returning to main menu.")
+                args.command = None
+                continue
             return 2
-        command = interactive_command_menu()
+        except WorkflowProfileError as exc:
+            styled_error(str(exc))
+            return 2
+        except ReviewInitError as exc:
+            styled_error(f"Review init failed: {exc}")
+            return 2
+        except ValueError as exc:
+            styled_error(str(exc))
+            return 2
 
-    try:
-        if command == "run":
-            profile = getattr(args, "profile", None) or prompt_profile_interactive()
-            return run_with_optional_setup(
-                profile_spec=profile,
-                host_override=getattr(args, "host", None),
-                port_override=getattr(args, "port", None),
-            )
-        if command == "serve":
-            profile = getattr(args, "profile", None) or prompt_profile_interactive()
-            return serve_with_optional_setup(
-                profile_spec=profile,
-                host_override=getattr(args, "host", None),
-                port_override=getattr(args, "port", None),
-            )
-        if command == "setup":
-            profile = getattr(args, "profile", None) or prompt_profile_interactive()
-            return setup_profile_interactive(
-                profile_spec=profile,
-                overwrite=getattr(args, "overwrite", False),
-            )
-        if command == "quickstart":
-            profile = getattr(args, "profile", None) or prompt_profile_interactive()
-            return quickstart_profile_interactive(
-                profile_spec=profile,
-                overwrite=bool(getattr(args, "overwrite", False) or getattr(args, "force", False)),
-                auto_run=not bool(getattr(args, "no_run", False)),
-            )
-        if command == "list":
-            return list_profiles()
-        if command == "regrade":
-            profile = getattr(args, "profile", None) or prompt_profile_interactive()
-            return regrade_from_profile(
-                profile_spec=profile,
-                student_filter=getattr(args, "student_filter", ""),
-                host_override=getattr(args, "host", None),
-                port_override=getattr(args, "port", None),
-            )
-    except WorkflowProfileError as exc:
-        styled_error(str(exc))
-        return 2
-    except ReviewInitError as exc:
-        styled_error(f"Review init failed: {exc}")
-        return 2
-    except ValueError as exc:
-        styled_error(str(exc))
-        return 2
-
-    styled_error("Unknown command.")
-    return 2
+        if interactive_session and command in _COMMANDS_WITH_REVIEW_SERVER:
+            styled_info("Returning to main menu.")
+            args.command = None
+            continue
+        return exit_code
 
 
 def run_from_profile(*, profile_spec: str, host_override: str | None, port_override: int | None) -> int:
@@ -344,7 +402,7 @@ def regrade_from_profile(
     styled_section_heading("Regrade")
 
     # --- Clear local results cache ---
-    cache_file = cache_dir / "cache.json"
+    cache_file = cache_dir / "cache.db"
     if cache_file.exists():
         if pattern is None:
             cache_file.unlink()
@@ -412,22 +470,24 @@ def regrade_from_profile(
 
 def _purge_cache_entries(cache_file: Path, pattern: re.Pattern[str]) -> None:
     """Remove cache entries whose keys match the student filter pattern."""
+    import sqlite3
     try:
-        payload = json.loads(cache_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return
-    if not isinstance(payload, dict):
-        return
-    before = len(payload)
-    # Cache keys are hashes, but values contain submission_id — check both key and serialized value
-    to_remove = [
-        k for k, v in payload.items()
-        if pattern.search(k) or pattern.search(json.dumps(v))
-    ]
-    for k in to_remove:
-        del payload[k]
-    cache_file.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    styled_info(f"Purged {len(to_remove)} of {before} cache entries matching filter.")
+        with sqlite3.connect(cache_file) as conn:
+            cur = conn.execute("SELECT hash_key, payload FROM grading_cache")
+            rows = cur.fetchall()
+            
+            to_remove = []
+            for row in rows:
+                key, payload_text = row
+                if pattern.search(key) or pattern.search(payload_text):
+                    to_remove.append(key)
+            
+            for key in to_remove:
+                conn.execute("DELETE FROM grading_cache WHERE hash_key = ?", (key,))
+            conn.commit()
+            styled_info(f"Purged {len(to_remove)} of {len(rows)} cache entries matching filter.")
+    except Exception as exc:
+        styled_info(f"Could not purge cache entries: {exc}")
 
 
 def run_with_optional_setup(*, profile_spec: str, host_override: str | None, port_override: int | None) -> int:
@@ -480,7 +540,7 @@ def serve_with_optional_setup(*, profile_spec: str, host_override: str | None, p
 def bootstrap_missing_profile(*, profile_spec: str) -> int:
     choice = prompt_missing_profile_bootstrap_choice()
     if choice == "abort":
-        return 2
+        raise AbortToMenu
     if choice == "setup":
         return setup_profile_interactive(profile_spec=profile_spec, overwrite=False)
 
@@ -493,13 +553,15 @@ def bootstrap_missing_profile(*, profile_spec: str) -> int:
         return 0
 
     if not prompt_yes_no("Quickstart did not complete. Try guided setup instead?", default=True):
-        return quickstart_code
+        raise AbortToMenu
     return setup_profile_interactive(profile_spec=profile_spec, overwrite=False)
 
 
 def prompt_missing_profile_bootstrap_choice() -> str:
     choices = ["quickstart (recommended)", "setup", "abort"]
     idx = prompt_select("Create missing profile with", choices, default=0)
+    if idx is None:
+        return "abort"
     return ["quickstart", "setup", "abort"][idx]
 
 
@@ -515,7 +577,7 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
     if profile_path.exists() and not overwrite:
         if not prompt_yes_no(f"Profile already exists at {profile_path}. Overwrite?", default=False):
             styled_warning("Aborted.")
-            return 2
+            raise AbortToMenu
 
     detected = detect_defaults(profile_spec=profile_spec, cwd=cwd)
     values, candidates, metadata = initialize_quickstart_state(detected)
@@ -525,7 +587,7 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
         raw = input("Enter to accept, field # to edit, q to abort: ").strip()
         if raw.lower() == "q":
             styled_warning("Aborted.")
-            return 2
+            raise AbortToMenu
         if raw == "":
             errors = validate_quickstart_values(values)
             if errors:
@@ -856,7 +918,7 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
     if profile_path.exists() and not overwrite:
         if not prompt_yes_no(f"Profile already exists at {profile_path}. Overwrite?", default=False):
             styled_warning("Aborted.")
-            return 2
+            raise AbortToMenu
 
     profile_name = profile_path.stem
     styled_banner(f"Configuring profile: {profile_name}", str(profile_path))
