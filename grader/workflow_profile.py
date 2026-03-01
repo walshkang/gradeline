@@ -32,6 +32,7 @@ class GradeProfile:
     cache_dir: Path | None = None
     grading_mode: str = DEFAULT_GRADING_MODE
     model: str = DEFAULT_MODEL
+    agent_type: str = "gemini"
     locator_model: str = ""
     api_key_env: str = "GEMINI_API_KEY"
     identifier_column: str = "OrgDefinedId"
@@ -80,6 +81,7 @@ ALLOWED_GRADE_KEYS = REQUIRED_GRADE_KEYS | {
     "cache_dir",
     "grading_mode",
     "model",
+    "agent_type",
     "locator_model",
     "api_key_env",
     "identifier_column",
@@ -115,6 +117,7 @@ STRING_GRADE_FIELDS = {
     "grade_column",
     "grading_mode",
     "model",
+    "agent_type",
     "locator_model",
     "api_key_env",
     "identifier_column",

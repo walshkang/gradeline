@@ -11,6 +11,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
+from .agent_grader import AgentGrader
+from .agents import available_agents, get_agent
 from .annotate import annotate_submission_pdfs
 from .config import load_rubric
 from .diagnostics import DiagnosticsCollector, serialize_cli_args
@@ -169,7 +171,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--temp-dir", type=Path, default=Path(".grader_tmp"))
     parser.add_argument("--cache-dir", type=Path, default=Path(".grader_cache"))
     parser.add_argument("--grading-mode", choices=(LEGACY_MODE, UNIFIED_MODE, AGENT_MODE), default=UNIFIED_MODE)
-    parser.add_argument("--agent-type", choices=("gemini", "codex", "claude"), default=DEFAULT_AGENT_TYPE)
+    parser.add_argument("--agent-type", choices=available_agents(), default=DEFAULT_AGENT_TYPE)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--locator-model", default="")
     parser.add_argument("--api-key-env", default="GEMINI_API_KEY")
@@ -258,12 +260,9 @@ def main(argv: list[str] | None = None) -> int:
             return conclude(exit_code=2, submission_results=[], warnings=[])
     elif args.grading_mode == AGENT_MODE:
         import shutil
-        agent_binary = args.agent_type
-        if args.agent_type == "claude":
-            agent_binary = "claude"
-        
-        if shutil.which(agent_binary) is None:
-            message = f"Agent CLI '{agent_binary}' not found in path. Required for agentic grading mode."
+        agent_def = get_agent(args.agent_type)
+        if shutil.which(agent_def.binary) is None:
+            message = f"Agent CLI '{agent_def.binary}' not found in path. Required for agentic grading mode."
             diagnostics.record(
                 severity="error",
                 code="preflight_missing_agent_cli",
@@ -422,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     api_key = os.getenv(args.api_key_env, "").strip()
-    if not api_key and not args.dry_run:
+    if not api_key and not args.dry_run and args.grading_mode != AGENT_MODE:
         message = f"Environment variable {args.api_key_env} is missing. Set it or run with --dry-run."
         diagnostics.record(
             severity="error",
@@ -434,15 +433,23 @@ def main(argv: list[str] | None = None) -> int:
         return conclude(exit_code=2, submission_results=[], warnings=[])
 
     grader = None
+    agent_grader = None
     if not args.dry_run:
         try:
-            grader = GeminiGrader(
-                api_key=api_key,
-                model=args.model,
-                cache_dir=args.cache_dir,
-            )
+            if args.grading_mode == AGENT_MODE:
+                agent_grader = AgentGrader(
+                    agent_type=args.agent_type,
+                    model=args.model,
+                    cache_dir=args.cache_dir,
+                )
+            else:
+                grader = GeminiGrader(
+                    api_key=api_key,
+                    model=args.model,
+                    cache_dir=args.cache_dir,
+                )
         except Exception as exc:  # noqa: BLE001
-            message = f"Failed to initialize Gemini client: {exc}"
+            message = f"Failed to initialize grading client: {exc}"
             diagnostics.record(
                 severity="error",
                 code="grading_client_init_failed",
@@ -493,6 +500,7 @@ def main(argv: list[str] | None = None) -> int:
                 solutions_pdf_path=args.solutions_pdf,
                 grade_points=grade_points,
                 grader=grader,
+                agent_grader=agent_grader,
                 grading_mode=args.grading_mode,
                 agent_type=args.agent_type,
                 context_cache=args.context_cache,
@@ -733,6 +741,7 @@ def grade_one_submission(
     solutions_pdf_path: Path,
     grade_points: dict[str, str],
     grader: GeminiGrader | None,
+    agent_grader: AgentGrader | None,
     grading_mode: str,
     agent_type: str,
     context_cache: bool,
@@ -801,57 +810,58 @@ def grade_one_submission(
         global_flags.append("dry_run")
     else:
         try:
-            assert grader is not None
-            if grading_mode == LEGACY_MODE:
-                if status_update is not None:
-                    status_update(f"grading {len(rubric.questions)} questions")
-                question_results, model_flags = grader.grade_submission(
-                    submission_id=unit.folder_path.name,
-                    pdf_paths=unit.pdf_paths,
-                    combined_text=combined_text,
-                    rubric=rubric,
-                    solutions_text=solutions_text or "",
-                )
-                global_flags.extend(model_flags)
-            elif grading_mode == UNIFIED_MODE:
-                if status_update is not None:
-                    status_update(f"unified grading {len(rubric.questions)} questions")
-                question_results, model_flags = grader.grade_submission_unified(
-                    submission_id=unit.folder_path.name,
-                    pdf_paths=unit.pdf_paths,
-                    rubric=rubric,
-                    solutions_pdf_path=solutions_pdf_path,
-                    context_cache_enabled=context_cache,
-                    context_cache_ttl_seconds=context_cache_ttl_seconds,
-                )
-                global_flags.extend(model_flags)
-                if diagnostics is not None:
-                    for flag in model_flags:
-                        if flag in {
-                            "context_cache_lookup_failed",
-                            "context_cache_create_failed",
-                            "context_cache_bypassed",
-                        }:
-                            diagnostics.record(
-                                severity="warning",
-                                code=flag,
-                                stage="context_cache",
-                                message=context_cache_flag_message(flag),
-                                submission_folder=unit.folder_path.name,
-                            )
-            elif grading_mode == AGENT_MODE:
+            if grading_mode == AGENT_MODE:
+                assert agent_grader is not None
                 if status_update is not None:
                     status_update(f"agentic grading ({agent_type}) {len(rubric.questions)} questions")
-                question_results, model_flags = grader.grade_submission_agent(
+                question_results, model_flags = agent_grader.grade_submission(
                     submission_id=unit.folder_path.name,
                     pdf_paths=unit.pdf_paths,
                     rubric=rubric,
                     solutions_pdf_path=solutions_pdf_path,
-                    agent_type=agent_type,
                 )
                 global_flags.extend(model_flags)
             else:
-                raise ValueError(f"Unsupported grading mode: {grading_mode}")
+                assert grader is not None
+                if grading_mode == LEGACY_MODE:
+                    if status_update is not None:
+                        status_update(f"grading {len(rubric.questions)} questions")
+                    question_results, model_flags = grader.grade_submission(
+                        submission_id=unit.folder_path.name,
+                        pdf_paths=unit.pdf_paths,
+                        combined_text=combined_text,
+                        rubric=rubric,
+                        solutions_text=solutions_text or "",
+                    )
+                    global_flags.extend(model_flags)
+                elif grading_mode == UNIFIED_MODE:
+                    if status_update is not None:
+                        status_update(f"unified grading {len(rubric.questions)} questions")
+                    question_results, model_flags = grader.grade_submission_unified(
+                        submission_id=unit.folder_path.name,
+                        pdf_paths=unit.pdf_paths,
+                        rubric=rubric,
+                        solutions_pdf_path=solutions_pdf_path,
+                        context_cache_enabled=context_cache,
+                        context_cache_ttl_seconds=context_cache_ttl_seconds,
+                    )
+                    global_flags.extend(model_flags)
+                    if diagnostics is not None:
+                        for flag in model_flags:
+                            if flag in {
+                                "context_cache_lookup_failed",
+                                "context_cache_create_failed",
+                                "context_cache_bypassed",
+                            }:
+                                diagnostics.record(
+                                    severity="warning",
+                                    code=flag,
+                                    stage="context_cache",
+                                    message=context_cache_flag_message(flag),
+                                    submission_folder=unit.folder_path.name,
+                                )
+                else:
+                    raise ValueError(f"Unsupported grading mode: {grading_mode}")
         except ValueError as exc:
             if grading_mode == UNIFIED_MODE:
                 grading_error = f"Unified Gemini schema validation failed: {exc}"

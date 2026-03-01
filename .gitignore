@@ -2,3 +2,6 @@
 .grader_cache/
 .manual_runs/
 .DS_Store
+__pycache__/
+*.pyc
+*.pyo

@@ -82,6 +82,7 @@ CLI_VALUE_MAPPINGS: tuple[CliValueMapping, ...] = (
     CliValueMapping("cache_dir", "--cache-dir", "path"),
     CliValueMapping("grading_mode", "--grading-mode", "str"),
     CliValueMapping("model", "--model", "str"),
+    CliValueMapping("agent_type", "--agent-type", "str"),
     CliValueMapping("locator_model", "--locator-model", "str", emit_if_empty=False),
     CliValueMapping("api_key_env", "--api-key-env", "str"),
     CliValueMapping("identifier_column", "--identifier-column", "str"),
@@ -119,6 +120,7 @@ OPTIONAL_GRADE_RENDER_ORDER: tuple[str, ...] = (
     "cache_dir",
     "grading_mode",
     "model",
+    "agent_type",
     "locator_model",
     "api_key_env",
     "identifier_column",
@@ -143,6 +145,7 @@ _OPTIONAL_BOOL_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "
 _OPTIONAL_STRING_FIELDS = {
     "grading_mode",
     "model",
+    "agent_type",
     "locator_model",
     "api_key_env",
     "identifier_column",
