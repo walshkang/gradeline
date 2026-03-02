@@ -1,0 +1,414 @@
+{
+  "args_snapshot": {
+    "agent_type": "gemini",
+    "annotate_dry_run_marks": false,
+    "api_key_env": "GEMINI_API_KEY",
+    "cache_dir": ".grader_cache",
+    "check_minus_points": "65",
+    "check_plus_points": "100",
+    "check_points": "85",
+    "comment_column": "",
+    "concurrency": 5,
+    "context_cache": true,
+    "context_cache_ttl_seconds": 86400,
+    "diagnostics_file": null,
+    "dry_run": false,
+    "grade_column": "Assignment 1 Points Grade",
+    "grades_template_csv": "/Users/walsh.kang/Downloads/SDA Fall 2025 - Block 5 - HW1 Export.csv",
+    "grading_mode": "unified",
+    "identifier_column": "OrgDefinedId",
+    "locator_model": "",
+    "model": "gemini-2.5-flash",
+    "ocr_char_threshold": 200,
+    "output_dir": "/Users/walsh.kang/Documents/GitHub/sda-grader/outputs/assignment1",
+    "plain": false,
+    "review_required_points": "",
+    "rubric_yaml": "/Users/walsh.kang/Documents/GitHub/sda-grader/configs/assignment1.yaml",
+    "solutions_pdf": "/Users/walsh.kang/Downloads/Assignment 1.pdf",
+    "student_filter": "",
+    "submissions_dir": "/Users/walsh.kang/Downloads/Assignment 1 Download Feb 24, 2026 742 PM",
+    "temp_dir": ".grader_tmp"
+  },
+  "ended_at": "2026-02-26T21:21:36Z",
+  "events": [
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "Identifier column 'OrgDefinedId' not found; using 'Username' instead.",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '459696-1156428 - Shawn Johnson - Feb 24, 2026 919 AM' (student 'Shawn Johnson').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '423787-1156428 - Simon Kimmig - Feb 22, 2026 442 PM' (student 'Simon Kimmig').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '453353-1156428 - Brian Bies - Feb 24, 2026 333 PM' (student 'Brian Bies').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '452735-1156428 - Gabe Chen-Turner - Feb 24, 2026 552 PM' (student 'Gabe Chen-Turner').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '453124-1156428 - Jose Salinas - Feb 24, 2026 1228 AM' (student 'Jose Salinas').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '418548-1156428 - Brittney Jones - Feb 24, 2026 501 PM' (student 'Brittney Jones').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '410682-1156428 - Mike Yan - Feb 9, 2026 956 PM' (student 'Mike Yan').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '431506-1156428 - James Young - Feb 22, 2026 1253 PM' (student 'James Young').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '433239-1156428 - Renan Camarotti - Feb 21, 2026 505 AM' (student 'Renan Camarotti').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '439332-1156428 - Jorge Gomez Castro - Feb 24, 2026 320 PM' (student 'Jorge Gomez Castro').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '421820-1156428 - Kellyn Moran - Feb 24, 2026 546 PM' (student 'Kellyn Moran').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '394339-1156428 - Morgan Swanstrom - Feb 24, 2026 622 AM' (student 'Morgan Swanstrom').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '453136-1156428 - Kevin Burger - Feb 24, 2026 453 PM' (student 'Kevin Burger').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '457515-1156428 - Nick Ryan - Feb 24, 2026 507 PM' (student 'Nick Ryan').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '454446-1156428 - Tatiana Ebili - Feb 24, 2026 349 PM' (student 'Tatiana Ebili').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '420876-1156428 - Alekhya Rangnath Guduri - Feb 24, 2026 501 PM' (student 'Alekhya Rangnath Guduri').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '433238-1156428 - Kevin Swift - Feb 23, 2026 746 PM' (student 'Kevin Swift').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '457510-1156428 - Kelly Nobles - Feb 24, 2026 851 AM' (student 'Kelly Nobles').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '447608-1156428 - Upaasna Niman - Feb 20, 2026 824 PM' (student 'Upaasna Niman').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '450898-1156428 - Marques Moore - Feb 24, 2026 414 PM' (student 'Marques Moore').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '441387-1156428 - Jordan Bynoe - Feb 24, 2026 910 AM' (student 'Jordan Bynoe').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '435608-1156428 - Benjamin Weinstein - Feb 12, 2026 239 PM' (student 'Benjamin Weinstein').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '408284-1156428 - Ryan Kwan - Feb 23, 2026 1037 AM' (student 'Ryan Kwan').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '455152-1156428 - Briana Thomas - Feb 24, 2026 1259 PM' (student 'Briana Thomas').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '433240-1156428 - Isabel Lorenzo - Feb 21, 2026 1117 AM' (student 'Isabel Lorenzo').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '433235-1156428 - Phebe Gray - Feb 24, 2026 548 PM' (student 'Phebe Gray').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '377823-1156428 - Paul Leon - Feb 22, 2026 1210 PM' (student 'Paul Leon').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '24656-1156428 - Dhaval Patel - Feb 24, 2026 205 PM' (student 'Dhaval Patel').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '453134-1156428 - Arav Jhand - Feb 24, 2026 609 AM' (student 'Arav Jhand').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '433243-1156428 - Ben Newman - Feb 23, 2026 708 PM' (student 'Ben Newman').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '453414-1156428 - Christopher Carney - Feb 19, 2026 548 PM' (student 'Christopher Carney').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '437205-1156428 - Olive Siew - Feb 22, 2026 336 PM' (student 'Olive Siew').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '423782-1156428 - Niko McMurray - Feb 22, 2026 553 PM' (student 'Niko McMurray').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '432687-1156428 - Joe Sakran - Feb 24, 2026 255 PM' (student 'Joe Sakran').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    },
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "No grade-template match for submission folder '454494-1156428 - Khaliqa Wafa - Feb 24, 2026 1030 AM' (student 'Khaliqa Wafa').",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T21:21:36Z",
+      "traceback_snippet": null
+    }
+  ],
+  "run_id": "e62ecf75bbe24e6a8884f776385d3ad4",
+  "started_at": "2026-02-26T21:19:16Z",
+  "totals": {
+    "by_code": {
+      "report_mapping_warning": 36
+    },
+    "by_severity": {
+      "warning": 36
+    },
+    "by_stage": {
+      "report_write": 36
+    },
+    "event_count": 36,
+    "failed_with_error_count": 0,
+    "review_required_count": 12,
+    "submissions_processed": 35,
+    "success_count": 23,
+    "warning_count": 36
+  }
+}

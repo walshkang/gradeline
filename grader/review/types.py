@@ -11,7 +11,7 @@ from typing import Any
 from ..types import QuestionResult, QuestionRubric, RubricConfig
 
 SCHEMA_VERSION = 1
-VERDICT_VALUES = {"correct", "partial", "incorrect", "needs_review"}
+VERDICT_VALUES = {"correct", "partial", "rounding_error", "incorrect", "needs_review"}
 DEFAULT_GRADE_POINTS = {
     "Check Plus": "100",
     "Check": "85",
@@ -93,6 +93,7 @@ def question_result_to_payload(result: QuestionResult) -> dict[str, Any]:
     return {
         "verdict": result.verdict,
         "confidence": float(result.confidence),
+        "logic_analysis": str(result.logic_analysis),
         "short_reason": str(result.short_reason),
         "detail_reason": str(result.detail_reason),
         "evidence_quote": str(result.evidence_quote),
@@ -117,6 +118,7 @@ def question_result_from_payload(question_id: str, payload: dict[str, Any]) -> Q
         id=question_id,
         verdict=str(payload.get("verdict", "needs_review")).strip().lower(),
         confidence=float(payload.get("confidence", 0.0)),
+        logic_analysis=str(payload.get("logic_analysis", "")),
         short_reason=str(payload.get("short_reason", "")),
         detail_reason=str(payload.get("detail_reason", "")),
         evidence_quote=str(payload.get("evidence_quote", "")),

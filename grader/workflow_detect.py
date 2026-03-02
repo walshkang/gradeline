@@ -153,41 +153,70 @@ def detect_defaults(
         cwd=cwd_resolved,
     )
 
+    # Derive candidates from a structured data/{profile}/ directory.
+    data_root = (cwd_resolved / "data" / profile_name).resolve()
+    data_submissions: list[Path] = []
+    data_solutions: list[Path] = []
+    data_grades: list[Path] = []
+    if data_root.exists() and data_root.is_dir():
+        subs_dir = data_root / "submissions"
+        if subs_dir.exists() and subs_dir.is_dir() and _has_pdf_one_level_down(subs_dir):
+            data_submissions.append(subs_dir)
+
+        solutions_path = data_root / "solutions.pdf"
+        if solutions_path.exists() and solutions_path.is_file():
+            data_solutions.append(solutions_path)
+        else:
+            pdfs = sorted(data_root.glob("*.pdf"))
+            if pdfs:
+                data_solutions.append(pdfs[0])
+
+        grades_path = data_root / "grades.csv"
+        if grades_path.exists() and grades_path.is_file():
+            data_grades.append(grades_path)
+        else:
+            csvs = sorted(data_root.glob("*.csv"))
+            if csvs:
+                data_grades.append(csvs[0])
+
     submissions_dir = _choose_path_field(
         existing_value=existing_profile.grade.submissions_dir if existing_profile else None,
         snapshot_value=_snapshot_path(best_snapshot, "submissions_dir", cwd_resolved),
+        data_values=data_submissions,
         downloads_values=downloads.get("submissions_dir", []),
-        source_labels=("profile", "recent_run", "downloads"),
+        default_value=None,
     )
     solutions_pdf = _choose_path_field(
         existing_value=existing_profile.grade.solutions_pdf if existing_profile else None,
         snapshot_value=_snapshot_path(best_snapshot, "solutions_pdf", cwd_resolved),
+        data_values=data_solutions,
         downloads_values=downloads.get("solutions_pdf", []),
-        source_labels=("profile", "recent_run", "downloads"),
+        default_value=None,
     )
     grades_template_csv = _choose_path_field(
         existing_value=existing_profile.grade.grades_template_csv if existing_profile else None,
         snapshot_value=_snapshot_path(best_snapshot, "grades_template_csv", cwd_resolved),
+        data_values=data_grades,
         downloads_values=downloads.get("grades_template_csv", []),
-        source_labels=("profile", "recent_run", "downloads"),
+        default_value=None,
     )
 
     rubric_default = (cwd_resolved / "configs" / f"{profile_name}.yaml").resolve()
     rubric_yaml = _choose_path_field(
         existing_value=existing_profile.grade.rubric_yaml if existing_profile else None,
         snapshot_value=_snapshot_path(best_snapshot, "rubric_yaml", cwd_resolved),
+        data_values=[],
         downloads_values=[],
         default_value=rubric_default,
-        source_labels=("profile", "recent_run", "default"),
     )
 
     output_default = (cwd_resolved / "outputs" / profile_name).resolve()
     output_dir = _choose_path_field(
         existing_value=existing_profile.grade.output_dir if existing_profile else None,
         snapshot_value=_snapshot_path(best_snapshot, "output_dir", cwd_resolved),
+        data_values=[],
         downloads_values=[],
         default_value=output_default,
-        source_labels=("profile", "recent_run", "default"),
     )
 
     grade_column_requested = _snapshot_str(best_snapshot, "grade_column")
@@ -475,31 +504,40 @@ def _choose_path_field(
     *,
     existing_value: Path | None,
     snapshot_value: Path | None,
+    data_values: list[Path],
     downloads_values: list[Path],
     default_value: Path | None = None,
-    source_labels: tuple[str, str, str] = ("profile", "recent_run", "downloads"),
 ) -> DetectedField[Path]:
     candidate_values = _dedupe_values(
-        [value for value in [existing_value, snapshot_value] if value is not None] + list(downloads_values)
+        [value for value in [existing_value, snapshot_value] if value is not None]
+        + list(data_values)
+        + list(downloads_values)
     )
     if existing_value is not None:
         return DetectedField(
             value=existing_value.resolve(),
-            source=source_labels[0],
+            source="profile",
             confidence=0.98,
             candidates=tuple(candidate_values),
         )
     if snapshot_value is not None:
         return DetectedField(
             value=snapshot_value.resolve(),
-            source=source_labels[1],
+            source="recent_run",
             confidence=0.9,
             candidates=tuple(candidate_values),
+        )
+    if data_values:
+        return DetectedField(
+            value=data_values[0].resolve(),
+            source="data",
+            confidence=0.85,
+            candidates=tuple(_dedupe_values(data_values)),
         )
     if downloads_values:
         return DetectedField(
             value=downloads_values[0].resolve(),
-            source=source_labels[2],
+            source="downloads",
             confidence=0.6,
             candidates=tuple(_dedupe_values(downloads_values)),
         )
@@ -507,7 +545,7 @@ def _choose_path_field(
         default_resolved = default_value.resolve()
         return DetectedField(
             value=default_resolved,
-            source=source_labels[2] if source_labels[2] == "default" else "default",
+            source="default",
             confidence=0.4,
             candidates=(default_resolved,),
         )

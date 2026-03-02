@@ -2,3 +2,5 @@
 .grader_cache/
 .manual_runs/
 .DS_Store
+data/
+!data/README.md

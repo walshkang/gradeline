@@ -1,12 +1,14 @@
 {
   "args_snapshot": {
+    "agent_type": "gemini",
     "annotate_dry_run_marks": false,
     "api_key_env": "GEMINI_API_KEY",
-    "cache_dir": "/Users/walsh.kang/Documents/GitHub/sda-grader/.grader_cache",
+    "cache_dir": ".grader_cache",
     "check_minus_points": "65",
     "check_plus_points": "100",
     "check_points": "85",
     "comment_column": "",
+    "concurrency": 5,
     "context_cache": true,
     "context_cache_ttl_seconds": 86400,
     "diagnostics_file": null,
@@ -25,10 +27,20 @@
     "solutions_pdf": "/Users/walsh.kang/Downloads/execDC24n2soln - Copy.pdf",
     "student_filter": "",
     "submissions_dir": "/Users/walsh.kang/Downloads/Assignment 2 Download Feb 25, 2026 233 PM",
-    "temp_dir": "/Users/walsh.kang/Documents/GitHub/sda-grader/.grader_tmp"
+    "temp_dir": ".grader_tmp"
   },
-  "ended_at": "2026-02-26T13:54:47Z",
+  "ended_at": "2026-02-28T15:17:47Z",
   "events": [
+    {
+      "code": "unified_schema_invalid",
+      "exception_type": "JSONDecodeError",
+      "message": "Unified Gemini schema validation failed: Invalid \\uXXXX escape: line 1 column 64326 (char 64325)",
+      "severity": "error",
+      "stage": "grading",
+      "submission_folder": "453124-1156435 - Jose Salinas - Feb 24, 2026 1229 AM",
+      "timestamp": "2026-02-28T15:17:47Z",
+      "traceback_snippet": "^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"/Users/walsh.kang/Documents/GitHub/sda-grader/grader/gemini_client.py\", line 185, in grade_submission_unified\n    payload = call_with_backoff(invoke, max_retries=self.max_retries)\n  File \"/Users/walsh.kang/Documents/GitHub/sda-grader/grader/gemini_client.py\", line 1071, in call_with_backoff\n    return func()\n  File \"/Users/walsh.kang/Documents/GitHub/sda-grader/grader/gemini_client.py\", line 182, in invoke\n    payload = structured_response_payload(response)\n  File \"/Users/walsh.kang/Documents/GitHub/sda-grader/grader/gemini_client.py\", line 416, in structured_response_payload\n    return parse_json_maybe_fenced(text)\n  File \"/Users/walsh.kang/Documents/GitHub/sda-grader/grader/gemini_client.py\", line 476, in parse_json_maybe_fenced\n    payload = json.loads(cleaned)\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/__init__.py\", line 352, in loads\n    return _default_decoder.decode(s)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 345, in decode\n    obj, end = self.raw_decode(s, idx=_w(s, 0).end())\n               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/json/decoder.py\", line 361, in raw_decode\n    obj, end = self.scan_once(s, idx)\n               ~~~~~~~~~~~~~~^^^^^^^^\njson.decoder.JSONDecodeError: Invalid \\uXXXX escape: line 1 column 64326 (char 64325)"
+    },
     {
       "code": "report_mapping_warning",
       "exception_type": null,
@@ -36,27 +48,30 @@
       "severity": "warning",
       "stage": "report_write",
       "submission_folder": null,
-      "timestamp": "2026-02-26T13:54:47Z",
+      "timestamp": "2026-02-28T15:17:47Z",
       "traceback_snippet": null
     }
   ],
-  "run_id": "f5e4461bff1d48ca80a59c23de44efe9",
-  "started_at": "2026-02-26T13:54:45Z",
+  "run_id": "f3e1e89f228c45299c5b43cac15666b7",
+  "started_at": "2026-02-28T15:10:50Z",
   "totals": {
     "by_code": {
-      "report_mapping_warning": 1
+      "report_mapping_warning": 1,
+      "unified_schema_invalid": 1
     },
     "by_severity": {
+      "error": 1,
       "warning": 1
     },
     "by_stage": {
+      "grading": 1,
       "report_write": 1
     },
-    "event_count": 1,
-    "failed_with_error_count": 0,
+    "event_count": 2,
+    "failed_with_error_count": 1,
     "review_required_count": 0,
     "submissions_processed": 35,
-    "success_count": 35,
+    "success_count": 34,
     "warning_count": 1
   }
 }

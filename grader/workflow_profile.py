@@ -8,7 +8,7 @@ from typing import Any
 
 
 DEFAULT_PROFILE_DIR = Path(".manual_runs") / "profiles"
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_GRADING_MODE = "unified"
 DEFAULT_REVIEW_HOST = "127.0.0.1"
 DEFAULT_REVIEW_PORT = 8765
@@ -46,6 +46,7 @@ class GradeProfile:
     review_required_points: str = ""
     context_cache: bool = True
     context_cache_ttl_seconds: int = DEFAULT_CONTEXT_CACHE_TTL_SECONDS
+    concurrency: int = 5
     plain: bool = False
     diagnostics_file: Path | None = None
 
@@ -94,6 +95,7 @@ ALLOWED_GRADE_KEYS = REQUIRED_GRADE_KEYS | {
     "review_required_points",
     "context_cache",
     "context_cache_ttl_seconds",
+    "concurrency",
     "plain",
     "diagnostics_file",
 }
@@ -109,7 +111,7 @@ PATH_GRADE_FIELDS = {
     "cache_dir",
     "diagnostics_file",
 }
-INT_GRADE_FIELDS = {"ocr_char_threshold", "context_cache_ttl_seconds"}
+INT_GRADE_FIELDS = {"ocr_char_threshold", "context_cache_ttl_seconds", "concurrency"}
 BOOL_GRADE_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "plain"}
 STRING_GRADE_FIELDS = {
     "grade_column",

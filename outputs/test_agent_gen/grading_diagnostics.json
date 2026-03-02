@@ -1,0 +1,63 @@
+{
+  "args_snapshot": {
+    "agent_type": "gemini",
+    "annotate_dry_run_marks": false,
+    "api_key_env": "GEMINI_API_KEY",
+    "cache_dir": ".grader_cache",
+    "check_minus_points": "65",
+    "check_plus_points": "100",
+    "check_points": "85",
+    "comment_column": "",
+    "context_cache": true,
+    "context_cache_ttl_seconds": 86400,
+    "diagnostics_file": null,
+    "dry_run": false,
+    "grade_column": "Assignment 2 Points Grade <Numeric MaxPoints:2>",
+    "grades_template_csv": "/Users/walsh.kang/Downloads/SDA Grade CSV.csv",
+    "grading_mode": "agent",
+    "identifier_column": "OrgDefinedId",
+    "locator_model": "",
+    "model": "gemini-3-flash-preview",
+    "ocr_char_threshold": 200,
+    "output_dir": "/Users/walsh.kang/Documents/GitHub/sda-grader/outputs/test_agent_gen",
+    "plain": true,
+    "review_required_points": "",
+    "rubric_yaml": "/Users/walsh.kang/Documents/GitHub/sda-grader/configs/a2.yaml",
+    "solutions_pdf": "/Users/walsh.kang/Downloads/execDC24n2soln - Copy.pdf",
+    "student_filter": "Ben Newman",
+    "submissions_dir": "/Users/walsh.kang/Downloads/Assignment 2 Download Feb 25, 2026 233 PM",
+    "temp_dir": ".grader_tmp"
+  },
+  "ended_at": "2026-02-26T18:49:53Z",
+  "events": [
+    {
+      "code": "report_mapping_warning",
+      "exception_type": null,
+      "message": "Identifier column 'OrgDefinedId' not found; using 'Username' instead.",
+      "severity": "warning",
+      "stage": "report_write",
+      "submission_folder": null,
+      "timestamp": "2026-02-26T18:49:53Z",
+      "traceback_snippet": null
+    }
+  ],
+  "run_id": "1118d0f6970141dc9107db65e86b61c8",
+  "started_at": "2026-02-26T18:46:39Z",
+  "totals": {
+    "by_code": {
+      "report_mapping_warning": 1
+    },
+    "by_severity": {
+      "warning": 1
+    },
+    "by_stage": {
+      "report_write": 1
+    },
+    "event_count": 1,
+    "failed_with_error_count": 0,
+    "review_required_count": 0,
+    "submissions_processed": 1,
+    "success_count": 1,
+    "warning_count": 1
+  }
+}

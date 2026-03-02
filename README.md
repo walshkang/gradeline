@@ -2,6 +2,15 @@
 
 This tool grades Brightspace PDF submissions with Gemini, annotates PDFs with movable/editable FreeText annotations (green checks/red `x` marks), and builds CSV outputs for grade import and review.
 
+It is designed for instructors using **Brightspace** who download PDF submissions and want a repeatable, profile-based grading workflow with a built-in review web app.
+
+## You’ll need
+
+- A Brightspace course with at least one PDF-based assignment
+- A Google Gemini API key
+- macOS or Linux
+- Python 3.11+ and the dependencies from `requirements.txt`
+
 ## Quick Start
 
 ```bash
@@ -11,9 +20,14 @@ source .venv/bin/activate
 # 2. Set your Gemini API key (or add to .env file)
 export GEMINI_API_KEY="your_api_key_here"
 
-# 3. Run the interactive CLI
-./gradeline
+# 3. Import your assignment files from Downloads into data/{profile}/
+./gradeline import --profile a2
+
+# 4. Run the quickstart wizard for that assignment
+./gradeline quickstart --profile a2
 ```
+
+> **First time?** Download your student submissions, answer key PDF, and grade CSV from Brightspace into `~/Downloads`, then run `./gradeline import --profile a2`. See [`data/README.md`](data/README.md) for the expected `data/{profile}/` structure.
 
 Running `./gradeline` with no arguments opens an interactive menu:
 
@@ -29,6 +43,7 @@ Running `./gradeline` with no arguments opens an interactive menu:
 All commands can also be called directly:
 
 ```bash
+./gradeline import --profile a2
 ./gradeline quickstart --profile a2
 ./gradeline run --profile a2
 ./gradeline regrade --profile a2
@@ -67,6 +82,15 @@ GEMINI_API_KEY="your_api_key_here"
 
 Use workflow profiles to avoid long flag lists for repeated assignment runs. The `./gradeline` wrapper auto-activates the `.venv` and delegates to the workflow CLI.
 
+At a high level:
+
+1. Download submissions, solutions, and a grade template CSV from Brightspace into `~/Downloads`.
+2. Use `./gradeline import --profile a2` to copy them into `data/a2/`.
+3. Use `./gradeline quickstart --profile a2` to auto-detect paths, confirm settings, and write a reusable profile.
+4. Use `./gradeline run --profile a2` (or `regrade`/`serve`) to repeat the workflow.
+
+See [`data/README.md`](data/README.md) for examples of how to lay out `data/{profile}/`.
+
 ### 1) Quickstart (recommended)
 
 ```bash
@@ -103,7 +127,20 @@ The wizard prompts for:
 - Brightspace grade template CSV + grade column
 - output directory and review host/port
 
-### 3) Run full workflow (grade + init + serve)
+### 3) Import from Downloads into data/{profile}/
+
+```bash
+./gradeline import --profile a2
+```
+
+Behavior:
+
+- Scans `~/Downloads` (or `--downloads-dir`) for a recent Brightspace submissions folder, a solutions PDF, and a grade CSV.
+- Optionally handles Brightspace ZIPs by extracting them before import.
+- Copies or moves (with `--move`) those assets into `data/{profile}/submissions`, `data/{profile}/solutions.pdf`, and `data/{profile}/grades.csv`.
+- Prints a clear preview of what will be copied where before making changes.
+
+### 4) Run full workflow (grade + init + serve)
 
 ```bash
 ./gradeline run --profile a2
@@ -116,7 +153,7 @@ Behavior:
 - Starts review server on the requested port, or next free port (`+1`, up to 25 attempts)
 - If profile is missing (interactive terminal), CLI offers quickstart, setup, or abort
 
-### 4) Regrade (clear cache and re-run)
+### 5) Regrade (clear cache and re-run)
 
 ```bash
 # Full regrade — clears all cache, outputs, and review state
@@ -133,7 +170,7 @@ Regrade behavior:
 - Re-runs grading with fresh Gemini API calls
 - Launches review server when done
 
-### 5) Keep Assignment 1 and Assignment 2 open side-by-side
+### 6) Keep Assignment 1 and Assignment 2 open side-by-side
 
 Terminal A:
 
@@ -147,7 +184,7 @@ Terminal B:
 ./gradeline run --profile a2
 ```
 
-### 6) List profiles and state status
+### 7) List profiles and state status
 
 ```bash
 ./gradeline list
@@ -165,6 +202,9 @@ The list view includes:
 - `Unknown keys in [grade]`: remove unsupported keys; profile validation is strict by design.
 - `Review state invalid`: run `./gradeline run` once, or run `grader.review_cli init --output-dir ...` manually.
 - `Requested grade column was not found`: ensure profile `grade_column` matches your Brightspace template header.
+- Quickstart shows everything as `<missing>`:
+  - Make sure your assignment files are either in `data/{profile}/` or in `~/Downloads`.
+  - Try running `./gradeline import --profile {profile}` to populate `data/{profile}/` first.
 
 ## Direct CLI Usage
 
@@ -178,7 +218,7 @@ python3 -m grader.cli \
   --grades-template-csv "/path/to/template.csv" \
   --grade-column "Assignment 1 Points Grade" \
   --grading-mode unified \
-  --model "gemini-3-flash-preview" \
+  --model "gemini-2.5-flash" \
   --output-dir "/path/to/output"
 ```
 

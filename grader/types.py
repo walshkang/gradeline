@@ -48,6 +48,7 @@ class QuestionResult:
     id: str
     verdict: str
     confidence: float
+    logic_analysis: str
     short_reason: str
     evidence_quote: str
     detail_reason: str = ""

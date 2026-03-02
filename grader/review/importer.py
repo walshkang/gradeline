@@ -254,6 +254,7 @@ def row_to_question_payload(row: dict[str, str]) -> dict[str, Any]:
         id=str(row.get("question_id", "")).strip().lower(),
         verdict=str(row.get("verdict", "needs_review")).strip().lower(),
         confidence=parse_float(row.get("confidence"), default=0.0) or 0.0,
+        logic_analysis=str(row.get("logic_analysis", "")),
         short_reason=str(row.get("reason", "")),
         detail_reason=str(row.get("detail_reason", "")),
         evidence_quote=str(row.get("evidence_quote", "")),

@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from grader.workflow_detect import DetectedConfig, DetectedField, DiscoveryContext
+from grader.workflow_detect import DetectedConfig, DetectedField, DiscoveryContext, detect_defaults
 from grader.workflow_cli import main, resolve_available_port
 from grader.workflow_profile import WorkflowProfileError, load_workflow_profile
 
@@ -407,6 +407,186 @@ class WorkflowCliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             select_mock.assert_called_once()
             list_mock.assert_called_once()
+
+    def test_import_happy_path_copies_assets_into_data_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            downloads = root / "Downloads"
+            downloads.mkdir(parents=True, exist_ok=True)
+
+            subs_src = downloads / "Assignment 2 Download"
+            subs_src.mkdir(parents=True, exist_ok=True)
+            (subs_src / "123 - Jane Doe").mkdir(parents=True, exist_ok=True)
+            (subs_src / "123 - Jane Doe" / "submission.pdf").write_bytes(b"%PDF-1.4")
+
+            solutions_src = downloads / "solutions_a2.pdf"
+            solutions_src.write_bytes(b"%PDF-1.4")
+
+            grades_src = downloads / "grades_a2.csv"
+            grades_src.write_text("OrgDefinedId,Assignment 2 Points Grade\n", encoding="utf-8")
+
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.is_interactive_terminal", return_value=False),
+            ):
+                exit_code = main(
+                    [
+                        "import",
+                        "--profile",
+                        "a2",
+                        "--downloads-dir",
+                        str(downloads),
+                        "--data-root",
+                        str(root / "data"),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            data_root = root / "data" / "a2"
+            self.assertTrue((data_root / "submissions" / "123 - Jane Doe" / "submission.pdf").exists())
+            self.assertTrue((data_root / "solutions.pdf").exists())
+            self.assertTrue((data_root / "grades.csv").exists())
+
+    def test_import_no_downloads_prints_guidance_and_exits_nonzero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            downloads = root / "Downloads"
+            downloads.mkdir(parents=True, exist_ok=True)
+
+            stdout = io.StringIO()
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.is_interactive_terminal", return_value=False),
+                patch("sys.stdout", stdout),
+            ):
+                exit_code = main(
+                    [
+                        "import",
+                        "--profile",
+                        "a2",
+                        "--downloads-dir",
+                        str(downloads),
+                        "--data-root",
+                        str(root / "data"),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 2)
+            rendered = stdout.getvalue()
+            self.assertIn("No recent submissions folder, solutions PDF, or grade CSV found", rendered)
+            self.assertFalse((root / "data" / "a2").exists())
+
+    def test_import_dry_run_does_not_create_data_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            downloads = root / "Downloads"
+            downloads.mkdir(parents=True, exist_ok=True)
+
+            subs_src = downloads / "Assignment 2 Download"
+            subs_src.mkdir(parents=True, exist_ok=True)
+            (subs_src / "123 - Jane Doe").mkdir(parents=True, exist_ok=True)
+            (subs_src / "123 - Jane Doe" / "submission.pdf").write_bytes(b"%PDF-1.4")
+
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.is_interactive_terminal", return_value=False),
+            ):
+                exit_code = main(
+                    [
+                        "import",
+                        "--profile",
+                        "a2",
+                        "--downloads-dir",
+                        str(downloads),
+                        "--data-root",
+                        str(root / "data"),
+                        "--dry-run",
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            self.assertFalse((root / "data" / "a2").exists())
+
+    def test_quickstart_blank_environment_shows_guidance_and_calls_setup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            blank_detected = DetectedConfig(
+                context=DiscoveryContext(
+                    cwd=root.resolve(),
+                    profile_path=(root / ".manual_runs" / "profiles" / "a2.toml").resolve(),
+                    profile_name="a2",
+                    assignment_token="2",
+                    downloads_dir=(root / "Downloads").resolve(),
+                    recency_days=7,
+                ),
+                submissions_dir=DetectedField(value=None, source="missing", confidence=0.0, candidates=()),
+                solutions_pdf=DetectedField(value=None, source="missing", confidence=0.0, candidates=()),
+                rubric_yaml=DetectedField(
+                    value=None,
+                    source="missing",
+                    confidence=0.0,
+                    candidates=(),
+                ),
+                grades_template_csv=DetectedField(value=None, source="missing", confidence=0.0, candidates=()),
+                grade_column=DetectedField(
+                    value="Assignment 2 Points Grade",
+                    source="default",
+                    confidence=0.35,
+                    candidates=("Assignment 2 Points Grade",),
+                ),
+                output_dir=DetectedField(
+                    value=(root / "outputs" / "a2").resolve(),
+                    source="default",
+                    confidence=0.4,
+                    candidates=((root / "outputs" / "a2").resolve(),),
+                ),
+                host=DetectedField(value="127.0.0.1", source="default", confidence=0.4, candidates=("127.0.0.1",)),
+                port=DetectedField(value=8765, source="default", confidence=0.4, candidates=(8765,)),
+                optional_grade_values={},
+                prior_rubric_question_ids=(),
+            )
+
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.detect_defaults", return_value=blank_detected),
+                patch("grader.workflow_cli.is_interactive_terminal", return_value=True),
+                patch("sys.stdin.isatty", return_value=True),
+                patch("sys.stdout.isatty", return_value=True),
+                patch("builtins.input", side_effect=[""]),  # Accept running setup wizard
+                patch("grader.workflow_cli.setup_profile_interactive", return_value=0) as setup_mock,
+            ):
+                exit_code = main(["quickstart", "--profile", "a2", "--overwrite"])
+
+            self.assertEqual(exit_code, 0)
+            setup_mock.assert_called_once_with(profile_spec="a2", overwrite=False)
+
+
+class WorkflowDetectDataTests(unittest.TestCase):
+    def test_detect_defaults_prefers_data_directory_over_downloads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # data/a2 subtree
+            data_root = root / "data" / "a2"
+            subs_dir = data_root / "submissions"
+            subs_dir.mkdir(parents=True, exist_ok=True)
+            (subs_dir / "123 - Jane Doe").mkdir(parents=True, exist_ok=True)
+            (subs_dir / "123 - Jane Doe" / "submission.pdf").write_bytes(b"%PDF-1.4")
+
+            solutions_pdf = data_root / "solutions.pdf"
+            solutions_pdf.write_bytes(b"%PDF-1.4")
+
+            grades_csv = data_root / "grades.csv"
+            grades_csv.write_text("OrgDefinedId,Assignment 2 Points Grade\n", encoding="utf-8")
+
+            detected = detect_defaults(profile_spec="a2", cwd=root)
+
+            self.assertEqual(detected.submissions_dir.value, subs_dir.resolve())
+            self.assertEqual(detected.submissions_dir.source, "data")
+            self.assertEqual(detected.solutions_pdf.value, solutions_pdf.resolve())
+            self.assertEqual(detected.solutions_pdf.source, "data")
+            self.assertEqual(detected.grades_template_csv.value, grades_csv.resolve())
+            self.assertEqual(detected.grades_template_csv.source, "data")
 
 
 if __name__ == "__main__":

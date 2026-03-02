@@ -32,7 +32,12 @@ from .prompts import (
     styled_url,
     styled_warning,
 )
-from .workflow_detect import DetectedConfig, default_question_ids, detect_defaults
+from .workflow_detect import (
+    DetectedConfig,
+    default_question_ids,
+    detect_defaults,
+    scan_downloads_candidates,
+)
 from .workflow_profile import (
     DEFAULT_CONTEXT_CACHE_TTL_SECONDS,
     DEFAULT_GRADING_MODE,
@@ -193,6 +198,34 @@ def build_parser() -> argparse.ArgumentParser:
     quickstart_parser.add_argument("--overwrite", action="store_true")
     quickstart_parser.add_argument("--force", action="store_true", help="Alias for --overwrite")
 
+    import_parser = subparsers.add_parser(
+        "import",
+        help="Import Brightspace assignment assets into data/{profile}/.",
+    )
+    import_parser.add_argument("--profile", required=True)
+    import_parser.add_argument(
+        "--downloads-dir",
+        type=Path,
+        default=None,
+        help="Override the default Downloads directory (defaults to ~/Downloads).",
+    )
+    import_parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=None,
+        help="Override the data directory root (defaults to ./data).",
+    )
+    import_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what would be imported without copying or moving any files.",
+    )
+    import_parser.add_argument(
+        "--move",
+        action="store_true",
+        help="Move files out of the Downloads directory instead of copying them (saves disk space).",
+    )
+
     subparsers.add_parser("list", help="List local workflow profiles.")
 
     regrade_parser = subparsers.add_parser(
@@ -208,6 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 _MENU_COMMANDS: list[tuple[str, str]] = [
+    ("import", "Copy recent Brightspace downloads into data/{profile}/"),
     ("quickstart", "Auto-detect settings, grade, and review"),
     ("run", "Grade submissions and launch review server"),
     ("regrade", "Clear cache and re-run grading from scratch"),
@@ -217,7 +251,7 @@ _MENU_COMMANDS: list[tuple[str, str]] = [
     ("exit", "Exit"),
 ]
 
-_COMMANDS_NEEDING_PROFILE = {"quickstart", "run", "serve", "setup"}
+_COMMANDS_NEEDING_PROFILE = {"import", "quickstart", "run", "serve", "setup"}
 _COMMANDS_WITH_REVIEW_SERVER = {"run", "serve", "regrade"}
 
 
@@ -288,6 +322,17 @@ def main(argv: list[str] | None = None) -> int:
                     profile_spec=profile,
                     host_override=getattr(args, "host", None),
                     port_override=getattr(args, "port", None),
+                )
+            elif command == "import":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    return 0
+                exit_code = import_assignment_assets(
+                    profile_spec=profile,
+                    downloads_dir=getattr(args, "downloads_dir", None),
+                    data_root=getattr(args, "data_root", None),
+                    dry_run=bool(getattr(args, "dry_run", False)),
+                    move=bool(getattr(args, "move", False)),
                 )
             elif command == "serve":
                 profile = getattr(args, "profile", None) or prompt_profile_interactive()
@@ -490,6 +535,223 @@ def _purge_cache_entries(cache_file: Path, pattern: re.Pattern[str]) -> None:
         styled_info(f"Could not purge cache entries: {exc}")
 
 
+def import_assignment_assets(
+    *,
+    profile_spec: str,
+    downloads_dir: Path | None,
+    data_root: Path | None,
+    dry_run: bool,
+    move: bool,
+) -> int:
+    """Import Brightspace submissions, solutions, and grade CSV into data/{profile}/."""
+    cwd = Path.cwd()
+    profile_path = resolve_profile_path(profile_spec, cwd=cwd, profile_dir=DEFAULT_PROFILE_DIR)
+    profile_name = profile_path.stem
+
+    downloads_root = (downloads_dir or (Path.home() / "Downloads")).expanduser().resolve()
+    data_root_effective = (data_root or (cwd / "data")).resolve()
+    target_root = data_root_effective / profile_name
+    submissions_target = target_root / "submissions"
+    solutions_target = target_root / "solutions.pdf"
+    grades_target = target_root / "grades.csv"
+
+    styled_banner(f"Import: Assignment {profile_name}", str(target_root))
+    styled_info(f"Scanning {downloads_root} for recent Brightspace downloads...")
+
+    downloads = scan_downloads_candidates(
+        profile_name=profile_name,
+        assignment_token=None,
+        downloads_dir=downloads_root,
+    )
+    submissions_dirs = downloads.get("submissions_dir", [])
+    solutions_pdfs = downloads.get("solutions_pdf", [])
+    grade_csvs = downloads.get("grades_template_csv", [])
+
+    submissions_src: Path | None = submissions_dirs[0] if submissions_dirs else None
+    solutions_src: Path | None = solutions_pdfs[0] if solutions_pdfs else None
+    grades_src: Path | None = grade_csvs[0] if grade_csvs else None
+
+    # If we have no submissions folder candidate, look for a Brightspace ZIP.
+    zip_src = None
+    if submissions_src is None:
+        zip_src = _find_brightspace_zip(downloads_root, profile_name)
+        if zip_src is not None:
+            styled_info(f"Found Brightspace ZIP: {zip_src.name}")
+            if not dry_run:
+                if not is_interactive_terminal():
+                    unzip = True
+                else:
+                    unzip = prompt_yes_no(
+                        f"Unzip {zip_src.name} into {submissions_target} now?", default=True
+                    )
+                if unzip:
+                    submissions_src = _extract_brightspace_zip(zip_src, profile_name, data_root_effective)
+
+    if submissions_src is None and solutions_src is None and grades_src is None:
+        styled_warning("No recent submissions folder, solutions PDF, or grade CSV found in Downloads.")
+        styled_info("To use import, first download from Brightspace:")
+        styled_info("  1. Go to Assignments → select assignment → Download All (unzips into folders).")
+        styled_info("  2. Go to Grades → Export → select the assignment column to get the grade CSV.")
+        styled_info("  3. Optionally place your solutions PDF in Downloads as well.")
+        styled_info("")
+        styled_info("Then re-run:")
+        styled_info(f"  ./gradeline import --profile {profile_name}")
+        styled_info("")
+        styled_info("Or place files manually:")
+        styled_info(f"  mkdir -p data/{profile_name}/submissions")
+        styled_info(f"  # Copy student folders into data/{profile_name}/submissions")
+        styled_info(f"  # Copy your solutions PDF to data/{profile_name}/solutions.pdf")
+        styled_info(f"  # Copy the grade template CSV to data/{profile_name}/grades.csv")
+        return 2
+
+    # Summary of what we found.
+    rows = []
+    rows.append(
+        (
+            "Submissions",
+            str(submissions_src) if submissions_src is not None else "<missing>",
+            str(submissions_target),
+        )
+    )
+    rows.append(
+        (
+            "Solutions PDF",
+            str(solutions_src) if solutions_src is not None else "<missing>",
+            str(solutions_target),
+        )
+    )
+    rows.append(
+        (
+            "Grade CSV",
+            str(grades_src) if grades_src is not None else "<missing>",
+            str(grades_target),
+        )
+    )
+    styled_table(
+        "Import Preview",
+        [
+            ("Artifact", {}),
+            ("Source", {"overflow": "fold"}),
+            ("Destination", {"overflow": "fold"}),
+        ],
+        rows,
+    )
+
+    if dry_run:
+        styled_info("Dry run: no files will be copied or moved.")
+        return 0
+
+    if is_interactive_terminal():
+        proceed = prompt_yes_no("Proceed with import?", default=True)
+        if not proceed:
+            styled_warning("Import aborted.")
+            return 1
+
+    # Ensure target directories exist.
+    target_root.mkdir(parents=True, exist_ok=True)
+    submissions_target.mkdir(parents=True, exist_ok=True)
+
+    # Copy or move submissions folder contents.
+    if submissions_src is not None and submissions_src.exists() and submissions_src.is_dir():
+        for child in sorted(submissions_src.iterdir()):
+            dest = submissions_target / child.name
+            try:
+                if move:
+                    if dest.exists():
+                        # Best-effort merge: leave existing dest in place.
+                        continue
+                    shutil.move(str(child), str(dest))
+                else:
+                    if child.is_dir():
+                        shutil.copytree(child, dest, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(child, dest)
+            except Exception as exc:  # noqa: BLE001
+                styled_warning(f"Failed to import {child}: {exc}")
+
+    # Copy or move solutions PDF.
+    if solutions_src is not None and solutions_src.exists() and solutions_src.is_file():
+        try:
+            if move:
+                shutil.move(str(solutions_src), str(solutions_target))
+            else:
+                shutil.copy2(solutions_src, solutions_target)
+        except Exception as exc:  # noqa: BLE001
+            styled_warning(f"Failed to import solutions PDF {solutions_src}: {exc}")
+
+    # Copy or move grade CSV.
+    if grades_src is not None and grades_src.exists() and grades_src.is_file():
+        try:
+            if move:
+                shutil.move(str(grades_src), str(grades_target))
+            else:
+                shutil.copy2(grades_src, grades_target)
+        except Exception as exc:  # noqa: BLE001
+            styled_warning(f"Failed to import grade CSV {grades_src}: {exc}")
+
+    styled_success(f"Imported assets into {target_root}")
+    styled_info(f"Next step: ./gradeline quickstart --profile {profile_name}")
+    return 0
+
+
+def _find_brightspace_zip(downloads_root: Path, profile_name: str) -> Path | None:
+    """Best-effort detection of a Brightspace assignment ZIP in Downloads."""
+    best: tuple[int, float, Path] | None = None
+    try:
+        entries = list(os.scandir(downloads_root))
+    except OSError:
+        return None
+
+    profile_lower = profile_name.lower()
+    for entry in entries:
+        try:
+            if not entry.is_file(follow_symlinks=False):
+                continue
+        except OSError:
+            continue
+        if not entry.name.lower().endswith(".zip"):
+            continue
+        lowered = entry.name.lower()
+        score = 0
+        if "download" in lowered:
+            score += 2
+        if "assignment" in lowered or "assign" in lowered:
+            score += 2
+        if profile_lower and profile_lower in lowered:
+            score += 1
+        if score == 0:
+            continue
+        try:
+            stat = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if best is None or score > best[0] or (score == best[0] and stat.st_mtime > best[1]):
+            best = (score, stat.st_mtime, Path(entry.path).resolve())
+
+    return best[2] if best is not None else None
+
+
+def _extract_brightspace_zip(zip_path: Path, profile_name: str, data_root: Path) -> Path:
+    """Extract a Brightspace ZIP to a temporary directory under data/ and return the root."""
+    import tempfile
+    import zipfile
+
+    temp_root = data_root / f".import_tmp_{profile_name}"
+    if temp_root.exists():
+        shutil.rmtree(temp_root)
+    temp_root.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            archive.extractall(temp_root)
+    except Exception as exc:  # noqa: BLE001
+        styled_warning(f"Failed to extract ZIP {zip_path}: {exc}")
+        return temp_root
+
+    # Many Brightspace zips contain student folders directly at the root.
+    return temp_root
+
+
 def run_with_optional_setup(*, profile_spec: str, host_override: str | None, port_override: int | None) -> int:
     try:
         return run_from_profile(profile_spec=profile_spec, host_override=host_override, port_override=port_override)
@@ -580,6 +842,44 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
             raise AbortToMenu
 
     detected = detect_defaults(profile_spec=profile_spec, cwd=cwd)
+
+    # Detect a true "blank" environment and provide guidance before falling back to setup wizard.
+    if (
+        detected.submissions_dir.value is None
+        and not detected.submissions_dir.candidates
+        and detected.solutions_pdf.value is None
+        and not detected.solutions_pdf.candidates
+        and detected.grades_template_csv.value is None
+        and not detected.grades_template_csv.candidates
+        and not profile_path.exists()
+    ):
+        styled_banner(f"Quickstart: Assignment {profile_spec}", "No assignment files detected yet")
+        styled_info(f"Looks like this is your first time setting up {profile_spec}.")
+        styled_warning(f"No assignment files found in data/{profile_spec}/ or {detected.context.downloads_dir}.")
+        styled_section_heading("Three ways to get started")
+        styled_info(
+            f"  1. Import from Downloads (recommended): download from Brightspace, then run "
+            f"`./gradeline import --profile {profile_spec}`."
+        )
+        styled_info(
+            f"  2. Place files manually under data/{profile_spec}/: "
+            "create a submissions/ folder, copy solutions.pdf and grades.csv, then re-run quickstart."
+        )
+        styled_info(
+            f"  3. Point to files anywhere with the setup wizard: "
+            f"`./gradeline setup --profile {profile_spec}`."
+        )
+        if is_interactive_terminal():
+            raw = input(
+                "Press Enter to run the guided setup wizard now, or type q to abort: "
+            ).strip().lower()
+            if raw == "q":
+                styled_warning("Aborted.")
+                raise AbortToMenu
+            return setup_profile_interactive(profile_spec=profile_spec, overwrite=False)
+        # Non-interactive: just print guidance and exit with a non-zero code.
+        return 2
+
     values, candidates, metadata = initialize_quickstart_state(detected)
 
     while True:

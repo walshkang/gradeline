@@ -93,6 +93,7 @@
             Verdict
             <select id="verdictSelect">
               <option value="correct">✓ Correct</option>
+              <option value="rounding_error">≈ Rounding Error</option>
               <option value="partial">◐ Partial</option>
               <option value="incorrect">✗ Incorrect</option>
               <option value="needs_review">⟳ Needs Review</option>
@@ -120,6 +121,11 @@
 
         <div class="editor-section">
           <h3>Details</h3>
+          <label>
+            Logic Analysis
+            <textarea id="logicAnalysisInput" rows="3"></textarea>
+          </label>
+
           <label>
             Short Reason
             <textarea id="reasonInput" rows="2"></textarea>

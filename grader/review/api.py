@@ -240,6 +240,9 @@ class ReviewApi:
             if "confidence_final" in payload:
                 final_payload["confidence"] = clamp_confidence(payload["confidence_final"])
 
+            if "logic_analysis_final" in payload:
+                final_payload["logic_analysis"] = str(payload["logic_analysis_final"] or "")
+
             if "short_reason_final" in payload:
                 final_payload["short_reason"] = str(payload["short_reason_final"] or "")
 
@@ -574,6 +577,7 @@ def compare_question_payloads(auto_payload: dict[str, Any], final_payload: dict[
     keys = [
         "verdict",
         "confidence",
+        "logic_analysis",
         "short_reason",
         "detail_reason",
         "evidence_quote",

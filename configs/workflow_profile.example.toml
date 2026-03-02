@@ -11,7 +11,7 @@ output_dir = "/path/to/grading/output/assignment2"
 
 # Optional fields (defaults shown)
 grading_mode = "unified" # choices: legacy, unified, agent
-model = "gemini-3-flash-preview"
+model = "gemini-2.5-flash"
 identifier_column = "OrgDefinedId"
 context_cache = true
 context_cache_ttl_seconds = 86400

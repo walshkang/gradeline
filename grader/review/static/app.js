@@ -44,6 +44,7 @@
     confidenceInput: document.getElementById("confidenceInput"),
     sourceFileSelect: document.getElementById("sourceFileSelect"),
     pageNumberInput: document.getElementById("pageNumberInput"),
+    logicAnalysisInput: document.getElementById("logicAnalysisInput"),
     reasonInput: document.getElementById("reasonInput"),
     detailReasonInput: document.getElementById("detailReasonInput"),
     evidenceInput: document.getElementById("evidenceInput"),
@@ -360,6 +361,7 @@
     ui.verdictSelect.value = finalData.verdict || "needs_review";
     ui.confidenceInput.value = String(finalData.confidence ?? 0);
     ui.pageNumberInput.value = finalData.page_number || "";
+    ui.logicAnalysisInput.value = finalData.logic_analysis || "";
     ui.reasonInput.value = finalData.short_reason || "";
     ui.detailReasonInput.value = finalData.detail_reason || "";
     ui.evidenceInput.value = finalData.evidence_quote || "";
@@ -748,6 +750,7 @@
     ui.confidenceInput.addEventListener("input", () =>
       queuePatch({ confidence_final: Number(ui.confidenceInput.value || "0") }, 550)
     );
+    ui.logicAnalysisInput.addEventListener("input", () => queuePatch({ logic_analysis_final: ui.logicAnalysisInput.value || "" }, 550));
     ui.reasonInput.addEventListener("input", () => queuePatch({ short_reason_final: ui.reasonInput.value || "" }, 550));
     ui.detailReasonInput.addEventListener("input", () =>
       queuePatch({ detail_reason_final: ui.detailReasonInput.value || "" }, 550)
