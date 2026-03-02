@@ -4,4 +4,4 @@
 .DS_Store
 data/
 !data/README.md
-@outputs/
+outputs/
