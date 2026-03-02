@@ -49,6 +49,7 @@ class GradeProfile:
     concurrency: int = 5
     plain: bool = False
     diagnostics_file: Path | None = None
+    annotation_font_size: float = 24.0
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,7 @@ ALLOWED_GRADE_KEYS = REQUIRED_GRADE_KEYS | {
     "concurrency",
     "plain",
     "diagnostics_file",
+    "annotation_font_size",
 }
 ALLOWED_REVIEW_KEYS = {"host", "port"}
 
@@ -112,6 +114,7 @@ PATH_GRADE_FIELDS = {
     "diagnostics_file",
 }
 INT_GRADE_FIELDS = {"ocr_char_threshold", "context_cache_ttl_seconds", "concurrency"}
+FLOAT_GRADE_FIELDS = {"annotation_font_size"}
 BOOL_GRADE_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "plain"}
 STRING_GRADE_FIELDS = {
     "grade_column",
@@ -227,6 +230,9 @@ def _parse_grade_section(payload: dict[str, Any], profile_dir: Path) -> GradePro
         if key in INT_GRADE_FIELDS:
             values[key] = _coerce_int(raw, field=key)
             continue
+        if key in FLOAT_GRADE_FIELDS:
+            values[key] = _coerce_float(raw, field=key)
+            continue
         if key in BOOL_GRADE_FIELDS:
             values[key] = _coerce_bool(raw, field=key)
             continue
@@ -276,6 +282,12 @@ def _coerce_int(raw: Any, *, field: str) -> int:
     if isinstance(raw, bool) or not isinstance(raw, int):
         raise WorkflowProfileError(f"Field {field} must be an integer.")
     return raw
+
+
+def _coerce_float(raw: Any, *, field: str) -> float:
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise WorkflowProfileError(f"Field {field} must be a number.")
+    return float(raw)
 
 
 def _coerce_bool(raw: Any, *, field: str) -> bool:

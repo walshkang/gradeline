@@ -100,6 +100,7 @@ CLI_VALUE_MAPPINGS: tuple[CliValueMapping, ...] = (
     CliValueMapping("context_cache_ttl_seconds", "--context-cache-ttl-seconds", "int"),
     CliValueMapping("concurrency", "--concurrency", "int"),
     CliValueMapping("diagnostics_file", "--diagnostics-file", "path"),
+    CliValueMapping("annotation_font_size", "--annotation-font-size", "float"),
 )
 
 CLI_FLAG_MAPPINGS: tuple[tuple[str, str], ...] = (
@@ -140,10 +141,12 @@ OPTIONAL_GRADE_RENDER_ORDER: tuple[str, ...] = (
     "context_cache_ttl_seconds",
     "plain",
     "diagnostics_file",
+    "annotation_font_size",
 )
 
 _OPTIONAL_PATH_FIELDS = {"temp_dir", "cache_dir", "diagnostics_file"}
 _OPTIONAL_INT_FIELDS = {"ocr_char_threshold", "context_cache_ttl_seconds"}
+_OPTIONAL_FLOAT_FIELDS = {"annotation_font_size"}
 _OPTIONAL_BOOL_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "plain"}
 _OPTIONAL_STRING_FIELDS = {
     "grading_mode",
@@ -1438,6 +1441,14 @@ def sanitize_optional_grade_values(values: dict[str, Any]) -> dict[str, Any]:
             except (TypeError, ValueError):
                 continue
             continue
+        if key in _OPTIONAL_FLOAT_FIELDS:
+            if isinstance(raw, bool):
+                continue
+            try:
+                normalized[key] = float(raw)
+            except (TypeError, ValueError):
+                continue
+            continue
         if key in _OPTIONAL_BOOL_FIELDS:
             if isinstance(raw, bool):
                 normalized[key] = raw
@@ -1476,6 +1487,10 @@ def render_optional_grade_value(key: str, value: Any) -> str | None:
         if isinstance(value, bool) or not isinstance(value, int):
             return None
         return str(value)
+    if key in _OPTIONAL_FLOAT_FIELDS:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return str(float(value))
     if key in _OPTIONAL_STRING_FIELDS or key in _OPTIONAL_POINTS_FIELDS:
         text = str(value).strip()
         if not text:
@@ -1500,6 +1515,10 @@ def serialize_value(value: Any, value_type: str) -> str:
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f"Expected int, got {type(value).__name__}")
         return str(value)
+    if value_type == "float":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"Expected float, got {type(value).__name__}")
+        return str(float(value))
     if value_type == "str":
         if not isinstance(value, str):
             raise ValueError(f"Expected str, got {type(value).__name__}")

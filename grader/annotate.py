@@ -8,6 +8,19 @@ from typing import Callable
 from .types import QuestionResult, RubricConfig, SubmissionUnit
 
 ANNOTATION_INFO_TITLE = "sda_grader"
+DEFAULT_ANNOTATION_FONT_SIZE = 24.0
+HEADER_FONT_SCALE = 0.66
+SUMMARY_TITLE_FONT_SCALE = 0.5
+SUMMARY_LINE_FONT_SCALE = 0.5
+
+# Layout-aware anchor heuristics
+ANCHOR_LEFT_MARGIN_RATIO = 0.4
+ANCHOR_TOP_MARGIN_RATIO = 0.10
+ANCHOR_BOTTOM_MARGIN_RATIO = 0.10
+
+# Layout-aware mark offsets (relative to page size)
+ANNOTATION_OFFSET_X_RATIO = 0.05
+ANNOTATION_OFFSET_Y_RATIO = 0.02
 
 
 def annotate_submission_pdfs(
@@ -19,6 +32,7 @@ def annotate_submission_pdfs(
     final_band: str,
     dry_run: bool = False,
     annotate_dry_run_marks: bool = False,
+    annotation_font_size: float = DEFAULT_ANNOTATION_FONT_SIZE,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[Path], list[QuestionResult]]:
     import fitz  # Lazy import for testability without dependency.
@@ -46,6 +60,7 @@ def annotate_submission_pdfs(
             doc.need_appearances(True)
 
             if render_question_marks:
+                question_fontsize = max(8.0, float(annotation_font_size))
                 for question in rubric.questions:
                     q_result = result_map.get(question.id)
                     if q_result is None:
@@ -58,7 +73,8 @@ def annotate_submission_pdfs(
                     model_location = resolve_model_location(doc=doc, pdf_filename=pdf_path.name, result=q_result)
                     if model_location is not None:
                         page_idx, point, normalized_coords = model_location
-                        placement_source = "model_coords"
+                        # Preserve any existing placement_source (e.g., locator_coords) when present.
+                        placement_source = q_result.placement_source or "model_coords"
                     else:
                         anchor = find_anchor_in_doc(
                             doc=doc,
@@ -70,7 +86,7 @@ def annotate_submission_pdfs(
                             continue
                         page_idx, point = anchor
                         normalized_coords = point_to_normalized(doc[page_idx], point)
-                        placement_source = "local_anchor"
+                        placement_source = q_result.placement_source or "local_anchor"
 
                     mark_text = mark_text_for_result(question_id=question.id, result=q_result)
                     insert_mark(
@@ -79,6 +95,7 @@ def annotate_submission_pdfs(
                         mark_text=mark_text,
                         is_correct=(q_result.verdict == "correct"),
                         question_id=question.id,
+                        fontsize=question_fontsize,
                     )
                     rendered.add(question.id)
                     placement_details[question.id] = {
@@ -89,7 +106,8 @@ def annotate_submission_pdfs(
                     }
 
             if pdf_path == submission.pdf_paths[0]:
-                add_band_header(doc[0], final_band=final_band, dry_run=dry_run)
+                header_fontsize = max(8.0, float(annotation_font_size) * HEADER_FONT_SCALE)
+                add_band_header(doc[0], final_band=final_band, dry_run=dry_run, fontsize=header_fontsize)
 
             doc.save(out_path)
             output_paths.append(out_path)
@@ -101,10 +119,14 @@ def annotate_submission_pdfs(
         doc = fitz.open(output_paths[0])
         try:
             doc.need_appearances(True)
+            title_fontsize = max(8.0, float(annotation_font_size) * SUMMARY_TITLE_FONT_SCALE)
+            line_fontsize = max(8.0, float(annotation_font_size) * SUMMARY_LINE_FONT_SCALE)
             add_fallback_summary(
                 doc[0],
                 unresolved=unresolved,
                 result_map=result_map,
+                title_fontsize=title_fontsize,
+                line_fontsize=line_fontsize,
             )
             doc.saveIncr()
         finally:
@@ -242,15 +264,41 @@ def find_anchor_in_doc(
     import fitz
 
     tokens = build_anchor_tokens(question_id, label_patterns, explicit_tokens)
+    candidates_by_page: dict[int, list["fitz.Rect"]] = {}
+
     for page_idx in range(len(doc)):
         page = doc[page_idx]
+        raw_rects: list["fitz.Rect"] = []
         for token in tokens:
             rects = page.search_for(token)
             if rects:
-                rect = rects[0]
-                point = fitz.Point(rect.x1 + 6, rect.y0 + 10)
-                return page_idx, point
-    return None
+                raw_rects.extend(rects)
+        if not raw_rects:
+            continue
+
+        left_limit = page.rect.width * ANCHOR_LEFT_MARGIN_RATIO
+        top_limit = page.rect.height * ANCHOR_TOP_MARGIN_RATIO
+        bottom_limit = page.rect.height * (1.0 - ANCHOR_BOTTOM_MARGIN_RATIO)
+
+        filtered = [
+            rect
+            for rect in raw_rects
+            if rect.x0 < left_limit and rect.y0 >= top_limit and rect.y1 <= bottom_limit
+        ]
+        use_rects = filtered or raw_rects
+        candidates_by_page[page_idx] = use_rects
+
+    if not candidates_by_page:
+        return None
+
+    # Prefer the latest page in the document that has candidates, then the lowest match on that page.
+    best_page_idx = max(candidates_by_page.keys())
+    page_rects = candidates_by_page[best_page_idx]
+    best_rect = max(page_rects, key=lambda r: r.y0)
+
+    page = doc[best_page_idx]
+    point = fitz.Point(best_rect.x1 + 6, best_rect.y0 + 10)
+    return best_page_idx, point
 
 
 def mark_text_for_result(question_id: str, result: QuestionResult) -> str:
@@ -350,9 +398,10 @@ def insert_mark(
     mark_text: str,
     is_correct: bool,
     question_id: str,
+    fontsize: float,
 ) -> None:
     mark_point = offset_mark_point(page=page, point=point)
-    fontsize = 12.0
+    fontsize = max(8.0, float(fontsize))
     color = (0.0, 0.55, 0.0) if is_correct else (0.8, 0.0, 0.0)
     rect = text_annotation_rect_from_baseline(
         page=page,
@@ -382,23 +431,27 @@ def insert_mark(
 def offset_mark_point(
     page: "fitz.Page",
     point: "fitz.Point",
-    x_offset: float = 30.0,
-    y_offset: float = -18.0,
+    x_offset: float | None = None,
+    y_offset: float | None = None,
 ) -> "fitz.Point":
     import fitz
 
-    x = clamp(point.x + x_offset, 4.0, max(4.0, page.rect.width - 4.0))
-    y = clamp(point.y + y_offset, 4.0, max(4.0, page.rect.height - 4.0))
+    # Default to layout-aware offsets relative to page size.
+    effective_x_offset = x_offset if x_offset is not None else page.rect.width * ANNOTATION_OFFSET_X_RATIO
+    effective_y_offset = y_offset if y_offset is not None else -(page.rect.height * ANNOTATION_OFFSET_Y_RATIO)
+
+    x = clamp(point.x + effective_x_offset, 4.0, max(4.0, page.rect.width - 4.0))
+    y = clamp(point.y + effective_y_offset, 4.0, max(4.0, page.rect.height - 4.0))
     return fitz.Point(x, y)
 
 
-def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False) -> None:
+def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False, fontsize: float = 14.0) -> None:
     text = f"Grade: {final_band}"
     if dry_run:
         text = f"Dry Run - {final_band} (no per-question marks)"
     x = max(24, page.rect.width - 320)
     y = 36
-    fontsize = 14.0
+    fontsize = max(8.0, float(fontsize))
     rect = text_annotation_rect_from_baseline(
         page=page,
         x=float(x),
@@ -421,11 +474,17 @@ def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False) -
     )
 
 
-def add_fallback_summary(page: "fitz.Page", unresolved: list, result_map: dict[str, QuestionResult]) -> None:
+def add_fallback_summary(
+    page: "fitz.Page",
+    unresolved: list,
+    result_map: dict[str, QuestionResult],
+    title_fontsize: float,
+    line_fontsize: float,
+) -> None:
     x = max(24, page.rect.width - 230)
     y = 72
     title_text = "Review Notes:"
-    title_size = 11.0
+    title_size = max(8.0, float(title_fontsize))
     title_rect = text_annotation_rect_from_baseline(
         page=page,
         x=float(x),
@@ -454,7 +513,7 @@ def add_fallback_summary(page: "fitz.Page", unresolved: list, result_map: dict[s
             line_text = f"x Q{question.id}: No result."
         else:
             line_text = mark_text_for_result(question_id=question.id, result=q_result)
-        line_size = 10.0
+        line_size = max(8.0, float(line_fontsize))
         line_rect = text_annotation_rect_from_baseline(
             page=page,
             x=float(x),

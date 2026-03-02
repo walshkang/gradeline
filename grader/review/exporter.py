@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..annotate import annotate_submission_pdfs
+from ..annotate import DEFAULT_ANNOTATION_FONT_SIZE, annotate_submission_pdfs
 from ..report import write_brightspace_import_csv, write_grading_audit_csv, write_review_queue_csv
 from ..score import score_submission
 from ..types import QuestionResult, SubmissionResult, SubmissionUnit
@@ -57,6 +57,13 @@ def export_review_outputs(output_dir: Path) -> dict[str, Path]:
     if not isinstance(submission_payloads, dict):
         raise ReviewExportError("Invalid submissions payload in review state.")
 
+    # Derive annotation font size from original grading args, if present.
+    raw_font = args_snapshot.get("annotation_font_size", DEFAULT_ANNOTATION_FONT_SIZE)
+    try:
+        annotation_font_size = float(raw_font)
+    except (TypeError, ValueError):
+        annotation_font_size = DEFAULT_ANNOTATION_FONT_SIZE
+
     results: list[SubmissionResult] = []
     for submission in submission_payloads.values():
         if not isinstance(submission, dict):
@@ -68,6 +75,7 @@ def export_review_outputs(output_dir: Path) -> dict[str, Path]:
                 score_points=score_points,
                 submissions_root=submissions_root,
                 reviewed_pdf_root=reviewed_pdf_root,
+                annotation_font_size=annotation_font_size,
             )
         )
 
@@ -138,6 +146,7 @@ def build_submission_result(
     score_points: dict[str, str],
     submissions_root: Path,
     reviewed_pdf_root: Path,
+    annotation_font_size: float,
 ) -> SubmissionResult:
     unit = submission_unit_from_payload(submission_payload)
 
@@ -162,6 +171,7 @@ def build_submission_result(
                 final_band=grade_result.band,
                 dry_run=False,
                 annotate_dry_run_marks=False,
+                annotation_font_size=annotation_font_size,
             )
         except Exception as exc:  # noqa: BLE001
             annotation_error = f"Reviewed annotation failed: {exc}"

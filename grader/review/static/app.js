@@ -63,6 +63,8 @@
     saveConfigBtn: document.getElementById("saveConfigBtn"),
     configStatus: document.getElementById("configStatus"),
     toastContainer: document.getElementById("toastContainer"),
+    debugOverlayToggle: document.getElementById("debugOverlayToggle"),
+    debugOverlayPanel: document.getElementById("debugOverlayPanel"),
   };
 
   // --- Toast notifications ---
@@ -354,6 +356,7 @@
     const question = getCurrentQuestion();
     if (!question) {
       ui.marker.hidden = true;
+      updateDebugOverlay(null);
       return;
     }
 
@@ -382,6 +385,7 @@
     ui.sourceFileSelect.value = finalData.source_file || "";
 
     renderMarker();
+    updateDebugOverlay(finalData);
   }
 
   function renderConfig() {
@@ -471,6 +475,36 @@
     ui.marker.style.left = `${imgRect.left - wrapRect.left + px}px`;
     ui.marker.style.top = `${imgRect.top - wrapRect.top + py}px`;
     ui.marker.hidden = false;
+  }
+
+  function isDebugOverlayEnabled() {
+    return !!ui.debugOverlayToggle && ui.debugOverlayToggle.checked;
+  }
+
+  function updateDebugOverlay(finalData) {
+    if (!ui.debugOverlayPanel) {
+      return;
+    }
+    if (!isDebugOverlayEnabled() || !finalData) {
+      ui.debugOverlayPanel.textContent = "";
+      ui.debugOverlayPanel.classList.add("hidden");
+      return;
+    }
+    const placementSource = finalData.placement_source || "unknown";
+    const coords = Array.isArray(finalData.coords) ? finalData.coords : null;
+    const page = finalData.page_number || "";
+    const sourceFile = finalData.source_file || "";
+    const lines = [];
+    lines.push(`placement_source: ${placementSource}`);
+    if (coords && coords.length === 2) {
+      lines.push(`coords (y,x): [${coords[0].toFixed ? coords[0].toFixed(1) : coords[0]}, ${coords[1].toFixed ? coords[1].toFixed(1) : coords[1]}]`);
+    } else {
+      lines.push("coords: <none>");
+    }
+    lines.push(`page_number: ${page || "?"}`);
+    lines.push(`source_file: ${sourceFile || "(none)"}`);
+    ui.debugOverlayPanel.textContent = lines.join("\n");
+    ui.debugOverlayPanel.classList.remove("hidden");
   }
 
   async function loadCurrentPage() {
@@ -734,10 +768,14 @@
 
     ui.pageImage.addEventListener("load", () => {
       renderMarker();
+      const question = getCurrentQuestion();
+      updateDebugOverlay(question?.final || null);
     });
 
     window.addEventListener("resize", () => {
       renderMarker();
+      const question = getCurrentQuestion();
+      updateDebugOverlay(question?.final || null);
     });
 
     ui.questionSelect.addEventListener("change", async () => {
@@ -770,6 +808,13 @@
     ui.noteInput.addEventListener("blur", () => {
       flushNote().catch((error) => showToast(error.message, "error"));
     });
+
+    if (ui.debugOverlayToggle) {
+      ui.debugOverlayToggle.addEventListener("change", () => {
+        const question = getCurrentQuestion();
+        updateDebugOverlay(question?.final || null);
+      });
+    }
 
     ui.imageWrap.addEventListener("click", (event) => {
       if (state.dragActive) {

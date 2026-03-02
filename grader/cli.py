@@ -36,6 +36,11 @@ DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_AGENT_TYPE = "gemini"
 DEFAULT_OCR_CHAR_THRESHOLD = 200
 LOW_CONFIDENCE_THRESHOLD = 0.55
+DEFAULT_ANNOTATION_FONT_SIZE = 24.0
+
+# Limit concurrent locator passes across submissions to avoid API rate limits.
+LOCATOR_MAX_CONCURRENT = 1
+locator_semaphore = threading.Semaphore(LOCATOR_MAX_CONCURRENT)
 
 VERDICT_SYMBOLS = {"correct": "✓", "partial": "◐", "rounding_error": "≈", "incorrect": "✗", "needs_review": "⟳"}
 
@@ -191,6 +196,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--concurrency", type=int, default=5)
     parser.add_argument("--plain", action="store_true")
     parser.add_argument("--diagnostics-file", type=Path, default=None)
+    parser.add_argument("--annotation-font-size", type=float, default=DEFAULT_ANNOTATION_FONT_SIZE)
     return parser.parse_args(argv)
 
 
@@ -273,15 +279,6 @@ def main(argv: list[str] | None = None) -> int:
             ui.error(message)
             return conclude(exit_code=2, submission_results=[], warnings=[])
     else:
-        if args.locator_model.strip():
-            message = "--locator-model is ignored in unified mode; use model-provided coordinates from unified grading."
-            diagnostics.record(
-                severity="warning",
-                code="preflight_unified_locator_ignored",
-                stage="preflight",
-                message=message,
-            )
-            ui.warning(message)
         if args.ocr_char_threshold != DEFAULT_OCR_CHAR_THRESHOLD:
             message = "--ocr-char-threshold is ignored in unified mode."
             diagnostics.record(
@@ -541,6 +538,7 @@ def main(argv: list[str] | None = None) -> int:
                 final_band=result.grade_result.band,
                 dry_run=args.dry_run,
                 annotate_dry_run_marks=args.annotate_dry_run_marks,
+                annotation_font_size=float(getattr(args, "annotation_font_size", DEFAULT_ANNOTATION_FONT_SIZE)),
             )
             result.output_pdf_paths = output_pdf_paths
             result.question_results = updated_question_results
@@ -918,19 +916,26 @@ def grade_one_submission(
             global_flags.append("grading_error")
             accumulated_error = append_error(accumulated_error, str(exc))
 
-    if grading_mode == LEGACY_MODE and (not dry_run) and locator_model and grader is not None:
+    needs_locator = any(result.coords is None for result in question_results)
+    if (not dry_run) and locator_model and grader is not None and needs_locator:
         if status_update is not None:
             status_update("locating answer anchors")
         locator_errors: list[str] = []
-        candidates = collect_locator_candidates(
-            grader=grader,
-            pdf_paths=unit.pdf_paths,
-            rubric=rubric,
-            locator_model=locator_model,
-            errors_out=locator_errors,
-            diagnostics=diagnostics,
-            submission_folder=unit.folder_path.name,
-        )
+        try:
+            with locator_semaphore:
+                candidates = collect_locator_candidates(
+                    grader=grader,
+                    pdf_paths=unit.pdf_paths,
+                    rubric=rubric,
+                    locator_model=locator_model,
+                    errors_out=locator_errors,
+                    diagnostics=diagnostics,
+                    submission_folder=unit.folder_path.name,
+                )
+        except Exception as exc:  # noqa: BLE001
+            locator_errors.append(f"Locator invocation failed: {exc}")
+            candidates = {}
+
         question_results = apply_locator_candidates(
             question_results=question_results,
             candidates=candidates,
@@ -1024,6 +1029,9 @@ def apply_locator_candidates(
     for question_id, options in candidates.items():
         if question_id not in result_map or not options:
             continue
+        # Only fill in coordinates for questions that are currently missing them.
+        if result_map[question_id].coords is not None:
+            continue
         ordered = sorted(
             options,
             key=lambda item: (
@@ -1040,6 +1048,7 @@ def apply_locator_candidates(
             coords=coords,
             page_number=best.get("page_number"),
             source_file=str(best.get("source_file", "")).strip() or None,
+            placement_source="locator_coords",
         )
 
     return [result_map[result.id] for result in question_results]

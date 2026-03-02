@@ -4,7 +4,7 @@
 # Required fields
 submissions_dir = "/path/to/brightspace/submissions"
 solutions_pdf = "/path/to/assignment_solutions.pdf"
-rubric_yaml = "/path/to/sda-grader/configs/assignment2.yaml"
+rubric_yaml = "/path/to/gradeline/configs/assignment2.yaml"
 grades_template_csv = "/path/to/brightspace_grade_template.csv"
 grade_column = "Assignment 2 Points Grade"
 output_dir = "/path/to/grading/output/assignment2"
@@ -16,10 +16,12 @@ identifier_column = "OrgDefinedId"
 context_cache = true
 context_cache_ttl_seconds = 86400
 plain = false
+# Global annotation font sizing
+# annotation_font_size = 24.0
 
 # Optional: pass through any supported grader CLI fields
-# temp_dir = "/path/to/sda-grader/.grader_tmp/a2"
-# cache_dir = "/path/to/sda-grader/.grader_cache/a2"
+# temp_dir = "/path/to/gradeline/.grader_tmp/a2"
+# cache_dir = "/path/to/gradeline/.grader_cache/a2"
 # locator_model = ""
 # api_key_env = "GEMINI_API_KEY"
 # comment_column = ""

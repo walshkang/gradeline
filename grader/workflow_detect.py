@@ -48,10 +48,12 @@ OPTIONAL_GRADE_FIELDS = (
     "context_cache_ttl_seconds",
     "plain",
     "diagnostics_file",
+    "annotation_font_size",
 )
 
 _OPTIONAL_PATH_FIELDS = {"temp_dir", "cache_dir", "diagnostics_file"}
 _OPTIONAL_INT_FIELDS = {"ocr_char_threshold", "context_cache_ttl_seconds"}
+_OPTIONAL_FLOAT_FIELDS = {"annotation_font_size"}
 _OPTIONAL_BOOL_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "plain"}
 _OPTIONAL_STRING_FIELDS = {
     "grading_mode",
@@ -474,6 +476,11 @@ def _snapshot_optional_value(snapshot: ProfileRunSnapshot, field: str, cwd: Path
         return _coerce_path(raw, cwd)
     if field in _OPTIONAL_INT_FIELDS:
         return _coerce_int_or_none(raw)
+    if field in _OPTIONAL_FLOAT_FIELDS:
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
     if field in _OPTIONAL_BOOL_FIELDS:
         return _coerce_bool_or_none(raw)
     if field in _OPTIONAL_STRING_FIELDS:
