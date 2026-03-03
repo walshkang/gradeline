@@ -98,7 +98,7 @@ class EditableAnnotationTests(unittest.TestCase):
                     if (annot.info.get("subject", "")).startswith("question_mark|q=a|")
                 )
                 self.assertEqual(mark_annot.type[1], "FreeText")
-                self.assertEqual(mark_annot.info.get("title", ""), "sda_grader")
+                self.assertEqual(mark_annot.info.get("title", ""), "gradeline")
                 self.assertNotEqual(mark_annot.flags & fitz.PDF_ANNOT_IS_PRINT, 0)
 
     def test_unresolved_questions_use_editable_review_summary(self) -> None:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gradeline — short alias for the SDA Grader workflow CLI.
+# gradeline — short alias for the Gradeline workflow CLI.
 # Usage: ./gradeline [command] [options]
 #   e.g. ./gradeline quickstart --profile smoke-test
 #        ./gradeline list

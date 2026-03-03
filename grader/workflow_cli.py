@@ -58,6 +58,11 @@ from .workflow_profile import (
 REQUIRED_STATE_KEYS = {"schema_version", "run_metadata", "grading_context", "submissions"}
 
 
+def get_project_root() -> Path:
+    """Return the repository root containing the grader package."""
+    return Path(__file__).resolve().parent.parent
+
+
 class AbortToMenu(Exception):
     """Raised when user aborts an operation; in interactive mode, return to main menu."""
 
@@ -261,7 +266,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 _MENU_COMMANDS: list[tuple[str, str]] = [
-    ("import", "Copy recent Brightspace downloads into data/{profile}/"),
+    ("grade-new", "Grade new assignment"),
+    ("import", "Import assignment assets (from Downloads)"),
     ("quickstart", "Auto-detect settings, grade, and review"),
     ("run", "Grade submissions and launch review server"),
     ("spot-grade", "Grade a single late submission PDF (no Brightspace ID required)"),
@@ -279,7 +285,7 @@ _COMMANDS_WITH_REVIEW_SERVER = {"run", "serve", "regrade"}
 
 def interactive_command_menu() -> str | None:
     """Show an arrow-key menu and return the chosen command name, or None if cancelled."""
-    styled_banner("Gradeline", "SDA Grader workflow CLI")
+    styled_banner("Gradeline", "Gradeline workflow CLI")
     choices = [f"{name}  —  {desc}" for name, desc in _MENU_COMMANDS]
     idx = prompt_select(
             "Choose a command",
@@ -345,6 +351,52 @@ def main(argv: list[str] | None = None) -> int:
                     host_override=getattr(args, "host", None),
                     port_override=getattr(args, "port", None),
                 )
+            elif command == "grade-new":
+                if not is_interactive_terminal():
+                    styled_error("The 'Grade new assignment' flow is only available in interactive mode.")
+                    return 2
+
+                project_root = get_project_root()
+                while True:
+                    new_name = prompt_text("New assignment name", required=True)
+                    profile_path = resolve_profile_path(
+                        new_name,
+                        cwd=project_root,
+                        profile_dir=DEFAULT_PROFILE_DIR,
+                    )
+                    if profile_path.exists():
+                        choice_idx = prompt_select(
+                            "Profile already exists. Choose an option.",
+                            [
+                                "Use existing profile",
+                                "Enter a different name",
+                                "Back to main menu",
+                            ],
+                            default=0,
+                        )
+                        if choice_idx is None or choice_idx == 2:
+                            raise AbortToMenu
+                        if choice_idx == 1:
+                            continue
+                        profile = new_name
+                        break
+                    else:
+                        profile = new_name
+                        break
+
+                exit_code = setup_profile_interactive(
+                    profile_spec=profile,
+                    overwrite=False,
+                )
+                if exit_code != 0:
+                    return exit_code
+
+                if prompt_yes_no("Run grading for this assignment now?", default=True):
+                    exit_code = run_with_optional_setup(
+                        profile_spec=profile,
+                        host_override=getattr(args, "host", None),
+                        port_override=getattr(args, "port", None),
+                    )
             elif command == "import":
                 profile = getattr(args, "profile", None) or prompt_profile_interactive()
                 if profile is None:
@@ -432,7 +484,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def run_from_profile(*, profile_spec: str, host_override: str | None, port_override: int | None) -> int:
-    profile = load_workflow_profile(profile_spec)
+    profile = load_workflow_profile(profile_spec, cwd=get_project_root())
     grading_argv = build_grading_argv(profile.grade)
 
     exit_code = invoke_grading_main(grading_argv)
@@ -466,11 +518,11 @@ def regrade_from_profile(
     port_override: int | None,
 ) -> int:
     """Clear cached results and output artifacts, then re-run grading."""
-    profile = load_workflow_profile(profile_spec)
+    profile = load_workflow_profile(profile_spec, cwd=get_project_root())
     output_dir = profile.grade.output_dir
     cache_dir = profile.grade.cache_dir or Path(".grader_cache")
     if not cache_dir.is_absolute():
-        cache_dir = Path.cwd() / cache_dir
+        cache_dir = get_project_root() / cache_dir
 
     # Compile optional student filter
     pattern: re.Pattern[str] | None = None
@@ -571,7 +623,7 @@ def _purge_cache_entries(cache_file: Path, pattern: re.Pattern[str]) -> None:
 def spot_grade_interactive(*, profile_spec: str, pdf_path: Path | None, student_name: str | None) -> int:
     import tempfile
     
-    profile = load_workflow_profile(profile_spec)
+    profile = load_workflow_profile(profile_spec, cwd=get_project_root())
     
     if pdf_path is None:
         pdf_path = prompt_path("PDF file to grade", required=True, cwd=Path.cwd())
@@ -642,12 +694,12 @@ def import_assignment_assets(
     move: bool,
 ) -> int:
     """Import Brightspace submissions, solutions, and grade CSV into data/{profile}/."""
-    cwd = Path.cwd()
-    profile_path = resolve_profile_path(profile_spec, cwd=cwd, profile_dir=DEFAULT_PROFILE_DIR)
+    project_root = get_project_root()
+    profile_path = resolve_profile_path(profile_spec, cwd=project_root, profile_dir=DEFAULT_PROFILE_DIR)
     profile_name = profile_path.stem
 
     downloads_root = (downloads_dir or (Path.home() / "Downloads")).expanduser().resolve()
-    data_root_effective = (data_root or (cwd / "data")).resolve()
+    data_root_effective = (data_root or (project_root / "data")).resolve()
     target_root = data_root_effective / profile_name
     submissions_target = target_root / "submissions"
     solutions_target = target_root / "solutions.pdf"
@@ -930,7 +982,7 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
         styled_error("quickstart requires an interactive terminal (TTY).")
         return 2
 
-    cwd = Path.cwd()
+    cwd = get_project_root()
     profile_path = resolve_profile_path(profile_spec, cwd=cwd, profile_dir=DEFAULT_PROFILE_DIR)
     profile_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1330,9 +1382,9 @@ def is_interactive_terminal() -> bool:
 
 
 def list_profiles() -> int:
-    cwd = Path.cwd()
-    profiles = list_profile_paths(cwd=cwd, profile_dir=DEFAULT_PROFILE_DIR)
-    root = (cwd / DEFAULT_PROFILE_DIR).resolve()
+    project_root = get_project_root()
+    profiles = list_profile_paths(cwd=project_root, profile_dir=DEFAULT_PROFILE_DIR)
+    root = (project_root / DEFAULT_PROFILE_DIR).resolve()
     if not profiles:
         styled_info(f"No profiles found under {root}")
         return 0
@@ -1364,8 +1416,8 @@ def list_profiles() -> int:
 
 
 def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
-    cwd = Path.cwd()
-    profile_path = resolve_profile_path(profile_spec, cwd=cwd, profile_dir=DEFAULT_PROFILE_DIR)
+    project_root = get_project_root()
+    profile_path = resolve_profile_path(profile_spec, cwd=project_root, profile_dir=DEFAULT_PROFILE_DIR)
     profile_path.parent.mkdir(parents=True, exist_ok=True)
 
     if profile_path.exists() and not overwrite:
@@ -1376,27 +1428,27 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
     profile_name = profile_path.stem
     styled_banner(f"Configuring profile: {profile_name}", str(profile_path))
     
-    default_data_root = cwd / "data" / profile_name
+    default_data_root = project_root / "data" / profile_name
 
     submissions_dir = prompt_path(
         "Submissions directory (folder containing all downloaded student PDFs)",
         default=str(default_data_root / "submissions"),
         required=True,
-        cwd=cwd,
+        cwd=project_root,
     )
     solutions_pdf = prompt_path(
         "Solutions PDF (the master answer key used to grade against)",
         default=str(default_data_root / "solutions.pdf"),
         required=True,
-        cwd=cwd,
+        cwd=project_root,
     )
 
-    default_rubric = (cwd / "configs" / f"{profile_name}.yaml").resolve()
+    default_rubric = (project_root / "configs" / f"{profile_name}.yaml").resolve()
     rubric_yaml = prompt_path(
         "Rubric YAML path (rules and point weights for grading)",
         default=str(default_rubric),
         required=True,
-        cwd=cwd,
+        cwd=project_root,
     )
     if not rubric_yaml.exists():
         if prompt_yes_no(f"Rubric not found at {rubric_yaml}. Create a starter rubric now?", default=True):
@@ -1410,11 +1462,17 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
             write_starter_rubric(rubric_yaml, assignment_id=assignment_id, question_ids=question_ids)
             styled_success(f"Created starter rubric: {rubric_yaml}")
 
+    maybe_generate_rubric_with_ai(
+        solutions_pdf=solutions_pdf,
+        rubric_yaml=rubric_yaml,
+        profile_name=profile_name,
+    )
+
     grades_template_csv = prompt_path(
         "Brightspace grades template CSV (exported from your course to map grades)",
         default=str(default_data_root / "grades.csv"),
         required=True,
-        cwd=cwd,
+        cwd=project_root,
     )
     grade_column = prompt_text(
         "Grade column header (the exact name of the column in the CSV to write grades to)",
@@ -1423,9 +1481,9 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
     )
     output_dir = prompt_path(
         "Output directory",
-        default=str((cwd / "outputs" / profile_name).resolve()),
+        default=str((project_root / "outputs" / profile_name).resolve()),
         required=True,
-        cwd=cwd,
+        cwd=project_root,
     )
     host = prompt_text("Review host", default=DEFAULT_REVIEW_HOST, required=True)
     port = prompt_int("Review port", default=DEFAULT_REVIEW_PORT, minimum=1, maximum=65535)
@@ -1444,6 +1502,11 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
     styled_success(f"Wrote profile: {profile_path}")
     styled_info(f"Next step: python3 -m grader.workflow_cli run --profile {profile_name}")
     return 0
+
+
+def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, profile_name: str) -> None:
+    """Placeholder hook for future AI-assisted rubric generation from the solutions PDF."""
+    return None
 
 
 def build_grading_argv(profile: GradeProfile) -> list[str]:

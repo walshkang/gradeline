@@ -7,7 +7,7 @@ from typing import Callable
 
 from .types import QuestionResult, RubricConfig, SubmissionUnit
 
-ANNOTATION_INFO_TITLE = "sda_grader"
+ANNOTATION_INFO_TITLE = "gradeline"
 DEFAULT_ANNOTATION_FONT_SIZE = 24.0
 HEADER_FONT_SCALE = 0.66
 SUMMARY_TITLE_FONT_SCALE = 0.5

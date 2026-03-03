@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from grader.workflow_detect import DetectedConfig, DetectedField, DiscoveryContext, detect_defaults
-from grader.workflow_cli import main, resolve_available_port
+from grader.workflow_cli import main, resolve_available_port, get_project_root
 from grader.workflow_profile import WorkflowProfileError, load_workflow_profile
 
 
@@ -268,6 +268,7 @@ class WorkflowCliTests(unittest.TestCase):
 
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("builtins.input", side_effect=inputs),
             ):
                 exit_code = main(["setup", "--profile", "a2"])
@@ -289,6 +290,7 @@ class WorkflowCliTests(unittest.TestCase):
             stderr = io.StringIO()
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("sys.stdin.isatty", return_value=False),
                 patch("sys.stdout.isatty", return_value=False),
                 patch("sys.stderr", stderr),
@@ -304,6 +306,7 @@ class WorkflowCliTests(unittest.TestCase):
             detected = make_detected_config(root)
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("grader.workflow_cli.detect_defaults", return_value=detected),
                 patch("sys.stdin.isatty", return_value=True),
                 patch("sys.stdout.isatty", return_value=True),
@@ -327,6 +330,7 @@ class WorkflowCliTests(unittest.TestCase):
 
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("grader.workflow_cli.detect_defaults", return_value=detected),
                 patch("sys.stdin.isatty", return_value=True),
                 patch("sys.stdout.isatty", return_value=True),
@@ -348,6 +352,7 @@ class WorkflowCliTests(unittest.TestCase):
             root = Path(tmp)
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("sys.stdin.isatty", return_value=True),
                 patch("sys.stdout.isatty", return_value=True),
                 patch("grader.workflow_cli.prompt_missing_profile_bootstrap_choice", return_value="quickstart"),
@@ -368,6 +373,7 @@ class WorkflowCliTests(unittest.TestCase):
             root = Path(tmp)
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("sys.stdin.isatty", return_value=True),
                 patch("sys.stdout.isatty", return_value=True),
                 patch("grader.workflow_cli.prompt_missing_profile_bootstrap_choice", return_value="quickstart"),
@@ -415,6 +421,7 @@ class WorkflowCliTests(unittest.TestCase):
 
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("grader.workflow_cli.prompt_yes_no", return_value=True),
                 patch("grader.workflow_cli.prompt_text", return_value="abc1234567890123"),
                 patch("grader.workflow_cli.styled_section_heading"),
@@ -436,7 +443,7 @@ class WorkflowCliTests(unittest.TestCase):
             with (
                 pushd(root),
                 patch("grader.workflow_cli.is_interactive_terminal", return_value=True),
-                # Index 7 corresponds to "configure-api-key" in _MENU_COMMANDS.
+                # Index 7 corresponds to "configure-api-key" in _MENU_COMMANDS after adding grade-new at the top.
                 patch("grader.workflow_cli.prompt_select", return_value=7) as select_mock,
                 patch("grader.workflow_cli.configure_api_key_interactive", return_value=0) as configure_mock,
             ):
@@ -465,6 +472,7 @@ class WorkflowCliTests(unittest.TestCase):
 
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("grader.workflow_cli.is_interactive_terminal", return_value=False),
             ):
                 exit_code = main(
@@ -494,6 +502,7 @@ class WorkflowCliTests(unittest.TestCase):
             stdout = io.StringIO()
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("grader.workflow_cli.is_interactive_terminal", return_value=False),
                 patch("sys.stdout", stdout),
             ):
@@ -527,6 +536,7 @@ class WorkflowCliTests(unittest.TestCase):
 
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("grader.workflow_cli.is_interactive_terminal", return_value=False),
             ):
                 exit_code = main(
@@ -587,6 +597,7 @@ class WorkflowCliTests(unittest.TestCase):
 
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("grader.workflow_cli.detect_defaults", return_value=blank_detected),
                 patch("grader.workflow_cli.is_interactive_terminal", return_value=True),
                 patch("sys.stdin.isatty", return_value=True),
