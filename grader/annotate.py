@@ -53,11 +53,15 @@ def annotate_submission_pdfs(
 
         doc = fitz.open(pdf_path)
         try:
+            # Explicitly disable NeedAppearances. If this is True, many PDF viewers 
+            # (including macOS Preview and Acrobat) will render both the static appearance 
+            # stream AND their own interpretation of the annotation, causing double-text.
+            doc.need_appearances(False)
+
             if len(doc) == 0:
                 doc.save(out_path)
                 output_paths.append(out_path)
                 continue
-            doc.need_appearances(True)
 
             if render_question_marks:
                 question_fontsize = max(8.0, float(annotation_font_size))
@@ -118,7 +122,7 @@ def annotate_submission_pdfs(
     if render_question_marks and unresolved and output_paths:
         doc = fitz.open(output_paths[0])
         try:
-            doc.need_appearances(True)
+            doc.need_appearances(False)
             title_fontsize = max(8.0, float(annotation_font_size) * SUMMARY_TITLE_FONT_SCALE)
             line_fontsize = max(8.0, float(annotation_font_size) * SUMMARY_LINE_FONT_SCALE)
             add_fallback_summary(
@@ -366,6 +370,7 @@ def add_movable_freetext_annotation(
 ) -> None:
     import fitz
 
+    # Create FreeText annotation. PyMuPDF sets the content and default appearance.
     annot = page.add_freetext_annot(
         rect=rect,
         text=text,
@@ -376,13 +381,17 @@ def add_movable_freetext_annotation(
         border_color=None,
         border_width=0,
     )
+    # Set metadata. We skip 'content' here as it's already set by add_freetext_annot;
+    # redundant setting can cause some viewers (like macOS Preview) to render a "ghost" text box.
     annot.set_info(
         title=ANNOTATION_INFO_TITLE,
         subject=subject,
-        content=text,
     )
     annot.set_border(width=0)
+    # Ensure annotation is printable and visible.
     annot.set_flags((annot.flags or 0) | fitz.PDF_ANNOT_IS_PRINT)
+    # Generate the Appearance Stream (/AP). This is the "static" version of the annotation.
+    # We explicitly do NOT use doc.need_appearances(True) as it causes double-printing in many apps.
     annot.update(
         fontsize=fontsize,
         fontname="Helv",

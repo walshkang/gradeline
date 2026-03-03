@@ -68,7 +68,7 @@ class EditableAnnotationTests(unittest.TestCase):
                     verdict="correct",
                     confidence=0.95,
                     short_reason="Matches solution",
-                    evidence_quote="...",
+                    logic_analysis="", evidence_quote="...",
                 )
             ]
             output_dir = root / "out"
@@ -113,7 +113,7 @@ class EditableAnnotationTests(unittest.TestCase):
                     verdict="incorrect",
                     confidence=0.6,
                     short_reason="No matching work found",
-                    evidence_quote="...",
+                    logic_analysis="", evidence_quote="...",
                 )
             ]
             output_dir = root / "out"
@@ -161,6 +161,7 @@ class EditableAnnotationTests(unittest.TestCase):
                     id=qid,
                     verdict="incorrect",
                     confidence=0.6,
+                    logic_analysis="",
                     short_reason=f"reason {qid}",
                     evidence_quote="",
                 )
@@ -207,7 +208,7 @@ class EditableAnnotationTests(unittest.TestCase):
                     confidence=0.8,
                     short_reason=short,
                     detail_reason=detail,
-                    evidence_quote="...",
+                    logic_analysis="", evidence_quote="...",
                 )
             ]
             output_dir = root / "out"
@@ -243,7 +244,7 @@ class EditableAnnotationTests(unittest.TestCase):
                     verdict="incorrect",
                     confidence=0.8,
                     short_reason=short,
-                    evidence_quote="...",
+                    logic_analysis="", evidence_quote="...",
                 )
             ]
             output_dir = root / "out"
@@ -283,7 +284,7 @@ class EditableAnnotationTests(unittest.TestCase):
                     verdict="incorrect",
                     confidence=0.8,
                     short_reason=long_reason,
-                    evidence_quote="...",
+                    logic_analysis="", evidence_quote="...",
                 )
             ]
             output_dir = root / "out"
