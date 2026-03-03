@@ -399,7 +399,7 @@ class WorkflowCliTests(unittest.TestCase):
             with (
                 pushd(root),
                 patch("grader.workflow_cli.is_interactive_terminal", return_value=True),
-                patch("grader.workflow_cli.prompt_select", return_value=5) as select_mock,
+                patch("grader.workflow_cli.prompt_select", return_value=8) as select_mock,
                 patch("grader.workflow_cli.list_profiles", return_value=0) as list_mock,
             ):
                 exit_code = main([])
@@ -407,6 +407,28 @@ class WorkflowCliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             select_mock.assert_called_once()
             list_mock.assert_called_once()
+
+    def test_configure_api_key_command_updates_env_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env_path = root / ".env"
+
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.prompt_yes_no", return_value=True),
+                patch("grader.workflow_cli.prompt_text", return_value="abc1234567890123"),
+                patch("grader.workflow_cli.styled_section_heading"),
+                patch("grader.workflow_cli.styled_info"),
+                patch("grader.workflow_cli.styled_success"),
+            ):
+                os.environ.pop("GEMINI_API_KEY", None)
+                exit_code = main(["configure-api-key"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(env_path.exists())
+            contents = env_path.read_text(encoding="utf-8")
+            self.assertIn("GEMINI_API_KEY=abc1234567890123", contents)
+            self.assertEqual(os.environ["GEMINI_API_KEY"], "abc1234567890123")
 
     def test_import_happy_path_copies_assets_into_data_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -72,10 +72,17 @@ Set your Gemini API key:
 export GEMINI_API_KEY="your_api_key_here"
 ```
 
-Or create a local `.env` file in this repo root (auto-loaded by `grader.cli`):
+Or create a local `.env` file in this repo root (auto-loaded by `grader.cli` and the workflow CLI):
 
 ```bash
 GEMINI_API_KEY="your_api_key_here"
+```
+
+You can also configure or rotate this key interactively via the workflow TUI (applies to all profiles):
+
+```bash
+./gradeline          # open interactive menu
+# then choose: configure-api-key
 ```
 
 ## Workflow CLI (Profile-Based)

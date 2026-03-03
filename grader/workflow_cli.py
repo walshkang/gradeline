@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .env import update_env_file
 from .report import read_csv_rows, resolve_column_name
 from .review.importer import ReviewInitError, initialize_review_state
 from .review.server import run_review_server
@@ -251,6 +252,11 @@ def build_parser() -> argparse.ArgumentParser:
     spot_grade_parser.add_argument("--profile", help="Workflow profile to use for rubric and answer key.")
     spot_grade_parser.add_argument("--student-name", help="Name of the student.")
 
+    subparsers.add_parser(
+        "configure-api-key",
+        help="Configure the GenAI API key used via .env across profiles.",
+    )
+
     return parser
 
 
@@ -262,6 +268,7 @@ _MENU_COMMANDS: list[tuple[str, str]] = [
     ("regrade", "Clear cache and re-run grading from scratch"),
     ("serve", "Launch review server for existing results"),
     ("setup", "Interactive profile setup wizard"),
+    ("configure-api-key", "Set or change GenAI API key (.env)"),
     ("list", "List local workflow profiles"),
     ("exit", "Exit"),
 ]
@@ -377,6 +384,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             elif command == "list":
                 exit_code = list_profiles()
+            elif command == "configure-api-key":
+                exit_code = configure_api_key_interactive()
             elif command == "spot-grade":
                 profile = getattr(args, "profile", None) or prompt_profile_interactive()
                 if profile is None:
@@ -415,7 +424,7 @@ def main(argv: list[str] | None = None) -> int:
             styled_error(str(exc))
             return 2
 
-        if interactive_session and command in _COMMANDS_WITH_REVIEW_SERVER:
+        if interactive_session and (command in _COMMANDS_WITH_REVIEW_SERVER or command == "configure-api-key"):
             styled_info("Returning to main menu.")
             args.command = None
             continue
@@ -1162,6 +1171,61 @@ def prompt_text_candidate(*, label: str, current: str | None, candidates: list[s
     from .prompts import prompt_text_candidate as _ptc
 
     return _ptc(label=label, current=current, candidates=candidates)
+
+
+def configure_api_key_interactive() -> int:
+    """Interactively configure the GenAI API key used via .env across profiles."""
+    env_var = "GEMINI_API_KEY"
+    cwd = Path.cwd()
+    env_path = cwd / ".env"
+
+    styled_section_heading("GenAI API key")
+
+    current = os.getenv(env_var, "")
+    if current:
+        masked = f"{current[:4]}…" if len(current) >= 4 else "set"
+        styled_info(f"{env_var} is currently set (length {len(current)} characters; starts with {masked}).")
+    else:
+        styled_warning(f"{env_var} is not set.")
+
+    if not prompt_yes_no("Update the GenAI API key now?", default=True):
+        styled_info("No changes made.")
+        return 0
+
+    while True:
+        new_key = prompt_text(
+            f"New GenAI API key for {env_var} (stored in .env)",
+            required=True,
+        ).strip()
+        if not new_key:
+            styled_warning("Key cannot be empty.")
+            if not prompt_yes_no("Try entering the key again?", default=True):
+                styled_info("Aborted without changes.")
+                return 1
+            continue
+        if any(ch.isspace() for ch in new_key):
+            styled_warning("API keys should not contain whitespace. Please paste the exact key.")
+            if not prompt_yes_no("Re-enter the key?", default=True):
+                styled_info("Aborted without changes.")
+                return 1
+            continue
+        if len(new_key) < 16:
+            if not prompt_yes_no(
+                "Key looks very short, which may indicate a copy/paste error. Use it anyway?",
+                default=False,
+            ):
+                continue
+        break
+
+    try:
+        update_env_file(env_path, env_var, new_key)
+    except OSError as exc:
+        styled_error(f"Failed to update {env_path}: {exc}")
+        return 2
+
+    styled_success(f"Updated {env_var} in {env_path}.")
+    styled_info("This key will be used for all profiles that read from GEMINI_API_KEY.")
+    return 0
 
 
 def validate_quickstart_values(values: dict[str, Any]) -> list[str]:
