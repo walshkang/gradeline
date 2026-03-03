@@ -55,6 +55,35 @@ class UnifiedSubmissionResponse(BaseModel):
     global_flags: list[str] = Field(default_factory=list)
 
 
+class DraftRubricQuestion(BaseModel):
+    """Structured rubric question schema used for AI-assisted rubric generation."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    label: str | None = None
+    points: float | None = None
+    weight: float | None = None
+    label_patterns: list[str] | None = None
+    scoring_rules: str
+    short_note_pass: str | None = None
+    short_note_fail: str | None = None
+    anchor_tokens: list[str] | None = None
+
+
+class DraftRubricConfig(BaseModel):
+    """Top-level rubric schema produced by Gemini for rubric generation."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    assignment_id: str
+    total_points: float | None = None
+    bands: dict[str, float] | None = None
+    scoring_mode: str | None = None
+    partial_credit: float | None = None
+    questions: list[DraftRubricQuestion]
+
+
 class GeminiGrader:
     def __init__(
         self,
@@ -320,6 +349,38 @@ class GeminiGrader:
         self._set_cache(cache_key, payload)
         return normalized
 
+    def generate_rubric_draft(
+        self,
+        *,
+        solutions_pdf: Path,
+        assignment_id: str,
+    ) -> JsonDict:
+        """Generate a draft rubric config from the master solutions PDF.
+
+        This uses Gemini's structured JSON output via response_schema=DraftRubricConfig
+        and then normalizes the result into a shape compatible with RubricConfig /
+        load_rubric.
+        """
+        if not solutions_pdf.exists() or not solutions_pdf.is_file():
+            raise ValueError(f"Solutions PDF not found: {solutions_pdf}")
+
+        file_ref = self._upload_and_wait(solutions_pdf)
+        prompt = build_rubric_draft_prompt(assignment_id=assignment_id)
+
+        def invoke() -> JsonDict:
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=[file_ref, prompt],
+                config={
+                    "response_mime_type": "application/json",
+                    "response_schema": DraftRubricConfig,
+                },
+            )
+            return structured_response_payload(response)
+
+        raw = call_with_backoff(invoke, max_retries=self.max_retries)
+        return normalize_draft_rubric_payload(raw, assignment_id=assignment_id)
+
     def _upload_and_wait(self, pdf_path: Path) -> Any:
         file_ref = call_with_backoff(
             lambda: self.client.files.upload(file=str(pdf_path)),
@@ -559,6 +620,52 @@ def build_unified_grading_prompt(
         f"Expected question IDs: {labels}\n"
         f"Attached student files: {files}\n"
         "Grade this submission exactly according to the cached rubric and master solution."
+    )
+
+
+def build_rubric_draft_prompt(assignment_id: str) -> str:
+    """Prompt used to derive a draft rubric from an attached solutions PDF.
+
+    The response is constrained by the DraftRubricConfig response_schema, but
+    the instructions here help the model assign sensible IDs, weights, and
+    scoring rules.
+    """
+    return (
+        "You are an expert statistics instructor creating a grading rubric for one assignment.\n"
+        "You are given ONLY the master solutions PDF for the assignment as the source of truth.\n\n"
+        "Your job is to infer a complete grading rubric for the assignment and return it as a JSON "
+        "object matching the DraftRubricConfig schema. The API enforces this schema as a "
+        "structured response, so you MUST respect field names and types exactly.\n\n"
+        f"Assignment identifier: {assignment_id}\n\n"
+        "Rubric construction rules:\n"
+        "- Enumerate every question in the solutions PDF with a stable identifier:\n"
+        "  - If questions are labeled with numbers, use \"1\", \"2\", \"3\", ...\n"
+        "  - If questions are labeled with letters, use \"a\", \"b\", \"c\", ...\n"
+        "  - The id field must be a short token like \"a\" or \"1\", not the full question text.\n"
+        "- For each question, infer concise grading criteria in scoring_rules describing what a fully\n"
+        "  correct answer must include and what common partial credit cases look like.\n"
+        "- If the solutions show explicit point values (for example, \"[5 points]\" or \"(10 pts)\"),\n"
+        "  set DraftRubricQuestion.points accordingly and, if possible, return total_points as the\n"
+        "  sum of all question points.\n"
+        "- If explicit point values are not shown, infer reasonable relative point values / weights\n"
+        "  based on the complexity and length of each question's solution. Focus on the *relative*\n"
+        "  magnitudes between questions (harder questions should have larger points). The caller will\n"
+        "  normalize these into weights, so exact totals are less important than relative scale.\n"
+        "- For each question, choose simple label_patterns that match how the question appears in\n"
+        "  the solutions, for example: [\"1)\", \"1.\", \"(1)\"] or [\"a)\", \"a.\", \"(a)\"] when the\n"
+        "  question is labeled that way.\n"
+        "- Provide short_note_pass and short_note_fail as very short, student-facing messages such as\n"
+        "  \"Correct.\" and \"Needs revision.\" where appropriate.\n"
+        "- If you are uncertain about exact thresholds or weights, make a reasonable guess instead of\n"
+        "  leaving fields empty.\n\n"
+        "Bands and scoring:\n"
+        "- If you can infer clear performance bands (for example, cutoffs for Check Plus / Check),\n"
+        "  populate the bands mapping accordingly.\n"
+        "- If not, omit bands or leave it empty; the caller will default to standard thresholds.\n"
+        "- If you are unsure about partial credit policy, use partial_credit = 0.5.\n\n"
+        "Output requirements:\n"
+        "- Return ONLY a JSON object compatible with DraftRubricConfig.\n"
+        "- Do NOT include markdown code fences, commentary, or extra top-level fields.\n"
     )
 
 def build_context_system_instruction(rubric: RubricConfig) -> str:
@@ -886,6 +993,156 @@ def normalize_locator_response(
         )
     return normalized
 
+
+def normalize_draft_rubric_payload(payload: JsonDict, assignment_id: str) -> JsonDict:
+    """Normalize a DraftRubricConfig payload into a RubricConfig-compatible dict.
+
+    This function is intentionally tolerant of partial / messy model output and
+    fills in reasonable defaults so that the result can be serialized to YAML
+    and loaded via load_rubric.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Draft rubric payload must be an object.")
+
+    # --- Root fields ---------------------------------------------------------
+    raw_assignment_id = str(payload.get("assignment_id") or "").strip()
+    normalized_assignment_id = raw_assignment_id or str(assignment_id).strip() or "assignment"
+
+    # Bands: ensure both check_plus_min and check_min are present and floats.
+    default_bands = {"check_plus_min": 0.90, "check_min": 0.70}
+    bands_raw = payload.get("bands")
+    bands: dict[str, float] = {}
+    if isinstance(bands_raw, dict):
+        for key in ("check_plus_min", "check_min"):
+            try:
+                value = float(bands_raw.get(key))  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                value = default_bands[key]
+            bands[key] = value
+    else:
+        bands = dict(default_bands)
+
+    scoring_mode_raw = str(payload.get("scoring_mode") or "").strip()
+    scoring_mode = scoring_mode_raw or "equal_weights"
+
+    try:
+        partial_credit_value = float(payload.get("partial_credit"))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        partial_credit_value = 0.5
+
+    # --- Question list -------------------------------------------------------
+    questions_raw = payload.get("questions") or []
+    if not isinstance(questions_raw, list):
+        questions_raw = []
+
+    # First pass: collect numeric points where available.
+    points_by_index: dict[int, float] = {}
+    for idx, item in enumerate(questions_raw):
+        if not isinstance(item, dict):
+            continue
+        try:
+            points_val = float(item.get("points"))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if points_val > 0:
+            points_by_index[idx] = points_val
+
+    total_points = sum(points_by_index.values())
+
+    def _canonicalize_rubric_question_id(value: Any) -> str:
+        """Best-effort normalization of question identifiers like 'Q1', '1)', '(a)' to '1' or 'a'."""
+        cleaned = str(value or "").strip().lower()
+        if not cleaned:
+            return ""
+        # Prefer bare numbers or letter+digits tokens.
+        match = re.search(r"[a-z]+\d*|\d+", cleaned)
+        return match.group(0) if match else cleaned
+
+    # Build normalized question entries and track unique IDs.
+    normalized_questions: list[JsonDict] = []
+    seen_ids: set[str] = set()
+
+    for idx, item in enumerate(questions_raw):
+        if not isinstance(item, dict):
+            continue
+
+        raw_id = item.get("id") or item.get("label")
+        qid = _canonicalize_rubric_question_id(raw_id)
+        if not qid:
+            # Fallback to sequential ids if model left id empty.
+            qid = str(len(normalized_questions) + 1)
+        # Deduplicate by keeping the first occurrence of each id.
+        if qid in seen_ids:
+            continue
+        seen_ids.add(qid)
+
+        # Label patterns and anchors.
+        raw_patterns = item.get("label_patterns")
+        label_patterns: list[str]
+        if isinstance(raw_patterns, list) and raw_patterns:
+            label_patterns = [str(v) for v in raw_patterns if str(v).strip()]
+        else:
+            label_patterns = [f"{qid})", f"{qid}.", f"({qid})"]
+
+        scoring_rules_raw = str(item.get("scoring_rules") or "").strip()
+        scoring_rules = scoring_rules_raw or "Define expected answer criteria."
+
+        short_pass_raw = str(item.get("short_note_pass") or "").strip()
+        short_note_pass = short_pass_raw or "Correct."
+
+        short_fail_raw = str(item.get("short_note_fail") or "").strip()
+        short_note_fail = short_fail_raw or "Needs revision."
+
+        # Weight: prefer explicit weight, fall back to inferred points, then 1.0.
+        weight_val: float | None
+        try:
+            weight_val = float(item.get("weight"))  # type: ignore[arg-type]
+            if weight_val <= 0:
+                weight_val = None
+        except (TypeError, ValueError):
+            weight_val = None
+
+        if weight_val is None and total_points > 0 and idx in points_by_index:
+            weight_val = float(points_by_index[idx]) / float(total_points)
+
+        if weight_val is None:
+            weight_val = 1.0
+
+        raw_anchors = item.get("anchor_tokens")
+        if isinstance(raw_anchors, list) and raw_anchors:
+            anchor_tokens = [str(v) for v in raw_anchors if str(v).strip()]
+        else:
+            anchor_tokens = list(label_patterns)
+
+        normalized_questions.append(
+            {
+                "id": qid,
+                "label_patterns": label_patterns,
+                "scoring_rules": scoring_rules,
+                "short_note_pass": short_note_pass,
+                "short_note_fail": short_note_fail,
+                "weight": weight_val,
+                "anchor_tokens": anchor_tokens,
+            }
+        )
+
+    # Renormalize weights so they sum to 1.0 (if possible) while preserving ratios.
+    total_weight = sum(float(q.get("weight", 0.0)) for q in normalized_questions)
+    if total_weight > 0:
+        for q in normalized_questions:
+            w = float(q.get("weight", 0.0))
+            q["weight"] = w / total_weight
+
+    # Sort questions by id for stability.
+    normalized_questions.sort(key=lambda q: str(q.get("id")))
+
+    return {
+        "assignment_id": normalized_assignment_id,
+        "bands": bands,
+        "questions": normalized_questions,
+        "scoring_mode": scoring_mode,
+        "partial_credit": partial_credit_value,
+    }
 
 def normalize_verdict(value: Any) -> str:
     normalized = str(value or "").strip().lower()
