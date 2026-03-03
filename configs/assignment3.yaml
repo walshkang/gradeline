@@ -1,0 +1,90 @@
+assignment_id: "assignment3"
+scoring_mode: "equal_weights"
+partial_credit: 0.5
+
+bands:
+  check_plus_min: 0.90
+  check_min: 0.70
+
+questions:
+  - id: "1"
+    label_patterns: ["1)", "1.", "(1)"]
+    anchor_tokens: ["1)", "1.", "(1)"]
+    scoring_rules: >
+      Student should correctly compute the probability that the equity fund
+      return exceeds 15%, i.e., P(E > 15) = P(Z > 0.5) ≈ 0.3085, under the
+      stated normal distribution assumptions.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "2"
+    label_patterns: ["2)", "2.", "(2)"]
+    anchor_tokens: ["2)", "2.", "(2)"]
+    scoring_rules: >
+      Student should correctly compute the probability that the equity fund
+      return is negative, i.e., P(E < 0) = P(Z < -2) ≈ 0.0228, under the
+      stated normal distribution assumptions.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "3"
+    label_patterns: ["3)", "3.", "(3)"]
+    anchor_tokens: ["3)", "3.", "(3)"]
+    scoring_rules: >
+      Student should correctly compute the 90th percentile of the equity fund
+      returns using the normal distribution, yielding approximately 19.68%,
+      e.g., P90 = 12 + 1.28 × 6 ≈ 19.68%.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "4"
+    label_patterns: ["4)", "4.", "(4)"]
+    anchor_tokens: ["4)", "4.", "(4)"]
+    scoring_rules: >
+      Student should construct the discrete probability distribution for the
+      manager's total salary (possible values $70,000; $120,000; $220,000 with
+      probabilities matching the solution) and correctly compute the expected
+      total salary of about $125,850, either directly from the distribution
+      or via expected bonuses.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "5"
+    label_patterns: ["5)", "5.", "(5)"]
+    anchor_tokens: ["5)", "5.", "(5)"]
+    scoring_rules: >
+      Student should correctly compute the probability that the income fund
+      return exceeds 8%, i.e., P(I > 8) = P(Z > -1.00) ≈ 0.8413, given the
+      stated normal distribution for the income fund.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "6"
+    label_patterns: ["6)", "6.", "(6)"]
+    anchor_tokens: ["6)", "6.", "(6)"]
+    scoring_rules: >
+      Student should correctly compute the probability that the equity fund
+      return exceeds 8%, i.e., P(E > 8) = P(Z > -0.67) ≈ 0.7486, given the
+      stated normal distribution for the equity fund.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "7"
+    label_patterns: ["7)", "7.", "(7)"]
+    anchor_tokens: ["7)", "7.", "(7)"]
+    scoring_rules: >
+      Student should correctly identify that the income fund is less risky in
+      terms of achieving at least an 8% return, because its smaller standard
+      deviation leads to a higher probability of realizing 8% or more
+      (approximately 84% versus 75% for the equity fund), and explain this
+      comparison clearly.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
