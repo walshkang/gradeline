@@ -45,6 +45,52 @@ locator_semaphore = threading.Semaphore(LOCATOR_MAX_CONCURRENT)
 VERDICT_SYMBOLS = {"correct": "✓", "partial": "◐", "rounding_error": "≈", "incorrect": "✗", "needs_review": "⟳"}
 
 
+def prompt_interrupt_action(ui) -> str:
+    """Prompt the user for how to handle a Ctrl+C interrupt.
+
+    Returns one of: "resume", "stop_keep", "clear_all".
+    A second Ctrl+C during the prompt is treated as "stop_keep".
+    """
+
+    try:
+        from InquirerPy import inquirer  # type: ignore[import-not-found]
+    except Exception:
+        # Fallback to a simple numbered input prompt.
+        options: list[tuple[str, str]] = [
+            ("Resume grading", "resume"),
+            ("Stop now and keep completed results", "stop_keep"),
+            ("Clear this run's outputs and abort", "clear_all"),
+        ]
+        while True:
+            ui.info("Interrupt detected. Choose an action:")
+            for idx, (label, _) in enumerate(options, start=1):
+                ui.info(f"{idx}. {label}")
+            try:
+                raw = input("Enter choice [1-3]: ").strip()
+            except (KeyboardInterrupt, EOFError):
+                ui.info("Second Ctrl+C detected; stopping and keeping completed results.")
+                return "stop_keep"
+            if raw in {"1", "2", "3"}:
+                return options[int(raw) - 1][1]
+            ui.warning("Invalid choice. Please enter 1, 2, or 3.")
+
+    options_for_inquirer = [
+        ("Resume grading", "resume"),
+        ("Stop now and keep completed results", "stop_keep"),
+        ("Clear this run's outputs and abort", "clear_all"),
+    ]
+    try:
+        choice = inquirer.select(
+            message="Interrupt detected. Choose an action:",
+            choices=options_for_inquirer,
+        ).execute()
+    except KeyboardInterrupt:
+        ui.info("Second Ctrl+C detected; stopping and keeping completed results.")
+        return "stop_keep"
+
+    return str(choice)
+
+
 @dataclass
 class StageTiming:
     name: str
@@ -251,6 +297,60 @@ def main(argv: list[str] | None = None) -> int:
         ui.emit_artifacts(artifact_payload)
         return exit_code
 
+    def delete_session_artifacts(
+        ui_obj,
+        artifacts_map: dict[str, Path | None],
+        submission_results_list: list[SubmissionResult],
+    ) -> None:
+        """Best-effort deletion of this run's output files.
+
+        Only deletes files under args.output_dir, never directories or user-supplied inputs.
+        """
+
+        output_root = args.output_dir.resolve()
+        dangerous_roots = {
+            Path("/").resolve(),
+            Path.home().resolve(),
+            Path.cwd().resolve(),
+        }
+        if output_root in dangerous_roots:
+            ui_obj.warning(f"Refusing to delete artifacts: unsafe output_dir {output_root}")
+            return
+
+        candidates: set[Path] = set()
+
+        for path in artifacts_map.values():
+            if path is not None:
+                candidates.add(path)
+
+        for result in submission_results_list:
+            for pdf_path in getattr(result, "output_pdf_paths", []) or []:
+                candidates.add(Path(pdf_path))
+
+        candidates.add(diagnostics_path)
+
+        for path in candidates:
+            try:
+                resolved = path.resolve()
+            except Exception:
+                continue
+
+            if not resolved.is_file():
+                continue
+
+            try:
+                if not resolved.is_relative_to(output_root):
+                    continue
+            except Exception:
+                continue
+
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            except Exception as exc:  # noqa: BLE001
+                ui_obj.warning(f"Failed to delete artifact {path}: {exc}")
+
     if args.grading_mode == LEGACY_MODE:
         missing = ensure_binaries_present()
         if missing:
@@ -456,7 +556,7 @@ def main(argv: list[str] | None = None) -> int:
     submission_results: list[SubmissionResult] = []
     ui.section_heading("Grading")
     ui.start_progress(len(units))
-    
+
     ui_lock = threading.Lock()
     rolling_lock = threading.Lock()
     completed_submissions = 0
@@ -585,18 +685,63 @@ def main(argv: list[str] | None = None) -> int:
             )
         return result
 
+    pending_api: set[Any] = set()
+    pending_annotation: set[Any] = set()
+
     with ThreadPoolExecutor(max_workers=args.concurrency) as api_executor:
         with ThreadPoolExecutor(max_workers=max(1, args.concurrency // 2)) as annotation_executor:
-            # Map API calls
-            api_futures = {api_executor.submit(process_student, i, unit): i for i, unit in enumerate(units, start=1)}
-            annotation_futures = []
-            
-            for future in as_completed(api_futures):
-                idx, result, elapsed = future.result()
-                annotation_futures.append(annotation_executor.submit(annotate_and_finish, idx, result, elapsed))
+            for i, unit in enumerate(units, start=1):
+                future = api_executor.submit(process_student, i, unit)
+                pending_api.add(future)
 
-            for future in as_completed(annotation_futures):
-                submission_results.append(future.result())
+            while pending_api or pending_annotation:
+                try:
+                    if pending_api:
+                        for future in as_completed(list(pending_api)):
+                            pending_api.remove(future)
+                            idx, result, elapsed = future.result()
+                            ann_future = annotation_executor.submit(
+                                annotate_and_finish,
+                                idx,
+                                result,
+                                elapsed,
+                            )
+                            pending_annotation.add(ann_future)
+
+                    if pending_annotation:
+                        for future in as_completed(list(pending_annotation)):
+                            pending_annotation.remove(future)
+                            submission_results.append(future.result())
+
+                except KeyboardInterrupt:
+                    ui.stop_progress()
+                    action = prompt_interrupt_action(ui)
+
+                    if action == "resume":
+                        ui.start_progress(len(units))
+                        continue
+
+                    if action == "stop_keep":
+                        ui.info("Stopping after current tasks finish; keeping completed results.")
+                        api_executor.shutdown(wait=True, cancel_futures=True)
+                        annotation_executor.shutdown(wait=True, cancel_futures=False)
+                        for future in list(pending_annotation):
+                            if future.cancelled():
+                                continue
+                            try:
+                                submission_results.append(future.result())
+                            except Exception:
+                                continue
+                        pending_api.clear()
+                        pending_annotation.clear()
+                        break
+
+                    if action == "clear_all":
+                        api_executor.shutdown(wait=True, cancel_futures=True)
+                        annotation_executor.shutdown(wait=True, cancel_futures=True)
+                        delete_session_artifacts(ui, artifacts, submission_results)
+                        ui.info("Aborted grading run. All outputs from this session have been removed.")
+                        return 130
 
     warnings: list[str] = []
     try:
