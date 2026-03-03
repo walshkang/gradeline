@@ -273,7 +273,9 @@ def _normalize_path_value(raw: Any, *, profile_dir: Path, field: str) -> Path:
 
 
 def _normalize_path(raw: str, *, base_dir: Path) -> Path:
-    expanded = os.path.expandvars(raw)
+    import re
+    clean_raw = re.sub(r'\\(.)', r'\1', raw.strip("\"'"))
+    expanded = os.path.expandvars(clean_raw)
     expanded = os.path.expanduser(expanded)
     path = Path(expanded)
     if not path.is_absolute():

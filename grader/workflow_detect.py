@@ -713,10 +713,12 @@ def _extract_assignment_token(text: str) -> str | None:
 
 
 def _coerce_path(value: Any, cwd: Path) -> Path | None:
+    import re
     raw = str(value or "").strip()
     if not raw:
         return None
-    expanded = os.path.expandvars(raw)
+    clean_raw = re.sub(r'\\(.)', r'\1', raw.strip("\"'"))
+    expanded = os.path.expandvars(clean_raw)
     expanded = os.path.expanduser(expanded)
     candidate = Path(expanded)
     if not candidate.is_absolute():

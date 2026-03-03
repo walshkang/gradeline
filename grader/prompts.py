@@ -378,7 +378,9 @@ def _plain_select(label: str, choices: list[str], *, default: int = 0) -> int:
 
 
 def normalize_user_path(raw: str, *, cwd: Path) -> Path:
-    expanded = os.path.expandvars(raw)
+    import re
+    clean_raw = re.sub(r'\\(.)', r'\1', raw.strip("\"'"))
+    expanded = os.path.expandvars(clean_raw)
     expanded = os.path.expanduser(expanded)
     path = Path(expanded)
     if not path.is_absolute():

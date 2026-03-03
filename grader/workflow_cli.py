@@ -606,7 +606,9 @@ def spot_grade_interactive(*, profile_spec: str, pdf_path: Path | None, student_
             
         annotated_pdf = output_dir / student_dir.name / pdf_path.name
         if annotated_pdf.exists():
-            dest = Path.cwd() / f"graded_{pdf_path.name}"
+            dest_dir = profile.grade.output_dir / student_dir.name
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / pdf_path.name
             shutil.copy2(annotated_pdf, dest)
             styled_success(f"Graded PDF saved to {dest}")
         else:
@@ -1404,7 +1406,9 @@ def is_profile_not_found_error(exc: WorkflowProfileError) -> bool:
 
 
 def normalize_user_path(raw: str, *, cwd: Path) -> Path:
-    expanded = os.path.expandvars(raw)
+    import re
+    clean_raw = re.sub(r'\\(.)', r'\1', raw.strip("\"'"))
+    expanded = os.path.expandvars(clean_raw)
     expanded = os.path.expanduser(expanded)
     path = Path(expanded)
     if not path.is_absolute():
