@@ -212,6 +212,11 @@ def prompt_select(
     if not choices:
         raise ValueError("prompt_select requires at least one choice.")
     if _use_rich(force_plain):
+        try:
+            import InquirerPy
+        except ImportError:
+            return _plain_select(label, choices, default=default)
+
         result = _inquirerpy_select(
             label,
             choices,

@@ -9,7 +9,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from .annotate import annotate_submission_pdfs
 from .config import load_rubric
@@ -174,6 +174,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--temp-dir", type=Path, default=Path(".grader_tmp"))
     parser.add_argument("--cache-dir", type=Path, default=Path(".grader_cache"))
     parser.add_argument("--grading-mode", choices=(LEGACY_MODE, UNIFIED_MODE, AGENT_MODE), default=UNIFIED_MODE)
+    parser.add_argument("--provider", default="gemini", help="LLM Provider to use (e.g. gemini, openai).")
     parser.add_argument("--agent-type", choices=("gemini", "codex", "claude"), default=DEFAULT_AGENT_TYPE)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--locator-model", default="")
@@ -432,14 +433,16 @@ def main(argv: list[str] | None = None) -> int:
 
     grader = None
     if not args.dry_run:
+        from .llm_factory import get_llm_provider
         try:
-            grader = GeminiGrader(
+            grader = get_llm_provider(
+                provider_name=getattr(args, "provider", "gemini"),
                 api_key=api_key,
                 model=args.model,
                 cache_dir=args.cache_dir,
             )
         except Exception as exc:  # noqa: BLE001
-            message = f"Failed to initialize Gemini client: {exc}"
+            message = f"Failed to initialize LLM client: {exc}"
             diagnostics.record(
                 severity="error",
                 code="grading_client_init_failed",
@@ -730,7 +733,7 @@ def grade_one_submission(
     solutions_text: str | None,
     solutions_pdf_path: Path,
     grade_points: dict[str, str],
-    grader: GeminiGrader | None,
+    grader: Any | None,
     grading_mode: str,
     agent_type: str,
     context_cache: bool,
@@ -978,7 +981,7 @@ def build_annotation_progress_callback(
 
 
 def collect_locator_candidates(
-    grader: GeminiGrader,
+    grader: Any,
     pdf_paths: list[Path],
     rubric,
     locator_model: str,

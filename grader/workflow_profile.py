@@ -31,6 +31,7 @@ class GradeProfile:
     temp_dir: Path | None = None
     cache_dir: Path | None = None
     grading_mode: str = DEFAULT_GRADING_MODE
+    provider: str = "gemini"
     model: str = DEFAULT_MODEL
     locator_model: str = ""
     api_key_env: str = "GEMINI_API_KEY"
@@ -81,6 +82,7 @@ ALLOWED_GRADE_KEYS = REQUIRED_GRADE_KEYS | {
     "temp_dir",
     "cache_dir",
     "grading_mode",
+    "provider",
     "model",
     "locator_model",
     "api_key_env",
@@ -119,6 +121,7 @@ BOOL_GRADE_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "plai
 STRING_GRADE_FIELDS = {
     "grade_column",
     "grading_mode",
+    "provider",
     "model",
     "locator_model",
     "api_key_env",

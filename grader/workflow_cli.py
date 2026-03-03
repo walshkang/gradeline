@@ -86,6 +86,7 @@ CLI_VALUE_MAPPINGS: tuple[CliValueMapping, ...] = (
     CliValueMapping("temp_dir", "--temp-dir", "path"),
     CliValueMapping("cache_dir", "--cache-dir", "path"),
     CliValueMapping("grading_mode", "--grading-mode", "str"),
+    CliValueMapping("provider", "--provider", "str"),
     CliValueMapping("model", "--model", "str"),
     CliValueMapping("locator_model", "--locator-model", "str", emit_if_empty=False),
     CliValueMapping("api_key_env", "--api-key-env", "str"),
@@ -110,11 +111,11 @@ CLI_FLAG_MAPPINGS: tuple[tuple[str, str], ...] = (
 )
 
 QUICKSTART_FIELDS: tuple[QuickstartFieldSpec, ...] = (
-    QuickstartFieldSpec("submissions_dir", "Submissions directory", "path"),
-    QuickstartFieldSpec("solutions_pdf", "Solutions PDF", "path"),
-    QuickstartFieldSpec("rubric_yaml", "Rubric YAML", "path"),
-    QuickstartFieldSpec("grades_template_csv", "Grades template CSV", "path"),
-    QuickstartFieldSpec("grade_column", "Grade column", "column"),
+    QuickstartFieldSpec("submissions_dir", "Submissions directory (folder with student PDFs)", "path"),
+    QuickstartFieldSpec("solutions_pdf", "Solutions PDF (your master answer key)", "path"),
+    QuickstartFieldSpec("rubric_yaml", "Rubric YAML (rules and point weights)", "path"),
+    QuickstartFieldSpec("grades_template_csv", "Brightspace grades template CSV (exported from course)", "path"),
+    QuickstartFieldSpec("grade_column", "Grade column header (exact name in CSV)", "column"),
     QuickstartFieldSpec("output_dir", "Output directory", "path"),
     QuickstartFieldSpec("host", "Review host", "text"),
     QuickstartFieldSpec("port", "Review port", "int"),
@@ -124,6 +125,7 @@ OPTIONAL_GRADE_RENDER_ORDER: tuple[str, ...] = (
     "temp_dir",
     "cache_dir",
     "grading_mode",
+    "provider",
     "model",
     "locator_model",
     "api_key_env",
@@ -150,6 +152,7 @@ _OPTIONAL_FLOAT_FIELDS = {"annotation_font_size"}
 _OPTIONAL_BOOL_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "plain"}
 _OPTIONAL_STRING_FIELDS = {
     "grading_mode",
+    "provider",
     "model",
     "locator_model",
     "api_key_env",
@@ -240,6 +243,14 @@ def build_parser() -> argparse.ArgumentParser:
     regrade_parser.add_argument("--host", default=None)
     regrade_parser.add_argument("--port", type=int, default=None)
 
+    spot_grade_parser = subparsers.add_parser(
+        "spot-grade",
+        help="Grade a single PDF submission directly (no Brightspace CSV required).",
+    )
+    spot_grade_parser.add_argument("--pdf", type=Path, help="Path to the student's PDF submission.")
+    spot_grade_parser.add_argument("--profile", help="Workflow profile to use for rubric and answer key.")
+    spot_grade_parser.add_argument("--student-name", help="Name of the student.")
+
     return parser
 
 
@@ -247,6 +258,7 @@ _MENU_COMMANDS: list[tuple[str, str]] = [
     ("import", "Copy recent Brightspace downloads into data/{profile}/"),
     ("quickstart", "Auto-detect settings, grade, and review"),
     ("run", "Grade submissions and launch review server"),
+    ("spot-grade", "Grade a single late submission PDF (no Brightspace ID required)"),
     ("regrade", "Clear cache and re-run grading from scratch"),
     ("serve", "Launch review server for existing results"),
     ("setup", "Interactive profile setup wizard"),
@@ -254,7 +266,7 @@ _MENU_COMMANDS: list[tuple[str, str]] = [
     ("exit", "Exit"),
 ]
 
-_COMMANDS_NEEDING_PROFILE = {"import", "quickstart", "run", "serve", "setup"}
+_COMMANDS_NEEDING_PROFILE = {"import", "quickstart", "run", "serve", "setup", "spot-grade"}
 _COMMANDS_WITH_REVIEW_SERVER = {"run", "serve", "regrade"}
 
 
@@ -365,6 +377,15 @@ def main(argv: list[str] | None = None) -> int:
                 )
             elif command == "list":
                 exit_code = list_profiles()
+            elif command == "spot-grade":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    return 0
+                exit_code = spot_grade_interactive(
+                    profile_spec=profile,
+                    pdf_path=getattr(args, "pdf", None),
+                    student_name=getattr(args, "student_name", None),
+                )
             elif command == "regrade":
                 profile = getattr(args, "profile", None) or prompt_profile_interactive()
                 if profile is None:
@@ -536,6 +557,69 @@ def _purge_cache_entries(cache_file: Path, pattern: re.Pattern[str]) -> None:
             styled_info(f"Purged {len(to_remove)} of {len(rows)} cache entries matching filter.")
     except Exception as exc:
         styled_info(f"Could not purge cache entries: {exc}")
+
+
+def spot_grade_interactive(*, profile_spec: str, pdf_path: Path | None, student_name: str | None) -> int:
+    import tempfile
+    
+    profile = load_workflow_profile(profile_spec)
+    
+    if pdf_path is None:
+        pdf_path = prompt_path("PDF file to grade", required=True, cwd=Path.cwd())
+    if not pdf_path.exists() or not pdf_path.is_file():
+        styled_error(f"PDF file not found: {pdf_path}")
+        return 2
+        
+    if student_name is None:
+        student_name = prompt_text("Student Name", default=pdf_path.stem, required=True)
+        
+    styled_section_heading("Spot Grading")
+    styled_info(f"Student: {student_name}")
+    styled_info(f"File: {pdf_path}")
+    
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        subs_dir = tmp_dir / "submissions"
+        student_dir = subs_dir / f"SpotGrade - {student_name}"
+        student_dir.mkdir(parents=True)
+        shutil.copy2(pdf_path, student_dir / pdf_path.name)
+        
+        dummy_csv = tmp_dir / "dummy.csv"
+        dummy_csv.write_text(f"OrgDefinedId,{profile.grade.grade_column}\nspot_grade,\n", encoding="utf-8")
+        
+        output_dir = tmp_dir / "output"
+        output_dir.mkdir()
+        
+        argv = build_grading_argv(profile.grade)
+        
+        for i, val in enumerate(argv):
+            if val == "--submissions-dir":
+                argv[i+1] = str(subs_dir)
+            elif val == "--grades-template-csv":
+                argv[i+1] = str(dummy_csv)
+            elif val == "--output-dir":
+                argv[i+1] = str(output_dir)
+                
+        exit_code = invoke_grading_main(argv)
+        if exit_code != 0:
+            return exit_code
+            
+        annotated_pdf = output_dir / student_dir.name / pdf_path.name
+        if annotated_pdf.exists():
+            dest = Path.cwd() / f"graded_{pdf_path.name}"
+            shutil.copy2(annotated_pdf, dest)
+            styled_success(f"Graded PDF saved to {dest}")
+        else:
+            styled_warning("Could not find annotated PDF in output.")
+            
+        audit_csv = output_dir / "grading_audit.csv"
+        if audit_csv.exists():
+            rows, _ = read_csv_rows(audit_csv)
+            if rows:
+                first = rows[0]
+                styled_info(f"Grade: {first.get('band')} ({first.get('percent')}%)")
+                
+        return 0
 
 
 def import_assignment_assets(
@@ -1225,23 +1309,25 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
 
     profile_name = profile_path.stem
     styled_banner(f"Configuring profile: {profile_name}", str(profile_path))
+    
+    default_data_root = cwd / "data" / profile_name
 
     submissions_dir = prompt_path(
-        "Submissions directory",
-        default=None,
+        "Submissions directory (folder containing all downloaded student PDFs)",
+        default=str(default_data_root / "submissions"),
         required=True,
         cwd=cwd,
     )
     solutions_pdf = prompt_path(
-        "Solutions PDF (answer key)",
-        default=None,
+        "Solutions PDF (the master answer key used to grade against)",
+        default=str(default_data_root / "solutions.pdf"),
         required=True,
         cwd=cwd,
     )
 
     default_rubric = (cwd / "configs" / f"{profile_name}.yaml").resolve()
     rubric_yaml = prompt_path(
-        "Rubric YAML path",
+        "Rubric YAML path (rules and point weights for grading)",
         default=str(default_rubric),
         required=True,
         cwd=cwd,
@@ -1259,13 +1345,13 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
             styled_success(f"Created starter rubric: {rubric_yaml}")
 
     grades_template_csv = prompt_path(
-        "Brightspace grades template CSV",
-        default=None,
+        "Brightspace grades template CSV (exported from your course to map grades)",
+        default=str(default_data_root / "grades.csv"),
         required=True,
         cwd=cwd,
     )
     grade_column = prompt_text(
-        "Grade column header",
+        "Grade column header (the exact name of the column in the CSV to write grades to)",
         default="Assignment 2 Points Grade",
         required=True,
     )
@@ -1382,6 +1468,7 @@ def render_profile_toml(
 ) -> str:
     defaults: dict[str, Any] = {
         "grading_mode": DEFAULT_GRADING_MODE,
+        "provider": "gemini",
         "model": DEFAULT_MODEL,
         "identifier_column": "OrgDefinedId",
         "context_cache": True,
