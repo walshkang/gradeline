@@ -67,6 +67,27 @@ EMPTY_VALUE=
             self.assertTrue(contents.endswith("\n"))
             self.assertEqual(os.environ["GEMINI_API_KEY"], "newvalue")
 
+    def test_update_env_file_deduplicates_multiple_existing_keys(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = Path(tmp) / ".env"
+            env_path.write_text(
+                "# header\nGEMINI_API_KEY=old1\nFOO=bar\nGEMINI_API_KEY=old2\n",
+                encoding="utf-8",
+            )
+
+            os.environ["GEMINI_API_KEY"] = "old1"
+            update_env_file(env_path, "GEMINI_API_KEY", "newvalue")
+
+            contents = env_path.read_text(encoding="utf-8")
+            lines = contents.splitlines()
+            # Header and unrelated vars are preserved.
+            self.assertIn("# header", lines[0])
+            self.assertIn("FOO=bar", contents)
+            # Only a single updated definition should remain.
+            self.assertEqual(lines.count("GEMINI_API_KEY=newvalue"), 1)
+            # File should end with exactly one trailing newline.
+            self.assertTrue(contents.endswith("\n"))
+
 
 if __name__ == "__main__":
     unittest.main()

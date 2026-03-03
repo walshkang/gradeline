@@ -430,6 +430,22 @@ class WorkflowCliTests(unittest.TestCase):
             self.assertIn("GEMINI_API_KEY=abc1234567890123", contents)
             self.assertEqual(os.environ["GEMINI_API_KEY"], "abc1234567890123")
 
+    def test_interactive_menu_can_select_configure_api_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.is_interactive_terminal", return_value=True),
+                # Index 7 corresponds to "configure-api-key" in _MENU_COMMANDS.
+                patch("grader.workflow_cli.prompt_select", return_value=7) as select_mock,
+                patch("grader.workflow_cli.configure_api_key_interactive", return_value=0) as configure_mock,
+            ):
+                exit_code = main([])
+
+            self.assertEqual(exit_code, 0)
+            select_mock.assert_called_once()
+            configure_mock.assert_called_once()
+
     def test_import_happy_path_copies_assets_into_data_profile(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

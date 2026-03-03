@@ -32,12 +32,15 @@ export GEMINI_API_KEY="your_api_key_here"
 Running `./gradeline` with no arguments opens an interactive menu:
 
 ```
-› quickstart  —  Auto-detect settings, grade, and review
-  run         —  Grade submissions and launch review server
-  regrade     —  Clear cache and re-run grading from scratch
-  serve       —  Launch review server for existing results
-  setup       —  Interactive profile setup wizard
-  list        —  List local workflow profiles
+› quickstart        —  Auto-detect settings, grade, and review
+  run               —  Grade submissions and launch review server
+  regrade           —  Clear cache and re-run grading from scratch
+  serve             —  Launch review server for existing results
+  setup             —  Interactive profile setup wizard
+  import            —  Copy recent Brightspace downloads into data/{profile}/
+  spot-grade        —  Grade a single late submission PDF (no Brightspace ID required)
+  configure-api-key —  Set or change GenAI API key (.env)
+  list              —  List local workflow profiles
 ```
 
 All commands can also be called directly:
@@ -48,6 +51,7 @@ All commands can also be called directly:
 ./gradeline run --profile a2
 ./gradeline regrade --profile a2
 ./gradeline serve --profile a2
+./gradeline configure-api-key
 ./gradeline list
 ```
 
@@ -84,6 +88,14 @@ You can also configure or rotate this key interactively via the workflow TUI (ap
 ./gradeline          # open interactive menu
 # then choose: configure-api-key
 ```
+
+Or call the configuration command directly:
+
+```bash
+./gradeline configure-api-key
+```
+
+This command updates the `.env` file used by Gradeline processes; it does **not** export `GEMINI_API_KEY` into your shell environment. If other tools depend on `GEMINI_API_KEY` in the shell, continue to set it with `export GEMINI_API_KEY=...` as needed.
 
 ## Workflow CLI (Profile-Based)
 
