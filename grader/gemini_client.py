@@ -13,6 +13,7 @@ from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .streaming import StreamProgressParser
 from .types import JsonDict, QuestionResult, RubricConfig
 
 
@@ -128,6 +129,7 @@ class GeminiGrader:
         solutions_pdf_path: Path,
         context_cache_enabled: bool = True,
         context_cache_ttl_seconds: int = DEFAULT_CONTEXT_CACHE_TTL_SECONDS,
+        progress_callback: Callable[[int, int, str], None] | None = None,
     ) -> tuple[list[QuestionResult], list[str]]:
         context_key = compute_context_cache_key(
             model=self.model,
@@ -174,12 +176,37 @@ class GeminiGrader:
             }
             if cached_content:
                 config["cached_content"] = cached_content
-            response = self.client.models.generate_content(
+
+            total_questions = len(rubric.questions)
+
+            on_question: Callable[[int, str], None] | None = None
+            if progress_callback is not None and total_questions > 0:
+                def _on_question(idx: int, qid: str) -> None:
+                    # Delegate to the higher-level callback, guarding against
+                    # incidental UI errors.
+                    try:
+                        progress_callback(idx, total_questions, qid)
+                    except Exception:
+                        pass
+
+                on_question = _on_question
+
+            parser = StreamProgressParser(on_question=on_question)
+
+            stream = self.client.models.generate_content(
                 model=self.model,
                 contents=[*files, prompt],
                 config=config,
+                stream=True,
             )
-            payload = structured_response_payload(response)
+
+            for chunk in stream:
+                text_chunk = getattr(chunk, "text", "")
+                if text_chunk:
+                    parser.feed(text_chunk)
+
+            full_text = parser.get_buffer()
+            payload = parse_json_maybe_fenced(full_text)
             return payload
 
         payload = call_with_backoff(invoke, max_retries=self.max_retries)

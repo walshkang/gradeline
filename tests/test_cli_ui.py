@@ -8,7 +8,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from grader.cli import build_annotation_progress_callback, main
+from grader.cli import (
+    build_annotation_progress_callback,
+    build_grading_progress_callback,
+    main,
+)
 from grader.types import (
     ExtractedPdf,
     QuestionResult,
@@ -161,6 +165,16 @@ class CliUiTests(unittest.TestCase):
 
         callback(3, 7, "1a")
         self.assertEqual(captured, ["annotating question 1a (3/7)"])
+
+    def test_grading_progress_callback_formats_question_progress(self) -> None:
+        captured: list[str] = []
+
+        callback = build_grading_progress_callback(captured.append, total_questions=5)
+        self.assertIsNotNone(callback)
+        assert callback is not None
+
+        callback(2, 5, "b")
+        self.assertEqual(captured, ["grading question b (2/5)"])
 
     def test_section_heading_plain(self) -> None:
         ui = PlainConsoleUI()

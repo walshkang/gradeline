@@ -6,6 +6,7 @@ import re
 import sys
 import time
 import threading
+import inspect
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -602,6 +603,7 @@ def main(argv: list[str] | None = None) -> int:
                 annotate_dry_run_marks=args.annotate_dry_run_marks,
                 diagnostics=diagnostics,
                 status_update=status_update,
+                enable_grading_progress=(args.concurrency == 1),
             )
         except Exception as exc:  # noqa: BLE001
             message = f"Unhandled submission failure: {exc}"
@@ -888,6 +890,7 @@ def grade_one_submission(
     annotate_dry_run_marks: bool,
     diagnostics: DiagnosticsCollector | None = None,
     status_update: Callable[[str], None] | None = None,
+    enable_grading_progress: bool = False,
 ) -> SubmissionResult:
     extracted = []
     extraction_sources: dict[str, str] = {}
@@ -962,6 +965,25 @@ def grade_one_submission(
             elif grading_mode == UNIFIED_MODE:
                 if status_update is not None:
                     status_update(f"unified grading {len(rubric.questions)} questions")
+
+                grading_progress = None
+                if enable_grading_progress:
+                    grading_progress = build_grading_progress_callback(
+                        status_update=status_update,
+                        total_questions=len(rubric.questions),
+                    )
+
+                extra_kwargs: dict[str, object] = {}
+                if grading_progress is not None:
+                    try:
+                        sig = inspect.signature(grader.grade_submission_unified)  # type: ignore[attr-defined]
+                        if "progress_callback" in sig.parameters:
+                            extra_kwargs["progress_callback"] = grading_progress
+                    except (ValueError, TypeError, AttributeError):
+                        # If we cannot introspect the grader (e.g., fake test grader),
+                        # fall back to calling without progress support.
+                        pass
+
                 question_results, model_flags = grader.grade_submission_unified(
                     submission_id=unit.folder_path.name,
                     pdf_paths=unit.pdf_paths,
@@ -969,6 +991,7 @@ def grade_one_submission(
                     solutions_pdf_path=solutions_pdf_path,
                     context_cache_enabled=context_cache,
                     context_cache_ttl_seconds=context_cache_ttl_seconds,
+                    **extra_kwargs,
                 )
                 global_flags.extend(model_flags)
                 if diagnostics is not None:
@@ -1121,6 +1144,19 @@ def build_annotation_progress_callback(
 
     def update(current: int, _: int, question_id: str) -> None:
         status_update(f"annotating question {question_id} ({current}/{total_questions})")
+
+    return update
+
+
+def build_grading_progress_callback(
+    status_update: Callable[[str], None] | None,
+    total_questions: int,
+) -> Callable[[int, int, str], None] | None:
+    if status_update is None or total_questions <= 0:
+        return None
+
+    def update(current: int, _: int, question_id: str) -> None:
+        status_update(f"grading question {question_id} ({current}/{total_questions})")
 
     return update
 
