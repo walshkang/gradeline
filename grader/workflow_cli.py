@@ -1452,8 +1452,32 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
         required=True,
         cwd=project_root,
     )
+    # Try AI rubric generation first to avoid the "starter rubric overwrite" trap.
     if not rubric_yaml.exists():
-        if prompt_yes_no(f"Rubric not found at {rubric_yaml}. Create a starter rubric now?", default=True):
+        _ = maybe_generate_rubric_with_ai(
+            solutions_pdf=solutions_pdf,
+            rubric_yaml=rubric_yaml,
+            profile_name=profile_name,
+        )
+
+    # If we still don't have a valid rubric, offer a starter template (and allow overwriting invalid YAML).
+    rubric_valid = False
+    if rubric_yaml.exists():
+        try:
+            load_rubric(rubric_yaml)
+            rubric_valid = True
+        except Exception:  # noqa: BLE001
+            rubric_valid = False
+
+    if not rubric_valid:
+        if rubric_yaml.exists():
+            starter_prompt = (
+                f"Rubric exists at {rubric_yaml} but is not valid. Overwrite with a starter rubric now?"
+            )
+        else:
+            starter_prompt = f"Rubric not found at {rubric_yaml}. Create a starter rubric now?"
+
+        if prompt_yes_no(starter_prompt, default=True):
             assignment_id = prompt_text("Assignment ID", default=profile_name, required=True)
             question_ids_raw = prompt_text(
                 "Question IDs (comma-separated, e.g. a,b,c,d)",
@@ -1463,12 +1487,6 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
             question_ids = parse_question_ids(question_ids_raw)
             write_starter_rubric(rubric_yaml, assignment_id=assignment_id, question_ids=question_ids)
             styled_success(f"Created starter rubric: {rubric_yaml}")
-
-    maybe_generate_rubric_with_ai(
-        solutions_pdf=solutions_pdf,
-        rubric_yaml=rubric_yaml,
-        profile_name=profile_name,
-    )
 
     grades_template_csv = prompt_path(
         "Brightspace grades template CSV (exported from your course to map grades)",
@@ -1506,7 +1524,7 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
     return 0
 
 
-def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, profile_name: str) -> None:
+def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, profile_name: str) -> bool:
     """Interactively generate a draft rubric YAML from the solutions PDF using Gemini.
 
     This is an optional wizard that runs inside the setup_profile_interactive flow.
@@ -1516,11 +1534,17 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
     """
     # Only run in an interactive terminal; non-interactive flows must be no-op.
     if not is_interactive_terminal():
-        return
+        return False
 
     if not solutions_pdf.exists() or not solutions_pdf.is_file():
         styled_warning(f"Solutions PDF not found at {solutions_pdf}; skipping AI rubric generation.")
-        return
+        return False
+    if solutions_pdf.suffix.lower() != ".pdf":
+        styled_warning(
+            f"AI rubric generation currently requires a PDF solutions file. "
+            f"Got: {solutions_pdf.name}. Skipping AI rubric generation."
+        )
+        return False
 
     # If a rubric already exists, confirm whether to overwrite it with an AI draft.
     if rubric_yaml.exists():
@@ -1529,7 +1553,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
             default=False,
         )
         if not overwrite:
-            return
+            return False
     else:
         # New rubric path: ask whether to run the AI wizard at all.
         use_ai = prompt_yes_no(
@@ -1537,7 +1561,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
             default=True,
         )
         if not use_ai:
-            return
+            return False
 
     # Resolve API key and model.
     api_key_env = "GEMINI_API_KEY"
@@ -1547,7 +1571,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
             f"{api_key_env} is not set. Configure your GenAI API key with "
             "`./gradeline configure-api-key` before using AI rubric generation."
         )
-        return
+        return False
 
     project_root = get_project_root()
     cache_dir = project_root / ".grader_cache"
@@ -1559,10 +1583,10 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
             "Gemini client dependencies are missing. Install the 'google-genai' package "
             "to enable AI-assisted rubric generation."
         )
-        return
+        return False
     except Exception as exc:  # noqa: BLE001
         styled_error(f"Failed to initialize Gemini client: {exc}")
-        return
+        return False
 
     import subprocess
     import yaml
@@ -1630,7 +1654,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
         )
         if idx is None:
             styled_warning("AI rubric wizard cancelled.")
-            return
+            return False
 
         choice = choices[idx]
 
@@ -1647,10 +1671,10 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                     "Leaving the current rubric YAML in place. "
                     "You may edit it manually if needed."
                 )
-                return
+                return False
 
             styled_success(f"Saved AI-generated rubric to {rubric_yaml}")
-            return
+            return True
 
         if "Edit in $EDITOR" in choice:
             # Seed the rubric file with the current draft and open in editor.
@@ -1671,13 +1695,13 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                             "No editor found ($EDITOR/$VISUAL not set and neither 'nano' nor 'vi' is available)."
                         )
                         styled_info(f"Edit the rubric manually at: {rubric_yaml}")
-                        return
+                        return False
 
             try:
                 subprocess.run([editor, str(rubric_yaml)], check=False)
             except FileNotFoundError:
                 styled_error(f"Editor '{editor}' not found. Please edit the file manually: {rubric_yaml}")
-                return
+                return False
 
             # After editing, load and validate the YAML.
             try:
@@ -1697,7 +1721,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                     default=0,
                 )
                 if follow_idx is None or follow_up_choices[follow_idx].startswith("Abort"):
-                    return
+                    return False
                 if follow_up_choices[follow_idx].startswith("Reopen editor"):
                     # Loop back to preview + choices, but keep existing file contents;
                     # the next iteration will re-run generation if chosen.
@@ -1708,25 +1732,25 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                             f"Editor '{editor}' not found on second attempt. "
                             f"Please edit the file manually: {rubric_yaml}"
                         )
-                        return
+                        return False
                     # Validate again; if still invalid, fall through to main loop.
                     try:
                         yaml.safe_load(rubric_yaml.read_text(encoding="utf-8"))
                         load_rubric(rubric_yaml)
                         styled_success("Loaded edited rubric.")
-                        return
+                        return True
                     except Exception as exc:  # noqa: BLE001
                         styled_error(f"Edited rubric is still not valid: {exc}")
                         # After another failure, fall back to main AI loop or abort.
                         if not prompt_yes_no("Retry AI rubric generation?", default=True):
-                            return
+                            return False
                         continue
                 if follow_up_choices[follow_idx].startswith("Retry AI"):
                     continue
 
             # Edited rubric is valid.
             styled_success("Loaded edited rubric.")
-            return
+            return True
 
         if "Retry rubric generation" in choice:
             styled_info("Retrying AI rubric generation with the same solutions PDF...")
@@ -1734,7 +1758,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
 
         # Skip choice.
         styled_warning("Skipping AI-based rubric generation.")
-        return
+        return False
 
 
 def build_grading_argv(profile: GradeProfile) -> list[str]:

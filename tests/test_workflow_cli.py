@@ -156,6 +156,7 @@ class WorkflowCliTests(unittest.TestCase):
             stdout = io.StringIO()
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("grader.workflow_cli.invoke_grading_main", return_value=0) as grade_mock,
                 patch("grader.workflow_cli.initialize_review_state", return_value=output_dir / "review/review_state.json") as init_mock,
                 patch("grader.workflow_cli.review_state_status", return_value=("valid", "")),
@@ -233,6 +234,7 @@ class WorkflowCliTests(unittest.TestCase):
             stdout = io.StringIO()
             with (
                 pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
                 patch("sys.stdout", stdout),
             ):
                 exit_code = main(["list"])
@@ -283,6 +285,132 @@ class WorkflowCliTests(unittest.TestCase):
             self.assertEqual(profile.path, profile_path.resolve())
             self.assertEqual(profile.grade.rubric_yaml, rubric_path.resolve())
             self.assertEqual(profile.grade.grade_column, "Assignment 2 Points Grade")
+
+    def test_setup_ai_missing_api_key_falls_back_to_starter_rubric(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_dir = root / "subs"
+            submissions_dir.mkdir(parents=True, exist_ok=True)
+            solutions_pdf = root / "solutions.pdf"
+            solutions_pdf.write_bytes(b"%PDF-1.4")
+            template_csv = root / "template.csv"
+            template_csv.write_text("OrgDefinedId,Assignment 2 Points Grade\n", encoding="utf-8")
+
+            # Interactive mode: AI is offered first, but we have no API key so it must fall back to starter rubric.
+            prior_key = os.environ.pop("GEMINI_API_KEY", None)
+            inputs = [
+                str(submissions_dir),  # submissions_dir
+                str(solutions_pdf),  # solutions_pdf
+                "",  # rubric path (accept default: ./configs/a2.yaml)
+                "",  # generate rubric with AI? (default yes)
+                "",  # create starter rubric now? (default yes)
+                "",  # assignment id (default profile name)
+                "",  # question ids (default list)
+                str(template_csv),  # grades template csv
+                "",  # grade column (default)
+                "",  # output dir (default)
+                "",  # host (default)
+                "",  # port (default)
+            ]
+
+            try:
+                with (
+                    pushd(root),
+                    patch("grader.workflow_cli.get_project_root", return_value=root),
+                    patch("sys.stdin.isatty", return_value=True),
+                    patch("sys.stdout.isatty", return_value=True),
+                    patch("builtins.input", side_effect=inputs),
+                ):
+                    exit_code = main(["setup", "--profile", "a2"])
+            finally:
+                if prior_key is not None:
+                    os.environ["GEMINI_API_KEY"] = prior_key
+
+            self.assertEqual(exit_code, 0)
+            rubric_path = root / "configs" / "a2.yaml"
+            self.assertTrue(rubric_path.exists())
+            # Starter rubric should be loadable.
+            profile = load_workflow_profile("a2", cwd=root)
+            from grader.config import load_rubric
+
+            _ = load_rubric(profile.grade.rubric_yaml)
+
+    def test_setup_ai_writes_rubric_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_dir = root / "subs"
+            submissions_dir.mkdir(parents=True, exist_ok=True)
+            solutions_pdf = root / "solutions.pdf"
+            solutions_pdf.write_bytes(b"%PDF-1.4")
+            template_csv = root / "template.csv"
+            template_csv.write_text("OrgDefinedId,Assignment 2 Points Grade\n", encoding="utf-8")
+
+            prior_key = os.environ.get("GEMINI_API_KEY")
+            os.environ["GEMINI_API_KEY"] = "test_key_1234567890"
+
+            class DummyGeminiGrader:
+                def __init__(self, api_key: str, model: str, cache_dir: Path) -> None:
+                    self.api_key = api_key
+                    self.model = model
+                    self.cache_dir = cache_dir
+
+                def generate_rubric_draft(self, *, solutions_pdf: Path, assignment_id: str):
+                    return {
+                        "assignment_id": assignment_id,
+                        "bands": {"check_plus_min": 0.9, "check_min": 0.7},
+                        "questions": [
+                            {
+                                "id": "a",
+                                "label_patterns": ["a)"],
+                                "anchor_tokens": ["a)"],
+                                "scoring_rules": "Define expected answer criteria.",
+                                "short_note_pass": "OK",
+                                "short_note_fail": "Check",
+                                "weight": 1.0,
+                            }
+                        ],
+                        "scoring_mode": "equal_weights",
+                        "partial_credit": 0.5,
+                    }
+
+            inputs = [
+                str(submissions_dir),  # submissions_dir
+                str(solutions_pdf),  # solutions_pdf
+                "",  # rubric path (accept default: ./configs/a2.yaml)
+                "",  # generate rubric with AI? (default yes)
+                # (then prompt_select for Accept/Edit/Retry/Skip is patched to Accept)
+                str(template_csv),  # grades template csv
+                "",  # grade column (default)
+                "",  # output dir (default)
+                "",  # host (default)
+                "",  # port (default)
+            ]
+
+            try:
+                with (
+                    pushd(root),
+                    patch("grader.workflow_cli.get_project_root", return_value=root),
+                    patch("sys.stdin.isatty", return_value=True),
+                    patch("sys.stdout.isatty", return_value=True),
+                    patch("grader.workflow_cli.GeminiGrader", DummyGeminiGrader),
+                    patch("grader.workflow_cli.prompt_select", return_value=0),
+                    patch("builtins.input", side_effect=inputs),
+                ):
+                    exit_code = main(["setup", "--profile", "a2"])
+            finally:
+                if prior_key is None:
+                    os.environ.pop("GEMINI_API_KEY", None)
+                else:
+                    os.environ["GEMINI_API_KEY"] = prior_key
+
+            self.assertEqual(exit_code, 0)
+            rubric_path = root / "configs" / "a2.yaml"
+            self.assertTrue(rubric_path.exists())
+            profile = load_workflow_profile("a2", cwd=root)
+            from grader.config import load_rubric
+
+            rubric = load_rubric(profile.grade.rubric_yaml)
+            self.assertEqual(rubric.assignment_id, "a2")
 
     def test_quickstart_requires_tty(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -393,7 +521,11 @@ class WorkflowCliTests(unittest.TestCase):
 
     def test_no_command_non_tty_prints_help(self) -> None:
         stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
+        with (
+            patch("sys.stdin.isatty", return_value=False),
+            patch("sys.stdout.isatty", return_value=False),
+            contextlib.redirect_stderr(stderr),
+        ):
             exit_code = main([])
         self.assertEqual(exit_code, 2)
 
@@ -402,10 +534,12 @@ class WorkflowCliTests(unittest.TestCase):
             root = Path(tmp)
             profile_dir = root / ".manual_runs" / "profiles"
             profile_dir.mkdir(parents=True, exist_ok=True)
+            from grader import workflow_cli as wf
+            idx_list = [i for i, (name, _) in enumerate(wf._MENU_COMMANDS) if name == "list"][0]
             with (
                 pushd(root),
                 patch("grader.workflow_cli.is_interactive_terminal", return_value=True),
-                patch("grader.workflow_cli.prompt_select", return_value=8) as select_mock,
+                patch("grader.workflow_cli.prompt_select", return_value=idx_list) as select_mock,
                 patch("grader.workflow_cli.list_profiles", return_value=0) as list_mock,
             ):
                 exit_code = main([])
@@ -443,14 +577,17 @@ class WorkflowCliTests(unittest.TestCase):
             with (
                 pushd(root),
                 patch("grader.workflow_cli.is_interactive_terminal", return_value=True),
-                # Index 7 corresponds to "configure-api-key" in _MENU_COMMANDS after adding grade-new at the top.
-                patch("grader.workflow_cli.prompt_select", return_value=7) as select_mock,
+                # First call selects "configure-api-key", second call returns to main menu (None).
+                patch(
+                    "grader.workflow_cli.interactive_command_menu",
+                    side_effect=["configure-api-key", None],
+                ) as menu_mock,
                 patch("grader.workflow_cli.configure_api_key_interactive", return_value=0) as configure_mock,
             ):
                 exit_code = main([])
 
             self.assertEqual(exit_code, 0)
-            select_mock.assert_called_once()
+            self.assertEqual(menu_mock.call_count, 2)
             configure_mock.assert_called_once()
 
     def test_import_happy_path_copies_assets_into_data_profile(self) -> None:
