@@ -3,8 +3,8 @@ scoring_mode: "equal_weights"
 partial_credit: 0.5
 
 bands:
-  check_plus_min: 0.90
-  check_min: 0.70
+  check_plus_min: 0.85
+  check_min: 0.67
 
 questions:
   - id: "a"
