@@ -206,39 +206,25 @@ class GeminiGrader:
             if cached_content:
                 config["cached_content"] = cached_content
 
-            total_questions = len(rubric.questions)
-
-            on_question: Callable[[int, str], None] | None = None
-            if progress_callback is not None and total_questions > 0:
-                def _on_question(idx: int, qid: str) -> None:
-                    # Delegate to the higher-level callback, guarding against
-                    # incidental UI errors.
-                    try:
-                        progress_callback(idx, total_questions, qid)
-                    except Exception:
-                        pass
-
-                on_question = _on_question
-
-            parser = StreamProgressParser(on_question=on_question)
-
-            stream = self.client.models.generate_content(
+            response = self.client.models.generate_content(
                 model=self.model,
                 contents=[*files, prompt],
                 config=config,
-                stream=True,
             )
-
-            for chunk in stream:
-                text_chunk = getattr(chunk, "text", "")
-                if text_chunk:
-                    parser.feed(text_chunk)
-
-            full_text = parser.get_buffer()
-            payload = parse_json_maybe_fenced(full_text)
-            return payload
+            return structured_response_payload(response)
 
         payload = call_with_backoff(invoke, max_retries=self.max_retries)
+
+        # Simulate per-question grading progress after the full response is available.
+        total_questions = len(rubric.questions)
+        if progress_callback is not None and total_questions > 0:
+            for idx, question in enumerate(rubric.questions, start=1):
+                try:
+                    progress_callback(idx, total_questions, question.id)
+                except Exception:
+                    # Progress UI errors should never fail grading.
+                    pass
+
         payload["global_flags"] = merge_flags(payload.get("global_flags", []), cache_flags)
         normalized = normalize_model_response(payload, rubric)
         self._set_cache(cache_key, payload)

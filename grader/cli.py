@@ -964,7 +964,7 @@ def grade_one_submission(
                 global_flags.extend(model_flags)
             elif grading_mode == UNIFIED_MODE:
                 if status_update is not None:
-                    status_update(f"unified grading {len(rubric.questions)} questions")
+                    status_update("grading submission in unified mode (this may take up to ~30 seconds)")
 
                 grading_progress = None
                 if enable_grading_progress:
