@@ -7,7 +7,7 @@ import sys
 import time
 import threading
 import inspect
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait as futures_wait
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable
@@ -724,9 +724,14 @@ def main(argv: list[str] | None = None) -> int:
 
             while pending_api or pending_annotation:
                 try:
-                    if pending_api:
-                        for future in as_completed(list(pending_api)):
-                            pending_api.remove(future)
+                    # Wait for any future (grading OR annotation) to finish.
+                    # This prevents slow grading stragglers from blocking collection
+                    # of annotation results that already completed.
+                    all_pending = pending_api | pending_annotation
+                    done, _ = futures_wait(all_pending, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        if future in pending_api:
+                            pending_api.discard(future)
                             idx, result, elapsed = future.result()
                             ann_future = annotation_executor.submit(
                                 annotate_and_finish,
@@ -735,10 +740,8 @@ def main(argv: list[str] | None = None) -> int:
                                 elapsed,
                             )
                             pending_annotation.add(ann_future)
-
-                    if pending_annotation:
-                        for future in as_completed(list(pending_annotation)):
-                            pending_annotation.remove(future)
+                        else:
+                            pending_annotation.discard(future)
                             submission_results.append(future.result())
 
                 except KeyboardInterrupt:
