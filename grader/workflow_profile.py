@@ -8,7 +8,7 @@ from typing import Any
 
 
 DEFAULT_PROFILE_DIR = Path(".manual_runs") / "profiles"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemma4-31b-it"
 DEFAULT_GRADING_MODE = "unified"
 DEFAULT_REVIEW_HOST = "127.0.0.1"
 DEFAULT_REVIEW_PORT = 8765

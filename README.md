@@ -237,7 +237,7 @@ python3 -m grader.cli \
   --grades-template-csv "/path/to/template.csv" \
   --grade-column "Assignment 1 Points Grade" \
   --grading-mode unified \
-  --model "gemini-2.5-flash" \
+  --model "gemma4-31b-it" \
   --output-dir "/path/to/output"
 ```
 

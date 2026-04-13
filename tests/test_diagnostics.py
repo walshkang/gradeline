@@ -10,7 +10,7 @@ from grader.diagnostics import DiagnosticsCollector
 
 class DiagnosticsTests(unittest.TestCase):
     def test_writes_expected_payload_shape(self) -> None:
-        collector = DiagnosticsCollector(args_snapshot={"dry_run": True, "model": "gemini-2.5-flash"})
+        collector = DiagnosticsCollector(args_snapshot={"dry_run": True, "model": "gemma4-31b-it"})
         collector.record(
             severity="warning",
             code="report_mapping_warning",

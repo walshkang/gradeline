@@ -33,7 +33,7 @@ from .ui import RunSummary, args_to_subtitle, create_console_ui
 LEGACY_MODE = "legacy"
 UNIFIED_MODE = "unified"
 AGENT_MODE = "agent"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemma4-31b-it"
 DEFAULT_AGENT_TYPE = "gemini"
 DEFAULT_OCR_CHAR_THRESHOLD = 200
 LOW_CONFIDENCE_THRESHOLD = 0.55
@@ -582,6 +582,19 @@ def main(argv: list[str] | None = None) -> int:
                 ui.status(f"{status_prefix} :: preparing unified grading")
 
         status_update = locked_status_update(prefix=status_prefix)
+
+        # Set up per-submission grading progress (unified mode only).
+        submission_task_id: int | None = None
+        grading_progress: Callable[[int, int, str], None] | None = None
+        if args.grading_mode == UNIFIED_MODE:
+            total_questions = len(rubric.questions)
+            if total_questions > 0:
+                submission_task_id = ui.add_submission_task(folder_name=folder_name, total_questions=total_questions)
+
+                def grading_progress(current: int, total: int, question_id: str) -> None:
+                    # Ignore total; UI tracks its own configured total.
+                    ui.update_submission_task(submission_task_id or 0, current, question_id)
+
         try:
             result = grade_one_submission(
                 unit=unit,
@@ -603,7 +616,7 @@ def main(argv: list[str] | None = None) -> int:
                 annotate_dry_run_marks=args.annotate_dry_run_marks,
                 diagnostics=diagnostics,
                 status_update=status_update,
-                enable_grading_progress=(args.concurrency == 1),
+                progress_callback=grading_progress,
             )
         except Exception as exc:  # noqa: BLE001
             message = f"Unhandled submission failure: {exc}"
@@ -622,7 +635,10 @@ def main(argv: list[str] | None = None) -> int:
                 grade_points=grade_points,
                 error_message=message,
             )
-        
+        finally:
+            if submission_task_id is not None:
+                ui.remove_submission_task(submission_task_id)
+
         sub_elapsed = time.monotonic() - sub_start
         with ui_lock:
             ui.clear_status()
@@ -890,7 +906,7 @@ def grade_one_submission(
     annotate_dry_run_marks: bool,
     diagnostics: DiagnosticsCollector | None = None,
     status_update: Callable[[str], None] | None = None,
-    enable_grading_progress: bool = False,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> SubmissionResult:
     extracted = []
     extraction_sources: dict[str, str] = {}
@@ -966,19 +982,12 @@ def grade_one_submission(
                 if status_update is not None:
                     status_update("grading submission in unified mode (this may take up to ~30 seconds)")
 
-                grading_progress = None
-                if enable_grading_progress:
-                    grading_progress = build_grading_progress_callback(
-                        status_update=status_update,
-                        total_questions=len(rubric.questions),
-                    )
-
                 extra_kwargs: dict[str, object] = {}
-                if grading_progress is not None:
+                if progress_callback is not None:
                     try:
                         sig = inspect.signature(grader.grade_submission_unified)  # type: ignore[attr-defined]
                         if "progress_callback" in sig.parameters:
-                            extra_kwargs["progress_callback"] = grading_progress
+                            extra_kwargs["progress_callback"] = progress_callback
                     except (ValueError, TypeError, AttributeError):
                         # If we cannot introspect the grader (e.g., fake test grader),
                         # fall back to calling without progress support.
@@ -1144,19 +1153,6 @@ def build_annotation_progress_callback(
 
     def update(current: int, _: int, question_id: str) -> None:
         status_update(f"annotating question {question_id} ({current}/{total_questions})")
-
-    return update
-
-
-def build_grading_progress_callback(
-    status_update: Callable[[str], None] | None,
-    total_questions: int,
-) -> Callable[[int, int, str], None] | None:
-    if status_update is None or total_questions <= 0:
-        return None
-
-    def update(current: int, _: int, question_id: str) -> None:
-        status_update(f"grading question {question_id} ({current}/{total_questions})")
 
     return update
 
