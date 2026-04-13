@@ -1,0 +1,23 @@
+Context:
+You have a solutions PDF for an assignment. Produce a YAML rubric file with the following keys:
+  - assignment_id: string
+  - scoring_mode: "equal_weights" or "per_question_points"
+  - partial_credit: 0.0-1.0
+  - bands: { check_min: 0.85, check_plus_min: 0.95 }
+  - questions: list of objects with { id, label_patterns, anchor_tokens, scoring_rules, short_note_pass, short_note_fail, weight }
+
+Instructions:
+- Use the solutions PDF to extract question IDs and suggest label_patterns and anchor_tokens.
+- For each question, include a conservative scoring_rules string describing key elements to check.
+- If uncertain, avoid assigning full points; mark as needs_review instead.
+- Output ONLY valid YAML (no explanatory text).
+
+Example:
+assignment_id: "assignment_4"
+questions:
+  - id: "a"
+    label_patterns: ["a)", "a.", "(a)"]
+    anchor_tokens: ["a)", "a.", "(a)"]
+    scoring_rules: "Expect X; must mention Y to get full credit."
+    weight: 1.0
+

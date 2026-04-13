@@ -1088,22 +1088,61 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
     if not isinstance(rubric_path, Path):
         raise ValueError("Rubric path is required.")
     if not rubric_path.exists():
-        if prompt_yes_no(f"Rubric not found at {rubric_path}. Create a starter rubric now?", default=True):
-            assignment_id = prompt_text("Assignment ID", default=profile_path.stem, required=True)
-            inferred = list(detected.prior_rubric_question_ids) or list(default_question_ids())
-            default_qids = ",".join(inferred)
-            question_ids_raw = prompt_text(
-                "Question IDs (comma-separated, e.g. a,b,c,d)",
-                default=default_qids,
-                required=True,
-            )
-            question_ids = parse_question_ids(question_ids_raw)
-            write_starter_rubric(rubric_path, assignment_id=assignment_id, question_ids=question_ids)
-            styled_success(f"Created starter rubric: {rubric_path}")
-            styled_info("Rubric checklist:")
-            styled_info("  • Update scoring_rules per question.")
-            styled_info("  • Confirm label_patterns and anchor_tokens match your answer key.")
-            styled_info("  • Verify bands thresholds for your class policy.")
+        # First, attempt AI-assisted draft generation (interactive)
+        solutions_pdf = values.get("solutions_pdf")
+        generated = False
+        if isinstance(solutions_pdf, Path) and solutions_pdf.exists() and solutions_pdf.is_file():
+            if is_interactive_terminal() and prompt_yes_no("Generate a draft rubric from the solutions PDF using AI?", default=True):
+                try:
+                    generated = maybe_generate_rubric_with_ai(solutions_pdf=solutions_pdf, rubric_yaml=rubric_path, profile_name=profile_path.stem)
+                except Exception:  # noqa: BLE001
+                    generated = False
+        if not generated:
+            # Offer sample template, starter rubric, or skip
+            project_root = get_project_root()
+            sample_path = (project_root / "configs" / "_templates" / "rubric_sample.yaml").resolve()
+            sample_prompt = (project_root / "configs" / "_templates" / "rubric_chat_prompt.txt").resolve()
+            if is_interactive_terminal():
+                choices = ["Create starter rubric", "Use sample template", "Skip (create later)"]
+                idx = prompt_select(f"Rubric not found at {rubric_path}. Choose how to create one:", choices, default=0)
+                if idx is None:
+                    styled_warning("Aborted.")
+                    raise AbortToMenu
+                choice = choices[idx]
+            else:
+                # Non-interactive default: create a starter rubric
+                choice = "Create starter rubric"
+
+            if choice == "Use sample template":
+                if sample_path.exists() and sample_path.is_file():
+                    rubric_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(sample_path, rubric_path)
+                    styled_success(f"Copied sample rubric to {rubric_path}")
+                    if sample_prompt.exists() and sample_prompt.is_file():
+                        styled_section_heading("Chatbot prompt for custom rubric")
+                        print(sample_prompt.read_text(encoding="utf-8"))
+                else:
+                    styled_warning(f"Sample template not found at {sample_path}. Creating starter rubric instead.")
+                    choice = "Create starter rubric"
+
+            if choice == "Create starter rubric":
+                assignment_id = prompt_text("Assignment ID", default=profile_path.stem, required=True)
+                inferred = list(detected.prior_rubric_question_ids) or list(default_question_ids())
+                default_qids = ",".join(inferred)
+                question_ids_raw = prompt_text(
+                    "Question IDs (comma-separated, e.g. a,b,c,d)",
+                    default=default_qids,
+                    required=True,
+                )
+                question_ids = parse_question_ids(question_ids_raw)
+                write_starter_rubric(rubric_path, assignment_id=assignment_id, question_ids=question_ids)
+                styled_success(f"Created starter rubric: {rubric_path}")
+                styled_info("Rubric checklist:")
+                styled_info("  • Update scoring_rules per question.")
+                styled_info("  • Confirm label_patterns and anchor_tokens match your answer key.")
+                styled_info("  • Verify bands thresholds for your class policy.")
+            else:
+                styled_warning(f"No rubric created at {rubric_path}. You can add one later with `./gradeline setup --profile {profile_path.stem}`.")
 
     profile_text = render_profile_toml(
         submissions_dir=must_path(values["submissions_dir"], "submissions_dir"),

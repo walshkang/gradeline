@@ -1,0 +1,22 @@
+# Sample rubric template — adjust per assignment
+assignment_id: "assignment_x"
+scoring_mode: "equal_weights"
+partial_credit: 0.5
+bands:
+  check_plus_min: 0.95
+  check_min: 0.85
+questions:
+  - id: "a"
+    label_patterns: ["a)", "a.", "(a)"]
+    anchor_tokens: ["a)", "a.", "(a)"]
+    scoring_rules: "Define expected answer criteria."
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+  - id: "b"
+    label_patterns: ["b)", "b.", "(b)"]
+    anchor_tokens: ["b)", "b.", "(b)"]
+    scoring_rules: "Define expected answer criteria."
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
