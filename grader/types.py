@@ -62,9 +62,9 @@ class QuestionResult:
     id: str
     verdict: str
     confidence: float
-    logic_analysis: str
     short_reason: str
     evidence_quote: str
+    logic_analysis: str = ""
     detail_reason: str = ""
     coords: tuple[float, float] | None = None  # [y, x] in 0..1000 normalized space
     page_number: int | None = None
