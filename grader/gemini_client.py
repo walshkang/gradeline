@@ -14,7 +14,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .streaming import StreamProgressParser
-from .types import JsonDict, QuestionResult, RubricConfig
+from .types import JsonDict, QuestionResult, RubricConfig, TextBlock
 
 
 PROMPT_VERSION = "2026-02-26-gemini-brightspace-v4"
@@ -45,6 +45,7 @@ class UnifiedQuestionItem(BaseModel):
     coords: list[int] | None = None
     page_number: int | None = None
     source_file: str | None = None
+    block_id: str | None = None
 
 
 class UnifiedSubmissionResponse(BaseModel):
@@ -594,18 +595,43 @@ def build_legacy_grading_prompt(
     )
 
 
+def _xml_escape(text: str) -> str:
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 def build_unified_grading_prompt(
     submission_id: str,
     rubric: RubricConfig,
     pdf_paths: list[Path],
+    *,
+    combined_text: str | None = None,
+    blocks: list[TextBlock] | None = None,
 ) -> str:
     labels = ", ".join(question.id for question in rubric.questions)
     files = ", ".join(path.name for path in pdf_paths)
+
+    student_section = ""
+    if blocks:
+        answers = []
+        for block in blocks:
+            bid = getattr(block, "id", "")
+            text = _xml_escape(getattr(block, "text", ""))
+            answers.append(f'<answer id="{bid}">{text}</answer>')
+        student_section = "Student extracted text (as XML-wrapped blocks):\n" + "\n".join(answers)
+    elif combined_text:
+        student_section = "Student extracted text (may include OCR noise):\n" + combined_text[:12000]
+
     return (
         f"Submission ID: {submission_id}\n"
         f"Expected question IDs: {labels}\n"
         f"Attached student files: {files}\n"
-        "Grade this submission exactly according to the cached rubric and master solution."
+        "Grade this submission exactly according to the cached rubric and master solution.\n"
+        f"{student_section}"
     )
 
 
@@ -798,6 +824,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
         coords = parse_coords_0_to_1000(raw.get("coords"))
         page_number = parse_page_number(raw.get("page_number") or raw.get("page"))
         source_file = str(raw.get("source_file", "")).strip() or None
+        block_id = str(raw.get("block_id", "")).strip() or None
         normalized_questions.append(
             QuestionResult(
                 id=question.id,
@@ -810,6 +837,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                 coords=coords,
                 page_number=page_number,
                 source_file=source_file,
+                block_id=block_id,
             )
         )
 
