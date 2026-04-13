@@ -6,7 +6,65 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from .types import ExtractedPdf
+from .types import ExtractedPdf, TextBlock
+
+
+def parse_tsv_blocks(tsv_text: str, page: int, dpi: float) -> list[TextBlock]:
+    lines = tsv_text.splitlines()
+    if not lines:
+        return []
+
+    # Skip header row; columns:
+    # level, page_num, block_num, par_num, line_num, word_num, left, top, width, height, conf, text
+    groups: dict[int, list[dict]] = {}
+    for line in lines[1:]:
+        parts = line.split("\t", 11)
+        if len(parts) < 12:
+            continue
+        try:
+            level = int(parts[0])
+        except ValueError:
+            continue
+        if level != 5:
+            continue
+        text = parts[11]
+        if not text.strip():
+            continue
+        try:
+            block_num = int(parts[2])
+            left = float(parts[6])
+            top = float(parts[7])
+            width = float(parts[8])
+            height = float(parts[9])
+            conf = float(parts[10])
+        except ValueError:
+            continue
+        groups.setdefault(block_num, []).append(
+            {"text": text, "left": left, "top": top, "width": width, "height": height, "conf": conf}
+        )
+
+    blocks: list[TextBlock] = []
+    for block_num, words in sorted(groups.items()):
+        joined_text = " ".join(w["text"] for w in words)
+        min_left = min(w["left"] for w in words)
+        min_top = min(w["top"] for w in words)
+        max_right = max(w["left"] + w["width"] for w in words)
+        max_bottom = max(w["top"] + w["height"] for w in words)
+        mean_conf = sum(w["conf"] for w in words) / len(words)
+        blocks.append(
+            TextBlock(
+                id=f"p{page}_b{block_num}",
+                text=joined_text,
+                page=page,
+                left=min_left,
+                top=min_top,
+                width=max_right - min_left,
+                height=max_bottom - min_top,
+                source="tesseract_tsv",
+                confidence=mean_conf,
+            )
+        )
+    return blocks
 
 
 def extract_pdf_text(
@@ -20,6 +78,7 @@ def extract_pdf_text(
     if native_chars >= ocr_char_threshold:
         return ExtractedPdf(
             pdf_path=pdf_path,
+            blocks=[],
             text=native_text,
             source="pdftotext",
             native_char_count=native_chars,
@@ -27,15 +86,23 @@ def extract_pdf_text(
         )
 
     try:
-        ocr_text = run_ocr_all_pages(pdf_path, temp_dir=temp_dir)
+        ocr_blocks = run_ocr_all_pages(pdf_path, temp_dir=temp_dir)
     except Exception:
         # OCR failures should not abort the whole grading run.
-        ocr_text = ""
+        ocr_blocks = []
+    ocr_text = "\n".join(b.text for b in ocr_blocks)
     ocr_chars = non_whitespace_char_count(ocr_text)
-    best_text = ocr_text if ocr_chars > native_chars else native_text
-    source = "ocr" if ocr_chars > native_chars else "pdftotext"
+    if ocr_chars > native_chars:
+        best_text = ocr_text
+        source = "ocr"
+        best_blocks = ocr_blocks
+    else:
+        best_text = native_text
+        source = "pdftotext"
+        best_blocks = []
     return ExtractedPdf(
         pdf_path=pdf_path,
+        blocks=best_blocks,
         text=best_text,
         source=source,
         native_char_count=native_chars,
@@ -54,10 +121,10 @@ def run_pdftotext(pdf_path: Path) -> str:
     return result.stdout or ""
 
 
-def run_ocr_all_pages(pdf_path: Path, temp_dir: Path) -> str:
+def run_ocr_all_pages(pdf_path: Path, temp_dir: Path, dpi: float = 300.0) -> list[TextBlock]:
     temp_dir.mkdir(parents=True, exist_ok=True)
     page_count = get_pdf_page_count(pdf_path)
-    chunks: list[str] = []
+    all_blocks: list[TextBlock] = []
     for page_num in range(1, page_count + 1):
         safe_stem = sanitize_for_filename(pdf_path.stem)
         unique = f"{safe_stem}_{page_num}_{uuid.uuid4().hex[:8]}"
@@ -81,15 +148,16 @@ def run_ocr_all_pages(pdf_path: Path, temp_dir: Path) -> str:
         )
         try:
             ocr = subprocess.run(
-                ["tesseract", str(png_path), "stdout", "--dpi", "300"],
+                ["tesseract", str(png_path), "stdout", "tsv", "--dpi", str(int(dpi))],
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            chunks.append(ocr.stdout or "")
+            page_blocks = parse_tsv_blocks(ocr.stdout or "", page=page_num, dpi=dpi)
+            all_blocks.extend(page_blocks)
         finally:
             safe_unlink(png_path)
-    return "\n".join(chunks)
+    return all_blocks
 
 
 def get_pdf_page_count(pdf_path: Path) -> int:
