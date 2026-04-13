@@ -633,6 +633,7 @@ def build_unified_grading_prompt(
         f"Expected question IDs: {labels}\n"
         f"Attached student files: {files}\n"
         "Grade this submission exactly according to the cached rubric and master solution.\n"
+        f"{NUMERIC_EQUIVALENCE_RULE}\n\n"
         f"{student_section}"
     )
 

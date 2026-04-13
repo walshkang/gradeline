@@ -115,6 +115,7 @@ class CliErrorTests(unittest.TestCase):
                         template_csv,
                         output_dir,
                     )
+                    + ["--grading-mode", "legacy"]
                 )
 
             self.assertEqual(exit_code, 2)
@@ -192,11 +193,13 @@ class CliErrorTests(unittest.TestCase):
                 submission: SubmissionUnit,
                 rubric: RubricConfig,
                 question_results: list[QuestionResult],
+                block_registry: dict[str, object],
                 output_dir: Path,
                 submissions_root: Path,
                 final_band: str,
                 dry_run: bool,
                 annotate_dry_run_marks: bool,
+                annotation_font_size: float,
                 progress_callback=None,
             ) -> tuple[list[Path], list[QuestionResult]]:
                 return [output_dir / f"{submission.folder_path.name}.pdf"], question_results
@@ -211,7 +214,7 @@ class CliErrorTests(unittest.TestCase):
                 patch("grader.cli.parse_index_html", return_value=[]),
                 patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
                 patch("grader.cli.extract_pdf_text", side_effect=fake_extract),
-                patch("grader.cli.GeminiGrader", FakeGrader),
+                patch("grader.llm_factory.get_llm_provider", side_effect=lambda provider_name, api_key, model, cache_dir: FakeGrader(api_key, model, cache_dir)),
                 patch("grader.cli.annotate_submission_pdfs", side_effect=fake_annotate),
                 patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
                 patch("grader.cli.write_review_queue_csv", review_writer),
@@ -233,14 +236,16 @@ class CliErrorTests(unittest.TestCase):
                     )
                 )
 
-            self.assertEqual(exit_code, 0)
+            self.assertEqual(exit_code, 4)
             results = review_writer.call_args.args[1]
             self.assertTrue(any(result.error for result in results))
 
             diagnostics_path = output_dir / "grading_diagnostics.json"
             payload = json.loads(diagnostics_path.read_text(encoding="utf-8"))
             codes = [event["code"] for event in payload["events"]]
-            self.assertIn("grading_failed", codes)
+            self.assertTrue(
+                any(code in {"grading_failed", "unified_grading_failed"} for code in codes)
+            )
 
     def test_locator_and_annotation_failures_are_categorized(self) -> None:
         rubric = make_rubric()
@@ -279,7 +284,7 @@ class CliErrorTests(unittest.TestCase):
                 patch("grader.cli.parse_index_html", return_value=[]),
                 patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
                 patch("grader.cli.extract_pdf_text", side_effect=fake_extract),
-                patch("grader.cli.GeminiGrader", FakeGrader),
+                patch("grader.llm_factory.get_llm_provider", side_effect=lambda provider_name, api_key, model, cache_dir: FakeGrader(api_key, model, cache_dir)),
                 patch("grader.cli.annotate_submission_pdfs", side_effect=RuntimeError("annotation boom")),
                 patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
                 patch("grader.cli.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
@@ -302,7 +307,7 @@ class CliErrorTests(unittest.TestCase):
                     + ["--locator-model", "gemini-3-flash-preview"]
                 )
 
-            self.assertEqual(exit_code, 0)
+            self.assertEqual(exit_code, 4)
             diagnostics_path = output_dir / "grading_diagnostics.json"
             payload = json.loads(diagnostics_path.read_text(encoding="utf-8"))
             codes = [event["code"] for event in payload["events"]]
@@ -323,11 +328,13 @@ class CliErrorTests(unittest.TestCase):
                 submission: SubmissionUnit,
                 rubric: RubricConfig,
                 question_results: list[QuestionResult],
+                block_registry: dict[str, object],
                 output_dir: Path,
                 submissions_root: Path,
                 final_band: str,
                 dry_run: bool,
                 annotate_dry_run_marks: bool,
+                annotation_font_size: float,
                 progress_callback=None,
             ) -> tuple[list[Path], list[QuestionResult]]:
                 return [output_dir / f"{submission.folder_path.name}.pdf"], question_results
@@ -382,6 +389,8 @@ class CliErrorTests(unittest.TestCase):
                     solutions_pdf_path,
                     context_cache_enabled,
                     context_cache_ttl_seconds,
+                    blocks=None,
+                    **kwargs,
                 ):
                     raise ValueError("bad structured output")
 
@@ -389,11 +398,13 @@ class CliErrorTests(unittest.TestCase):
                 submission: SubmissionUnit,
                 rubric: RubricConfig,
                 question_results: list[QuestionResult],
+                block_registry: dict[str, object],
                 output_dir: Path,
                 submissions_root: Path,
                 final_band: str,
                 dry_run: bool,
                 annotate_dry_run_marks: bool,
+                annotation_font_size: float,
                 progress_callback=None,
             ) -> tuple[list[Path], list[QuestionResult]]:
                 return [output_dir / f"{submission.folder_path.name}.pdf"], question_results
@@ -405,7 +416,7 @@ class CliErrorTests(unittest.TestCase):
                 patch("grader.cli.discover_submission_units", return_value=[unit]),
                 patch("grader.cli.parse_index_html", return_value=[]),
                 patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
-                patch("grader.cli.GeminiGrader", FakeGrader),
+                patch("grader.llm_factory.get_llm_provider", side_effect=lambda provider_name, api_key, model, cache_dir: FakeGrader(api_key, model, cache_dir)),
                 patch("grader.cli.annotate_submission_pdfs", side_effect=fake_annotate),
                 patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
                 patch("grader.cli.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
@@ -425,10 +436,10 @@ class CliErrorTests(unittest.TestCase):
                         template_csv,
                         output_dir,
                     )
-                    + ["--grading-mode", "unified"]
+                    + ["--grading-mode", "unified", "--no-extract-blocks"]
                 )
 
-            self.assertEqual(exit_code, 0)
+            self.assertEqual(exit_code, 4)
             diagnostics_path = output_dir / "grading_diagnostics.json"
             payload = json.loads(diagnostics_path.read_text(encoding="utf-8"))
             codes = [event["code"] for event in payload["events"]]
@@ -453,6 +464,8 @@ class CliErrorTests(unittest.TestCase):
                     solutions_pdf_path,
                     context_cache_enabled,
                     context_cache_ttl_seconds,
+                    blocks=None,
+                    **kwargs,
                 ):
                     return [
                         QuestionResult(
@@ -472,11 +485,13 @@ class CliErrorTests(unittest.TestCase):
                 submission: SubmissionUnit,
                 rubric: RubricConfig,
                 question_results: list[QuestionResult],
+                block_registry: dict[str, object],
                 output_dir: Path,
                 submissions_root: Path,
                 final_band: str,
                 dry_run: bool,
                 annotate_dry_run_marks: bool,
+                annotation_font_size: float,
                 progress_callback=None,
             ) -> tuple[list[Path], list[QuestionResult]]:
                 return [output_dir / f"{submission.folder_path.name}.pdf"], question_results
@@ -488,7 +503,7 @@ class CliErrorTests(unittest.TestCase):
                 patch("grader.cli.discover_submission_units", return_value=[unit]),
                 patch("grader.cli.parse_index_html", return_value=[]),
                 patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
-                patch("grader.cli.GeminiGrader", FakeGrader),
+                patch("grader.llm_factory.get_llm_provider", side_effect=lambda provider_name, api_key, model, cache_dir: FakeGrader(api_key, model, cache_dir)),
                 patch("grader.cli.annotate_submission_pdfs", side_effect=fake_annotate),
                 patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
                 patch("grader.cli.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
@@ -508,7 +523,7 @@ class CliErrorTests(unittest.TestCase):
                         template_csv,
                         output_dir,
                     )
-                    + ["--grading-mode", "unified"]
+                    + ["--grading-mode", "unified", "--no-extract-blocks"]
                 )
 
             self.assertEqual(exit_code, 0)

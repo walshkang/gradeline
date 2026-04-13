@@ -397,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
                     profile_spec=profile,
                     overwrite=False,
                 )
-                if exit_code != 0:
+                if exit_code in (1, 2):
                     return exit_code
 
                 if prompt_yes_no("Run grading for this assignment now?", default=True):
@@ -509,7 +509,7 @@ def run_from_profile(*, profile_spec: str, host_override: str | None, port_overr
     grading_argv = build_grading_argv(profile.grade)
 
     exit_code = invoke_grading_main(grading_argv)
-    if exit_code != 0:
+    if exit_code in (1, 2):
         return exit_code
 
     state_path = initialize_review_state(output_dir=profile.grade.output_dir, rubric_yaml=None)
@@ -596,7 +596,7 @@ def regrade_from_profile(
         grading_argv.extend(["--student-filter", student_filter])
 
     exit_code = invoke_grading_main(grading_argv)
-    if exit_code != 0:
+    if exit_code in (1, 2):
         return exit_code
 
     # --- Launch review server ---
@@ -690,7 +690,7 @@ def spot_grade_interactive(*, profile_spec: str, pdf_path: Path | None, student_
             argv[i + 1] = str(output_dir)
 
     exit_code = invoke_grading_main(argv)
-    if exit_code != 0:
+    if exit_code in (1, 2):
         return exit_code
 
     dest_dir = profile.grade.output_dir / student_dir.name

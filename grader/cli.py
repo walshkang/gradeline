@@ -246,6 +246,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--extract-blocks", dest="extract_blocks", action="store_true")
     parser.add_argument("--no-extract-blocks", dest="extract_blocks", action="store_false")
     parser.set_defaults(extract_blocks=True)
+    parser.add_argument("--json", dest="json_output", action="store_true", default=False, help="Emit a JSON summary to stdout on completion (agent-friendly).")
+    parser.add_argument("--quiet", action="store_true", default=False, help="Suppress all non-error output. Implies --plain. Errors still go to stderr.")
     parser.add_argument("--plain", action="store_true")
     parser.add_argument("--diagnostics-file", type=Path, default=None)
     parser.add_argument("--annotation-font-size", type=float, default=DEFAULT_ANNOTATION_FONT_SIZE)
@@ -255,7 +257,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     load_dotenv_if_present()
     args = parse_args(argv if argv is not None else sys.argv[1:])
-    ui = create_console_ui(force_plain=args.plain)
+    if os.environ.get("GRADELINE_PLAIN", "").lower() in {"1", "true", "yes"}:
+        args.plain = True
+    # Honor environment variables for agent-friendly runs
+    if os.environ.get("GRADELINE_JSON"):
+        args.json_output = True
+    if os.environ.get("GRADELINE_QUIET"):
+        args.quiet = True
+    if getattr(args, "quiet", False):
+        args.plain = True
+    ui = create_console_ui(force_plain=args.plain or args.quiet, quiet=getattr(args, "quiet", False))
     ui.banner("Brightspace PDF Grader", subtitle=args_to_subtitle(args))
 
     diagnostics = DiagnosticsCollector(args_snapshot=serialize_cli_args(args))
@@ -308,6 +319,25 @@ def main(argv: list[str] | None = None) -> int:
         artifact_payload = dict(artifacts)
         artifact_payload["Diagnostics JSON"] = written_diagnostics or diagnostics_path
         ui.emit_artifacts(artifact_payload)
+
+        if getattr(args, "json_output", False):
+            import json as _json
+
+            payload = {
+                "exit_code": exit_code,
+                "submissions_processed": summary.submissions_processed,
+                "success_count": summary.success_count,
+                "review_required_count": summary.review_required_count,
+                "failed_with_error_count": summary.failed_with_error_count,
+                "warning_count": summary.warning_count,
+                "band_counts": summary.band_counts or {},
+                "mean_seconds_per_submission": summary.mean_seconds,
+                "artifacts": {k: str(v) for k, v in artifact_payload.items() if v is not None},
+                "diagnostics_file": str(diagnostics_path),
+            }
+            sys.stdout.write(_json.dumps(payload) + "\n")
+            sys.stdout.flush()
+
         return exit_code
 
     def delete_session_artifacts(

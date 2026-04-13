@@ -245,6 +245,53 @@ class PlainConsoleUI(ConsoleUI):
         print(f"[grading] {folder_name}: finished")
 
 
+class QuietConsoleUI(PlainConsoleUI):
+    def banner(self, *a, **kw):
+        pass
+
+    def info(self, *a, **kw):
+        pass
+
+    def section_heading(self, *a, **kw):
+        pass
+
+    def submission_started(self, *a, **kw):
+        pass
+
+    def submission_finished(self, *a, **kw):
+        pass
+
+    def emit_artifacts(self, *a, **kw):
+        pass
+
+    def emit_summary(self, *a, **kw):
+        pass
+
+    def status(self, *a, **kw):
+        pass
+
+    def clear_status(self, *a, **kw):
+        pass
+
+    def start_progress(self, *a, **kw):
+        pass
+
+    def advance_progress(self, *a, **kw):
+        pass
+
+    def stop_progress(self, *a, **kw):
+        pass
+
+    def add_submission_task(self, *a, **kw):
+        return 0
+
+    def update_submission_task(self, *a, **kw):
+        pass
+
+    def remove_submission_task(self, *a, **kw):
+        pass
+
+
 class RichConsoleUI(ConsoleUI):
     def __init__(self) -> None:
         if not _RICH_AVAILABLE:
@@ -439,11 +486,14 @@ class RichConsoleUI(ConsoleUI):
 def create_console_ui(
     *,
     force_plain: bool = False,
+    quiet: bool = False,
     is_tty: bool | None = None,
     rich_available: bool | None = None,
 ) -> ConsoleUI:
     resolved_tty = sys.stdout.isatty() if is_tty is None else is_tty
     resolved_rich = _RICH_AVAILABLE if rich_available is None else rich_available
+    if quiet:
+        return QuietConsoleUI()
     if force_plain or (not resolved_tty) or (not resolved_rich):
         return PlainConsoleUI()
     try:

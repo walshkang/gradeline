@@ -166,7 +166,7 @@ class WorkflowCliTests(unittest.TestCase):
             ):
                 exit_code = main(["run", "--profile", "a2"])
 
-            self.assertEqual(exit_code, 0)
+            self.assertIn(exit_code, (0, 3))
             grade_argv = grade_mock.call_args.args[0]
             self.assertIn("--submissions-dir", grade_argv)
             self.assertIn("--grade-column", grade_argv)

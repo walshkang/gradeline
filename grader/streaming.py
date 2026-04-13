@@ -57,15 +57,15 @@ class StreamProgressParser:
         # `"questions"` key at least once in the accumulated buffer.
         questions_idx = self._buffer.find('"questions"')
         if questions_idx == -1:
-            # Nothing to scan yet, but we keep the buffer growing so that when
-            # `"questions"` does appear we have the full context.
-            self._last_scan_pos = len(self._buffer)
+            # Haven't seen the questions key yet; wait until it arrives before
+            # attempting to scan for question ids. Keep last_scan_pos unchanged
+            # so we don't skip ids that appear right after the questions key.
             return
 
-        # Start scanning from the later of (last_scan_pos, first questions idx)
-        # so we never rescan earlier content and also never emit ids that
-        # appear before the questions array.
-        start = max(self._last_scan_pos, questions_idx)
+        # Keep a small overlap so ids split across chunk boundaries can still
+        # be matched. Duplicate emissions are prevented by _seen_ids.
+        overlap = 64
+        start = max(questions_idx, self._last_scan_pos - overlap)
         if start >= len(self._buffer):
             return
 
@@ -83,4 +83,3 @@ class StreamProgressParser:
                     pass
 
         self._last_scan_pos = len(self._buffer)
-

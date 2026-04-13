@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from grader.workflow_profile import WorkflowProfileError, load_workflow_profile
+from grader.defaults import DEFAULT_MODEL
 
 
 def write_profile(path: Path, content: str) -> None:
@@ -38,7 +39,7 @@ output_dir = "../outputs/a2"
             self.assertEqual(profile.grade.submissions_dir, (profile_path.parent / "../inputs/subs").resolve())
             self.assertEqual(profile.grade.solutions_pdf, (profile_path.parent / "../solutions/assignment2.pdf").resolve())
             self.assertEqual(profile.grade.grading_mode, "unified")
-            self.assertEqual(profile.grade.model, "gemini-3-flash-preview")
+            self.assertEqual(profile.grade.model, DEFAULT_MODEL)
             self.assertEqual(profile.review.host, "127.0.0.1")
             self.assertEqual(profile.review.port, 8765)
 

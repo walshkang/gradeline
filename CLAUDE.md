@@ -26,7 +26,7 @@ source .venv/bin/activate && python -m pytest tests/ -x -q
 
 Key conventions (verified in code)
 - ConsoleUI is the UI base in grader/ui.py; PlainConsoleUI and RichConsoleUI implement its methods. create_console_ui(force_plain=...) chooses PlainConsoleUI when force_plain=True or when stdout is not a TTY or Rich is unavailable; otherwise RichConsoleUI is used.
-- --plain: CLI provides --plain (parser.add_argument("--plain")) and callers pass args.plain into create_console_ui(). Workflow profiles can set plain via build_grading_argv() mappings. GRADELINE_PLAIN env var disables Rich-styled prompts (prompts._use_rich()) but does not by itself change create_console_ui() unless callers pass force_plain=True.
+- --plain: CLI provides --plain (parser.add_argument("--plain")) and callers pass args.plain into create_console_ui(). Workflow profiles can set plain via build_grading_argv() mappings. GRADELINE_PLAIN also forces plain UI when set to 1/true/yes.
 - New CLI flags: add to parse_args() in grader/cli.py. If a flag/value should be profile-configurable, add it to CLI_FLAG_MAPPINGS or CLI_VALUE_MAPPINGS in grader/workflow_cli.py so build_grading_argv() will emit it from a GradeProfile.
 - RollingSnapshot: update_rolling_snapshot() is used inside annotate_and_finish() (workflow_cli.py) to maintain a RollingSnapshot; the current snapshot is passed as snapshot= to ui.submission_finished(...).
 - conclude(): implemented as a closure inside main() in grader/cli.py with access to args, rolling, diagnostics, and artifacts; it emits summary, records diagnostics, and returns the final exit code.
