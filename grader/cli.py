@@ -277,6 +277,14 @@ def main(argv: list[str] | None = None) -> int:
             warning_count=len(warnings),
             snapshot=rolling,
         )
+        # Remap exit code so that REVIEW_REQUIRED and grading errors surface to callers
+        # but avoid doing this for dry-run (dry-run intentionally marks items as needs_review).
+        if exit_code == 0 and not getattr(args, "dry_run", False):
+            if summary.failed_with_error_count > 0:
+                exit_code = 4
+            elif summary.review_required_count > 0:
+                exit_code = 3
+
         diagnostics.set_run_totals(
             {
                 "submissions_processed": summary.submissions_processed,
@@ -1190,6 +1198,24 @@ def build_annotation_progress_callback(
 
     def update(current: int, _: int, question_id: str) -> None:
         status_update(f"annotating question {question_id} ({current}/{total_questions})")
+
+    return update
+
+
+def build_grading_progress_callback(
+    status_update: Callable[[str], None] | None,
+    total_questions: int,
+) -> Callable[[int, int, str], None] | None:
+    """Return a simple callback that formats grading question progress.
+
+    The returned callback matches the same signature used elsewhere: (current, total, question_id).
+    If status_update is None, returns None.
+    """
+    if status_update is None:
+        return None
+
+    def update(current: int, _: int, question_id: str) -> None:
+        status_update(f"grading question {question_id} ({current}/{total_questions})")
 
     return update
 

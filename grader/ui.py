@@ -11,7 +11,7 @@ from typing import Any
 try:  # pragma: no cover - exercised through create_console_ui tests.
     from rich.console import Console
     from rich.panel import Panel
-    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+    from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
     from rich.rule import Rule
     from rich.table import Table
 
@@ -304,6 +304,16 @@ class RichConsoleUI(ConsoleUI):
         )
         if rationale:
             self.console.print(f"  [dim]{rationale}[/dim]")
+        if snapshot is not None and getattr(snapshot, "band_counts", None):
+            parts = []
+            for band_key in ("CHECK_PLUS", "CHECK", "CHECK_MINUS", "REVIEW_REQUIRED"):
+                n = snapshot.band_counts.get(band_key, 0)
+                if n:
+                    color = _BAND_COLORS.get(band_key, "white")
+                    label = band_key.replace("_", " ").title()
+                    parts.append(f"[{color}]{label}:{n}[/{color}]")
+            if parts:
+                self.console.print(f" [dim]tally:[/dim] {' '.join(parts)}")
         self.advance_progress()
 
     def emit_artifacts(self, artifacts: dict[str, Path | None]) -> None:
@@ -376,9 +386,11 @@ class RichConsoleUI(ConsoleUI):
         self._progress = Progress(
             SpinnerColumn(),
             TextColumn("[bold blue]{task.description}", justify="left"),
-            BarColumn(bar_width=30),
+            BarColumn(bar_width=25),
+            MofNCompleteColumn(),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeElapsedColumn(),
+            TimeRemainingColumn(),
             console=self.console,
         )
         self._progress_task = self._progress.add_task("grading", total=total)
