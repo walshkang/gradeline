@@ -160,6 +160,7 @@ class GeminiGrader:
         context_cache_enabled: bool = True,
         context_cache_ttl_seconds: int = DEFAULT_CONTEXT_CACHE_TTL_SECONDS,
         progress_callback: Callable[[int, int, str], None] | None = None,
+        blocks: list[TextBlock] | None = None,
     ) -> tuple[list[QuestionResult], list[str]]:
         context_key = compute_context_cache_key(
             model=self.model,
@@ -187,6 +188,7 @@ class GeminiGrader:
             submission_id=submission_id,
             rubric=rubric,
             pdf_paths=pdf_paths,
+            blocks=blocks or [],
         )
 
         cache_flags: list[str] = []
@@ -656,6 +658,13 @@ def build_rubric_draft_prompt(assignment_id: str) -> str:
         "  - The id field must be a short token like \"a\" or \"1\", not the full question text.\n"
         "- For each question, infer concise grading criteria in scoring_rules describing what a fully\n"
         "  correct answer must include and what common partial credit cases look like.\n"
+        "- For numerical questions, always include an explicit tolerance in scoring_rules, e.g.\n"
+        "  'accept values within ±0.01' or 'accept range X–Y'. Do not require exact answer-key matches.\n"
+        "- If questions build on each other (cascading calculations), note in scoring_rules that\n"
+        "  rounding_error should be used when the method is correct but a small carried-forward error\n"
+        "  from a prior question causes a minor difference in the final value.\n"
+        "- Distinguish method correctness from arithmetic precision: a student who sets up the right\n"
+        "  formula but makes a small arithmetic slip should receive partial or rounding_error, not incorrect.\n"
         "- If the solutions show explicit point values (for example, \"[5 points]\" or \"(10 pts)\"),\n"
         "  set DraftRubricQuestion.points accordingly and, if possible, return total_points as the\n"
         "  sum of all question points.\n"
@@ -687,8 +696,16 @@ def build_context_system_instruction(rubric: RubricConfig) -> str:
         "Use the attached master solution PDF and rubric rules below as the source of truth.\n"
         "Return judgments only from the student's provided work and these rubric rules.\n"
         f"{NUMERIC_EQUIVALENCE_RULE}\n"
+        "CASCADING ERROR RULE: If a student's answer on a later question is slightly off solely because "
+        "they carried forward a minor error (e.g. transcription, rounding) from an earlier question, "
+        "and their method on the later question is otherwise correct, assign rounding_error — not incorrect. "
+        "Penalize the root error once; do not cascade the penalty.\n"
+        "TOLERANCE RULE: For numerical answers, do not require exact answer-key matches. Accept values "
+        "within a reasonable tolerance (typically ±1% or as specified in the rubric). Small rounding "
+        "differences in intermediate steps should not change a correct verdict to incorrect.\n"
         "Feedback rules: correct => empty short_reason/detail_reason; incorrect/partial => short_reason under 42 chars plus optional one-sentence detail_reason in second-person voice.\n"
         "Coordinate rule: if your detector yields [ymin, xmin, ymax, xmax], convert it to the center and return [y, x] integers on 0..1000.\n"
+        "Block ID rule: if the student text was provided as XML-wrapped blocks (<answer id=\"pN_bN\">...</answer>), set block_id to the id attribute of the block containing the answer. Otherwise omit block_id.\n"
         "If uncertain, set verdict=needs_review and confidence near 0.0.\n"
         "You must generate logic_analysis BEFORE determining the verdict.\n"
         "Rubric rules:\n"
@@ -742,7 +759,8 @@ def build_agent_grading_prompt(
         '      "evidence_quote": "relevant text from submission",\n'
         '      "coords": [y, x], // 0-1000 normalized center of the answer\n'
         '      "page_number": 1-indexed,\n'
-        '      "source_file": "filename.pdf"\n'
+        '      "source_file": "filename.pdf",\n'
+        '      "block_id": "pN_bN" // id from the <answer> tag containing this answer, if text was block-wrapped\n'
         "    }\n"
         "  ],\n"
         '  "global_flags": []\n'

@@ -8,7 +8,7 @@ from typing import Any
 
 
 DEFAULT_PROFILE_DIR = Path(".manual_runs") / "profiles"
-from .defaults import DEFAULT_MODEL
+from .defaults import DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL
 DEFAULT_GRADING_MODE = "unified"
 DEFAULT_REVIEW_HOST = "127.0.0.1"
 DEFAULT_REVIEW_PORT = 8765
@@ -33,6 +33,7 @@ class GradeProfile:
     grading_mode: str = DEFAULT_GRADING_MODE
     provider: str = "gemini"
     model: str = DEFAULT_MODEL
+    extraction_model: str = DEFAULT_EXTRACTION_MODEL
     locator_model: str = ""
     api_key_env: str = "GEMINI_API_KEY"
     identifier_column: str = "OrgDefinedId"
@@ -84,6 +85,7 @@ ALLOWED_GRADE_KEYS = REQUIRED_GRADE_KEYS | {
     "grading_mode",
     "provider",
     "model",
+    "extraction_model",
     "locator_model",
     "api_key_env",
     "identifier_column",
@@ -123,6 +125,7 @@ STRING_GRADE_FIELDS = {
     "grading_mode",
     "provider",
     "model",
+    "extraction_model",
     "locator_model",
     "api_key_env",
     "identifier_column",

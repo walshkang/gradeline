@@ -1,0 +1,87 @@
+assignment_id: "assignment4"
+scoring_mode: "equal_weights"
+partial_credit: 0.5
+
+bands:
+  check_plus_min: 0.85
+  check_min: 0.67
+
+questions:
+  - id: "1"
+    label_patterns: ["1)", "1.", "(1)"]
+    anchor_tokens: ["1)", "1.", "(1)"]
+    scoring_rules: >
+      Student should correctly state the null and alternate hypotheses
+      (H0: β1 = 0; H1: β1 ≠ 0), compare the calculated F-statistic (40.13)
+      to the critical value (5.59), and conclude that we accept the alternate
+      hypothesis, indicating a linear relationship exists.
+      Partial credit: award partial if the ANOVA table structure and hypothesis
+      test logic are correct but a minor transcription error (e.g. SST = 68.991
+      vs 68.891) leads to slightly off values. Do not penalize for rounding
+      differences of ±0.01 or less in intermediate calculations.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "2"
+    label_patterns: ["2)", "2.", "(2)"]
+    anchor_tokens: ["2)", "2.", "(2)"]
+    scoring_rules: >
+      Student should correctly compute R² = SSR/SST and interpret the result as
+      the percentage of variation in consumer spending explained by income
+      (expected ≈ 85.3%). Accept values in the range 85.0%–85.5% as correct;
+      treat as rounding_error if the method is correct but the value differs
+      slightly due to a transcription error in SST carried forward from Q1.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "3"
+    label_patterns: ["3)", "3.", "(3)"]
+    anchor_tokens: ["3)", "3.", "(3)"]
+    scoring_rules: >
+      Student should correctly compute R = √R² (expected ≈ 0.923) and describe
+      it as indicating a strong positive linear association between income and
+      spending. Accept values in the range 0.920–0.926. Treat as rounding_error
+      if the method is correct but R² carried forward from Q2 was slightly off.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "4"
+    label_patterns: ["4)", "4.", "(4)"]
+    anchor_tokens: ["4)", "4.", "(4)"]
+    scoring_rules: >
+      Student should correctly compute Se = √MSE (expected ≈ 1.204) and interpret
+      it as the average prediction error in spending units. Accept values in the
+      range 1.19–1.22. Treat as rounding_error if the method is correct but MSE
+      differs slightly due to a carried-forward SST error from Q1.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "5"
+    label_patterns: ["5)", "5.", "(5)"]
+    anchor_tokens: ["5)", "5.", "(5)"]
+    scoring_rules: >
+      Student should substitute X = 0, 3, 5, and 6 into Ŷ = 4.563 + 1.847X and
+      report predicted values (expected: 4.563, 10.104, 13.798, 15.645).
+      Accept any value within ±0.05 of each expected value as correct.
+      Award rounding_error if all four substitutions are performed correctly
+      but answers differ from the key by small rounding.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0
+
+  - id: "6"
+    label_patterns: ["6)", "6.", "(6)"]
+    anchor_tokens: ["6)", "6.", "(6)"]
+    scoring_rules: >
+      Student should conclude that the linear model assumption does NOT appear
+      valid, citing evidence from the fitted line plot (curvature) and/or the
+      residual plot (non-random pattern, inverted-U or systematic shape).
+      Full credit if both plots are referenced and the conclusion is correct.
+      Partial credit if the conclusion is correct but only one plot is cited.
+    short_note_pass: "Correct."
+    short_note_fail: "Needs revision."
+    weight: 1.0

@@ -33,7 +33,7 @@ from .ui import RunSummary, args_to_subtitle, create_console_ui
 LEGACY_MODE = "legacy"
 UNIFIED_MODE = "unified"
 AGENT_MODE = "agent"
-from .defaults import DEFAULT_MODEL
+from .defaults import DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL
 DEFAULT_AGENT_TYPE = "gemini"
 DEFAULT_OCR_CHAR_THRESHOLD = 200
 LOW_CONFIDENCE_THRESHOLD = 0.55
@@ -224,6 +224,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--provider", default="gemini", help="LLM Provider to use (e.g. gemini, openai).")
     parser.add_argument("--agent-type", choices=("gemini", "codex", "claude"), default=DEFAULT_AGENT_TYPE)
     parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--extraction-model", default=DEFAULT_EXTRACTION_MODEL)
     parser.add_argument("--locator-model", default="")
     parser.add_argument("--api-key-env", default="GEMINI_API_KEY")
     parser.add_argument("--identifier-column", default="OrgDefinedId")
@@ -500,6 +501,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.solutions_pdf,
                 temp_dir=args.temp_dir,
                 ocr_char_threshold=args.ocr_char_threshold,
+                gemini_api_key=api_key or None,
+                gemini_model=args.extraction_model,
             ).text
         except Exception as exc:  # noqa: BLE001
             message = f"Failed to extract text from solutions PDF {args.solutions_pdf}: {exc}"
@@ -602,6 +605,8 @@ def main(argv: list[str] | None = None) -> int:
                 output_dir=args.output_dir,
                 temp_dir=args.temp_dir,
                 ocr_char_threshold=args.ocr_char_threshold,
+                extraction_model=args.extraction_model,
+                gemini_api_key=api_key or None,
                 rubric=rubric,
                 solutions_text=solutions_text,
                 solutions_pdf_path=args.solutions_pdf,
@@ -654,6 +659,7 @@ def main(argv: list[str] | None = None) -> int:
                 submission=result.submission,
                 rubric=rubric,
                 question_results=result.question_results,
+                block_registry=result.block_registry or {},
                 output_dir=args.output_dir,
                 submissions_root=args.submissions_dir,
                 final_band=result.grade_result.band,
@@ -904,6 +910,8 @@ def grade_one_submission(
     dry_run: bool,
     locator_model: str,
     annotate_dry_run_marks: bool,
+    extraction_model: str = DEFAULT_EXTRACTION_MODEL,
+    gemini_api_key: str | None = None,
     diagnostics: DiagnosticsCollector | None = None,
     status_update: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
@@ -913,6 +921,7 @@ def grade_one_submission(
     accumulated_error: str | None = None
     global_flags: list[str] = []
     combined_text = ""
+    block_registry: dict[str, object] = {}
 
     if grading_mode == LEGACY_MODE:
         for pdf_path in unit.pdf_paths:
@@ -923,6 +932,8 @@ def grade_one_submission(
                     pdf_path=pdf_path,
                     temp_dir=temp_dir,
                     ocr_char_threshold=ocr_char_threshold,
+                    gemini_api_key=gemini_api_key,
+                    gemini_model=extraction_model,
                 )
             except Exception as exc:  # noqa: BLE001
                 extraction_sources[pdf_path.name] = "error"
@@ -946,9 +957,23 @@ def grade_one_submission(
         combined_text = "\n\n".join(
             f"### FILE: {item.pdf_path.name}\n{item.text}" for item in extracted
         )
+        block_registry = {b.id: b for item in extracted for b in item.blocks}
     else:
+        # Unified/agent modes send PDFs directly to the model for grading, but we
+        # still run extraction to build the block registry for annotation placement.
         for pdf_path in unit.pdf_paths:
             extraction_sources[pdf_path.name] = "model_vision"
+            try:
+                pdf_extract = extract_pdf_text(
+                    pdf_path=pdf_path,
+                    temp_dir=temp_dir,
+                    ocr_char_threshold=ocr_char_threshold,
+                    gemini_api_key=gemini_api_key,
+                    gemini_model=extraction_model,
+                )
+                block_registry.update({b.id: b for b in pdf_extract.blocks})
+            except Exception:
+                pass
 
     if dry_run:
         if status_update is not None:
@@ -1000,6 +1025,7 @@ def grade_one_submission(
                     solutions_pdf_path=solutions_pdf_path,
                     context_cache_enabled=context_cache,
                     context_cache_ttl_seconds=context_cache_ttl_seconds,
+                    blocks=list(block_registry.values()) if block_registry else None,
                     **extra_kwargs,
                 )
                 global_flags.extend(model_flags)
@@ -1140,6 +1166,7 @@ def grade_one_submission(
         output_pdf_paths=[],
         extraction_sources=extraction_sources,
         global_flags=dedupe_flags(global_flags),
+        block_registry=block_registry,
         error=accumulated_error,
     )
 

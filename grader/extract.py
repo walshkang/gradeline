@@ -67,10 +67,15 @@ def parse_tsv_blocks(tsv_text: str, page: int, dpi: float) -> list[TextBlock]:
     return blocks
 
 
+GEMINI_FALLBACK_CONF_THRESHOLD = 60.0
+
+
 def extract_pdf_text(
     pdf_path: Path,
     temp_dir: Path,
     ocr_char_threshold: int = 200,
+    gemini_api_key: str | None = None,
+    gemini_model: str = "gemini-2.0-flash",
 ) -> ExtractedPdf:
     native_text = run_pdftotext(pdf_path)
     native_chars = non_whitespace_char_count(native_text)
@@ -90,11 +95,21 @@ def extract_pdf_text(
     except Exception:
         # OCR failures should not abort the whole grading run.
         ocr_blocks = []
+
+    # Fall back to Gemini Flash if tesseract yielded nothing or low confidence.
+    if _needs_gemini_fallback(ocr_blocks) and gemini_api_key:
+        ocr_blocks = _run_gemini_fallback(
+            pdf_path=pdf_path,
+            temp_dir=temp_dir,
+            api_key=gemini_api_key,
+            model=gemini_model,
+        )
+
     ocr_text = "\n".join(b.text for b in ocr_blocks)
     ocr_chars = non_whitespace_char_count(ocr_text)
     if ocr_chars > native_chars:
         best_text = ocr_text
-        source = "ocr"
+        source = "gemini_flash" if ocr_blocks and ocr_blocks[0].source == "gemini_flash" else "ocr"
         best_blocks = ocr_blocks
     else:
         best_text = native_text
@@ -108,6 +123,62 @@ def extract_pdf_text(
         native_char_count=native_chars,
         ocr_char_count=ocr_chars,
     )
+
+
+def _needs_gemini_fallback(blocks: list[TextBlock]) -> bool:
+    if not blocks:
+        return True
+    confident = [b for b in blocks if b.confidence >= 0]
+    if not confident:
+        return False
+    mean_conf = sum(b.confidence for b in confident) / len(confident)
+    return mean_conf < GEMINI_FALLBACK_CONF_THRESHOLD
+
+
+def _run_gemini_fallback(
+    pdf_path: Path,
+    temp_dir: Path,
+    api_key: str,
+    model: str,
+    dpi: float = 216.0,
+) -> list[TextBlock]:
+    from .ocr_gemini import extract_blocks_gemini
+
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    page_count = get_pdf_page_count(pdf_path)
+    all_blocks: list[TextBlock] = []
+    for page_num in range(1, page_count + 1):
+        safe_stem = sanitize_for_filename(pdf_path.stem)
+        unique = f"{safe_stem}_{page_num}_{uuid.uuid4().hex[:8]}"
+        out_prefix = temp_dir / unique
+        png_path = png_output_path(out_prefix)
+        subprocess.run(
+            [
+                "pdftoppm",
+                "-f", str(page_num),
+                "-l", str(page_num),
+                "-singlefile",
+                "-r", str(int(dpi)),
+                "-png",
+                str(pdf_path),
+                str(out_prefix),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        try:
+            page_blocks = extract_blocks_gemini(
+                image_path=png_path,
+                page=page_num,
+                api_key=api_key,
+                model=model,
+                dpi=dpi,
+            )
+            all_blocks.extend(page_blocks)
+        finally:
+            safe_unlink(png_path)
+    return all_blocks
 
 
 def run_pdftotext(pdf_path: Path) -> str:

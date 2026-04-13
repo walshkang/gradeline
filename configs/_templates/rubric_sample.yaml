@@ -9,14 +9,24 @@ questions:
   - id: "a"
     label_patterns: ["a)", "a.", "(a)"]
     anchor_tokens: ["a)", "a.", "(a)"]
-    scoring_rules: "Define expected answer criteria."
+    scoring_rules: >
+      Describe what a fully correct answer includes. For numerical answers,
+      specify the expected value and an acceptable tolerance (e.g. accept ±0.01).
+      For cascading calculations, note that rounding_error should be used when
+      the method is correct but a carried-forward error from a prior question
+      causes a minor difference. Partial credit cases: describe what earns 0.5.
     short_note_pass: "Correct."
     short_note_fail: "Needs revision."
     weight: 1.0
   - id: "b"
     label_patterns: ["b)", "b.", "(b)"]
     anchor_tokens: ["b)", "b.", "(b)"]
-    scoring_rules: "Define expected answer criteria."
+    scoring_rules: >
+      Describe what a fully correct answer includes. For numerical answers,
+      specify the expected value and an acceptable tolerance (e.g. accept ±0.01).
+      For cascading calculations, note that rounding_error should be used when
+      the method is correct but a carried-forward error from a prior question
+      causes a minor difference. Partial credit cases: describe what earns 0.5.
     short_note_pass: "Correct."
     short_note_fail: "Needs revision."
     weight: 1.0

@@ -12,6 +12,7 @@ output_dir = "/path/to/grading/output/assignment2"
 # Optional fields (defaults shown)
 grading_mode = "unified" # choices: legacy, unified, agent
 model = "gemma4-31b-it"
+# extraction_model = "gemini-2.0-flash"  # vision OCR fallback when tesseract confidence is low
 identifier_column = "OrgDefinedId"
 context_cache = true
 context_cache_ttl_seconds = 86400

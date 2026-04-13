@@ -97,6 +97,7 @@ CLI_VALUE_MAPPINGS: tuple[CliValueMapping, ...] = (
     CliValueMapping("grading_mode", "--grading-mode", "str"),
     CliValueMapping("provider", "--provider", "str"),
     CliValueMapping("model", "--model", "str"),
+    CliValueMapping("extraction_model", "--extraction-model", "str"),
     CliValueMapping("locator_model", "--locator-model", "str", emit_if_empty=False),
     CliValueMapping("api_key_env", "--api-key-env", "str"),
     CliValueMapping("identifier_column", "--identifier-column", "str"),

@@ -37,6 +37,7 @@ def make_rubric() -> RubricConfig:
 def make_extracted(pdf_path: Path) -> ExtractedPdf:
     return ExtractedPdf(
         pdf_path=pdf_path,
+        blocks=[],
         text="answer text",
         source="pdftotext",
         native_char_count=20,

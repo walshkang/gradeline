@@ -11,33 +11,56 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULTS_CONFIG = (PROJECT_ROOT / "configs" / "defaults.toml").resolve()
 
 
-def _read_defaults() -> dict[str, str]:
+def _read_defaults() -> dict:
     if not DEFAULTS_CONFIG.exists():
         return {}
     try:
         raw = DEFAULTS_CONFIG.read_text(encoding="utf-8")
         payload = tomllib.loads(raw)
         if isinstance(payload, dict):
-            return payload.get("defaults", {}) or {}
+            return payload
         return {}
     except Exception:
         return {}
 
 
-# Module-level DEFAULT_MODEL used across the package. Updated by set_default_model
-# at runtime when the CLI command is invoked.
 _defaults = _read_defaults()
-DEFAULT_MODEL: str = _defaults.get("model") or "gemma4-31b-it"
+# Grading model: check [models].grading, then legacy [defaults].model, then hardcoded fallback.
+DEFAULT_MODEL: str = (
+    (_defaults.get("models") or {}).get("grading")
+    or (_defaults.get("defaults") or {}).get("model")
+    or "gemma4-31b-it"
+)
+DEFAULT_EXTRACTION_MODEL: str = (
+    (_defaults.get("models") or {}).get("extraction")
+    or "gemini-2.0-flash"
+)
 
 
 def set_default_model(model: str) -> None:
-    """Write the project-level defaults file and update the in-process value.
-
-    This writes configs/defaults.toml with a simple [defaults] section.
-    """
+    """Update [models].grading in configs/defaults.toml without touching other sections."""
     DEFAULTS_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    content = f"[defaults]\nmodel = \"{model}\"\n"
-    DEFAULTS_CONFIG.write_text(content, encoding="utf-8")
+    if DEFAULTS_CONFIG.exists():
+        try:
+            payload = tomllib.loads(DEFAULTS_CONFIG.read_text(encoding="utf-8"))
+        except Exception:
+            payload = {}
+    else:
+        payload = {}
+
+    # Preserve all existing sections; just update the grading model key.
+    models = dict(payload.get("models") or {})
+    models["grading"] = model
+    payload["models"] = models
+
+    lines: list[str] = []
+    for section, value in payload.items():
+        lines.append(f"[{section}]")
+        if isinstance(value, dict):
+            for k, v in value.items():
+                lines.append(f'{k} = "{v}"')
+        lines.append("")
+    DEFAULTS_CONFIG.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
 
     # Update in-process value so subsequent imports in the same Python process
     # reflect the change without needing to re-import the module.

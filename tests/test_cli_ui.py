@@ -75,6 +75,7 @@ class CliUiTests(unittest.TestCase):
             def fake_extract(pdf_path: Path, temp_dir: Path, ocr_char_threshold: int) -> ExtractedPdf:
                 return ExtractedPdf(
                     pdf_path=pdf_path,
+                    blocks=[],
                     text="sample text",
                     source="pdftotext",
                     native_char_count=20,

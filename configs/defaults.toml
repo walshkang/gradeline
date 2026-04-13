@@ -1,0 +1,9 @@
+[models]
+grading = "gemma4-31b-it"
+extraction = "gemini-2.0-flash"
+locator = ""
+
+[extraction]
+ocr_char_threshold = "200"
+tesseract_dpi = "300"
+prefer_native = "True"

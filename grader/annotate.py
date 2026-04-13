@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
-from .types import QuestionResult, RubricConfig, SubmissionUnit
+from .types import QuestionResult, RubricConfig, SubmissionUnit, TextBlock
 
 ANNOTATION_INFO_TITLE = "gradeline"
 DEFAULT_ANNOTATION_FONT_SIZE = 24.0
@@ -27,6 +27,8 @@ def annotate_submission_pdfs(
     submission: SubmissionUnit,
     rubric: RubricConfig,
     question_results: list[QuestionResult],
+    *,
+    block_registry: dict[str, "TextBlock"] | None = None,
     output_dir: Path,
     submissions_root: Path,
     final_band: str,
@@ -74,11 +76,21 @@ def annotate_submission_pdfs(
                     if progress_callback is not None:
                         progress_callback(len(rendered) + 1, len(rubric.questions), question.id)
 
-                    model_location = resolve_model_location(doc=doc, pdf_filename=pdf_path.name, result=q_result)
+                    model_location = resolve_model_location(
+                        doc=doc,
+                        pdf_filename=pdf_path.name,
+                        result=q_result,
+                        block_registry=block_registry,
+                    )
                     if model_location is not None:
-                        page_idx, point, normalized_coords = model_location
-                        # Preserve any existing placement_source (e.g., locator_coords) when present.
-                        placement_source = q_result.placement_source or "model_coords"
+                        # resolve_model_location may return (page_idx, point, normalized_coords)
+                        # or (page_idx, point, normalized_coords, placement_source)
+                        if len(model_location) == 3:
+                            page_idx, point, normalized_coords = model_location
+                            placement_source = q_result.placement_source or "model_coords"
+                        else:
+                            page_idx, point, normalized_coords, resolver_placement_source = model_location
+                            placement_source = q_result.placement_source or resolver_placement_source
                     else:
                         anchor = find_anchor_in_doc(
                             doc=doc,
@@ -176,8 +188,30 @@ def annotate_submission_pdfs(
     return output_paths, updated_results
 
 
-def resolve_model_location(doc: "fitz.Document", pdf_filename: str, result: QuestionResult):
+def resolve_model_location(
+    doc: "fitz.Document",
+    pdf_filename: str,
+    result: QuestionResult,
+    block_registry: dict[str, "TextBlock"] | None = None,
+):
     import fitz
+
+    # Prefer block-based placement if the result references a block id.
+    block_id = getattr(result, "block_id", None)
+    if block_id:
+        if block_registry and block_id in block_registry:
+            block = block_registry[block_id]
+            page_idx = block.page - 1
+            # Validate page index exists in the document; otherwise fall through to coords handling.
+            if 0 <= page_idx < len(doc):
+                page = doc[page_idx]
+                x = block.left + (block.width / 2.0)
+                y = block.top
+                point = fitz.Point(x, y)
+                normalized_coords = point_to_normalized(page, point)
+                # Return placement_source as an extra element so callers can honor it.
+                return page_idx, point, normalized_coords, "block_id"
+        # If block_id was provided but not found in the registry, fall through to coords handling.
 
     if result.coords is None:
         return None

@@ -1,7 +1,9 @@
 
 from __future__ import annotations
 
+import itertools
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -107,11 +109,26 @@ class ConsoleUI:
         """Print a prominent section divider."""
         raise NotImplementedError
 
+    def add_submission_task(self, folder_name: str, total_questions: int) -> int:
+        """Register a per-submission progress task and return its task id."""
+        raise NotImplementedError
+
+    def update_submission_task(self, task_id: int, current: int, question_id: str) -> None:
+        """Update the per-submission task with current question progress."""
+        raise NotImplementedError
+
+    def remove_submission_task(self, task_id: int) -> None:
+        """Remove or hide a per-submission task when grading completes."""
+        raise NotImplementedError
+
 
 class PlainConsoleUI(ConsoleUI):
     def __init__(self) -> None:
         self._status_active = False
         self._status_width = 0
+        self._task_counter = itertools.count(1)
+        self._task_lock = threading.Lock()
+        self._tasks: dict[int, tuple[str, int]] = {}
 
     def banner(self, title: str, subtitle: str = "") -> None:
         self.clear_status()
@@ -203,6 +220,30 @@ class PlainConsoleUI(ConsoleUI):
         self._status_active = False
         self._status_width = 0
 
+    def add_submission_task(self, folder_name: str, total_questions: int) -> int:
+        with self._task_lock:
+            task_id = next(self._task_counter)
+            self._tasks[task_id] = (folder_name, total_questions)
+        print(f"[grading] {folder_name} ({total_questions} questions)")
+        return task_id
+
+    def update_submission_task(self, task_id: int, current: int, question_id: str) -> None:
+        with self._task_lock:
+            meta = self._tasks.get(task_id)
+        if meta is None:
+            return
+        folder_name, total_questions = meta
+        # Simple textual progress; no attempt to overwrite in-place to keep concurrency safe.
+        print(f"[grading] {folder_name}: question {question_id} ({current}/{total_questions})")
+
+    def remove_submission_task(self, task_id: int) -> None:
+        with self._task_lock:
+            meta = self._tasks.pop(task_id, None)
+        if meta is None:
+            return
+        folder_name, _ = meta
+        print(f"[grading] {folder_name}: finished")
+
 
 class RichConsoleUI(ConsoleUI):
     def __init__(self) -> None:
@@ -213,6 +254,7 @@ class RichConsoleUI(ConsoleUI):
         self._status_ctx: Any | None = None
         self._progress: Any | None = None
         self._progress_task: Any | None = None
+        self._submission_meta: dict[int, tuple[str, int]] = {}
 
     def banner(self, title: str, subtitle: str = "") -> None:
         self.clear_status()
@@ -333,7 +375,7 @@ class RichConsoleUI(ConsoleUI):
             return
         self._progress = Progress(
             SpinnerColumn(),
-            TextColumn("[bold blue]Grading"),
+            TextColumn("[bold blue]{task.description}", justify="left"),
             BarColumn(bar_width=30),
             TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             TimeElapsedColumn(),
@@ -351,6 +393,35 @@ class RichConsoleUI(ConsoleUI):
             self._progress.__exit__(None, None, None)
             self._progress = None
             self._progress_task = None
+
+    def add_submission_task(self, folder_name: str, total_questions: int) -> int:
+        if self._progress is None:
+            # Progress should already be started by the caller; fail soft if not.
+            return 0
+        task_id = self._progress.add_task(f"{folder_name}", total=total_questions)
+        self._submission_meta[task_id] = (folder_name, total_questions)
+        return task_id
+
+    def update_submission_task(self, task_id: int, current: int, question_id: str) -> None:
+        if self._progress is None or task_id == 0:
+            return
+        meta = self._submission_meta.get(task_id)
+        folder_name = meta[0] if meta is not None else ""
+        description = f"{folder_name} q{question_id}" if folder_name else f"q{question_id}"
+        try:
+            self._progress.update(task_id, completed=current, description=description)
+        except Exception:
+            # If the task was already removed or Progress is shutting down, ignore.
+            return
+
+    def remove_submission_task(self, task_id: int) -> None:
+        if self._progress is None or task_id == 0:
+            return
+        self._submission_meta.pop(task_id, None)
+        try:
+            self._progress.remove_task(task_id)
+        except Exception:
+            return
 
 
 def create_console_ui(
