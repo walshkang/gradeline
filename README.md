@@ -225,6 +225,78 @@ The list view includes:
   - Make sure your assignment files are either in `data/{profile}/` or in `~/Downloads`.
   - Try running `./gradeline import --profile {profile}` to populate `data/{profile}/` first.
 
+## How It Works
+
+Gradeline runs a three-stage pipeline per submission: **extraction → grading → annotation**. Grading and annotation use separate models so a lighter extraction model handles vision/OCR work while a stronger reasoning model handles scoring.
+
+### Stage 1 — Extraction (block registry)
+
+For each submission PDF, Tesseract OCR runs page-by-page in TSV mode, returning `TextBlock` objects:
+
+```
+TextBlock(id="p3_b7", text="R² = 0.853", page=3, left=142, top=680, width=210, height=24, confidence=82.0)
+```
+
+Each block has a unique `id` (`p{page}_b{block_num}`), the text content, and pixel-level bounding box coordinates. These are collected into a **block registry** keyed by block ID.
+
+If Tesseract confidence is too low (handwritten pages, scans), a Gemini vision fallback (`extraction_model`) can be used instead.
+
+> Set `extract_blocks = false` in your profile to skip this stage — the annotation layer falls back gracefully. Useful for all-handwritten submissions where Tesseract blocks are too noisy to be useful.
+
+### Stage 2 — Grading (unified mode)
+
+The grading model (`model`) receives the submission PDF directly via vision, with the block registry injected as XML in the system prompt:
+
+```xml
+<answer id="p3_b7">R² = 0.853</answer>
+<answer id="p3_b8">This means 85.3% of the variation in spending is explained by income.</answer>
+```
+
+The model grades each question against the rubric and returns structured JSON:
+
+```json
+{
+  "question_id": "2",
+  "verdict": "correct",
+  "block_id": "p3_b7",
+  "confidence": 0.95,
+  "evidence_quote": "R² = 0.853"
+}
+```
+
+The `block_id` field tells the annotation stage exactly which block the model used as evidence — carrying spatial location forward without an extra API call.
+
+The grading model also returns `model_coords` (normalized x/y within the page) as a fallback when no block matches.
+
+### Stage 3 — Annotation (spatial placement)
+
+For each graded question, the annotation layer resolves placement using this priority chain:
+
+| Source | When it fires | How it works |
+|---|---|---|
+| `block_id` | Block registry populated + model returned a block ID | Look up `TextBlock` → compute center point from bbox |
+| `model_coords` | Model returned normalized coordinates | Scale to page dimensions |
+| `local_anchor` | Text-based fallback | Regex search for question label tokens (e.g. `"2)"`, `"2."`) |
+| `summary_fallback` | No placement found | Append unresolved questions to a text summary on page 1 |
+
+In practice: `block_id` fires on typed PDFs where OCR confidence is high; `model_coords` is the reliable fallback for handwritten submissions.
+
+Annotated PDFs are written to `output_dir` mirroring the Brightspace folder structure, with FreeText annotations (green ✓ / red ✗) placed at the resolved coordinates.
+
+### Concurrency model
+
+Grading and annotation run in parallel across submissions using two thread pools:
+- **Grading pool** (`concurrency`, default 8): submits PDF + rubric to the model API
+- **Annotation pool** (`concurrency // 2`): renders bounding box marks and saves PDFs
+
+A single event loop drains both pools as futures complete, so fast submissions annotate and finish immediately while slow ones (e.g. complex handwriting, API retries) continue in the background without blocking the rest.
+
+### Context caching
+
+In unified mode, the system instruction + solutions PDF is uploaded to Gemini's context cache at the start of a run. All grading calls for that batch reuse the cache, avoiding re-sending the full solutions PDF on every API request. Cache TTL is configurable (`context_cache_ttl_seconds`, default 24h).
+
+---
+
 ## Direct CLI Usage
 
 For advanced usage or scripting, you can bypass profiles and call the grading engine directly:
@@ -251,6 +323,9 @@ Optional flags:
 --agent-type "gemini"            # choices: gemini (default), codex, claude
 --locator-model "gemini-3-flash-preview"
 --context-cache --context-cache-ttl-seconds 86400
+--extract-blocks / --no-extract-blocks   # build block registry for spatial annotation (default: on)
+--extraction-model "gemini-2.0-flash-001"  # model used for OCR fallback when Tesseract confidence is low
+--concurrency 8                  # parallel grading workers (default from configs/defaults.toml)
 --student-filter "Jane Doe"      # regex to grade specific students only
 --dry-run                        # skip API calls, test annotation layout
 ```
