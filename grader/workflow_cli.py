@@ -35,6 +35,7 @@ from .prompts import (
     styled_warning,
 )
 from .config import load_rubric
+from .defaults import set_default_model
 from .workflow_detect import (
     DetectedConfig,
     default_question_ids,
@@ -241,6 +242,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("list", help="List local workflow profiles.")
+    set_model_parser = subparsers.add_parser(
+        "set-default-model",
+        help="Set project default GenAI model (writes configs/defaults.toml)",
+    )
+    set_model_parser.add_argument("model", help="Model string (e.g., gemma4-31b-it)")
 
     regrade_parser = subparsers.add_parser(
         "regrade",
@@ -438,6 +444,18 @@ def main(argv: list[str] | None = None) -> int:
                 )
             elif command == "list":
                 exit_code = list_profiles()
+            elif command == "set-default-model":
+                model_name = getattr(args, "model", None)
+                if not model_name:
+                    styled_error("Model name is required. Usage: set-default-model <model>")
+                    return 2
+                try:
+                    set_default_model(model_name)
+                    styled_success(f"Wrote default model '{model_name}' to configs/defaults.toml")
+                    exit_code = 0
+                except Exception as exc:
+                    styled_error(f"Failed to set default model: {exc}")
+                    return 2
             elif command == "configure-api-key":
                 exit_code = configure_api_key_interactive()
             elif command == "spot-grade":

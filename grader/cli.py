@@ -33,7 +33,7 @@ from .ui import RunSummary, args_to_subtitle, create_console_ui
 LEGACY_MODE = "legacy"
 UNIFIED_MODE = "unified"
 AGENT_MODE = "agent"
-DEFAULT_MODEL = "gemma4-31b-it"
+from .defaults import DEFAULT_MODEL
 DEFAULT_AGENT_TYPE = "gemini"
 DEFAULT_OCR_CHAR_THRESHOLD = 200
 LOW_CONFIDENCE_THRESHOLD = 0.55
