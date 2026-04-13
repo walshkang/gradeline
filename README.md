@@ -225,6 +225,10 @@ The list view includes:
   - Make sure your assignment files are either in `data/{profile}/` or in `~/Downloads`.
   - Try running `./gradeline import --profile {profile}` to populate `data/{profile}/` first.
 
+## Documentation
+
+- [`docs/runbook.md`](docs/runbook.md) — step-by-step operational guide: new assignment setup, re-runs, rubric iteration, performance tuning, troubleshooting
+
 ## How It Works
 
 Gradeline runs a three-stage pipeline per submission: **extraction → grading → annotation**. Grading and annotation use separate models so a lighter extraction model handles vision/OCR work while a stronger reasoning model handles scoring.
