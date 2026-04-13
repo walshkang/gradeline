@@ -33,7 +33,7 @@ from .ui import RunSummary, args_to_subtitle, create_console_ui
 LEGACY_MODE = "legacy"
 UNIFIED_MODE = "unified"
 AGENT_MODE = "agent"
-from .defaults import DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL
+from .defaults import DEFAULT_CONCURRENCY, DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL
 DEFAULT_AGENT_TYPE = "gemini"
 DEFAULT_OCR_CHAR_THRESHOLD = 200
 LOW_CONFIDENCE_THRESHOLD = 0.55
@@ -242,7 +242,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--no-context-cache", dest="context_cache", action="store_false")
     parser.set_defaults(context_cache=True)
     parser.add_argument("--context-cache-ttl-seconds", type=int, default=86400)
-    parser.add_argument("--concurrency", type=int, default=5)
+    parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
+    parser.add_argument("--extract-blocks", dest="extract_blocks", action="store_true")
+    parser.add_argument("--no-extract-blocks", dest="extract_blocks", action="store_false")
+    parser.set_defaults(extract_blocks=True)
     parser.add_argument("--plain", action="store_true")
     parser.add_argument("--diagnostics-file", type=Path, default=None)
     parser.add_argument("--annotation-font-size", type=float, default=DEFAULT_ANNOTATION_FONT_SIZE)
@@ -607,6 +610,7 @@ def main(argv: list[str] | None = None) -> int:
                 ocr_char_threshold=args.ocr_char_threshold,
                 extraction_model=args.extraction_model,
                 gemini_api_key=api_key or None,
+                extract_blocks=args.extract_blocks,
                 rubric=rubric,
                 solutions_text=solutions_text,
                 solutions_pdf_path=args.solutions_pdf,
@@ -912,6 +916,7 @@ def grade_one_submission(
     annotate_dry_run_marks: bool,
     extraction_model: str = DEFAULT_EXTRACTION_MODEL,
     gemini_api_key: str | None = None,
+    extract_blocks: bool = True,
     diagnostics: DiagnosticsCollector | None = None,
     status_update: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
@@ -959,21 +964,23 @@ def grade_one_submission(
         )
         block_registry = {b.id: b for item in extracted for b in item.blocks}
     else:
-        # Unified/agent modes send PDFs directly to the model for grading, but we
-        # still run extraction to build the block registry for annotation placement.
+        # Unified/agent modes send PDFs directly to the model for grading. Optionally
+        # run extraction to build the block registry for spatial annotation placement.
+        # Disable with extract_blocks=False to skip OCR overhead when not needed.
         for pdf_path in unit.pdf_paths:
             extraction_sources[pdf_path.name] = "model_vision"
-            try:
-                pdf_extract = extract_pdf_text(
-                    pdf_path=pdf_path,
-                    temp_dir=temp_dir,
-                    ocr_char_threshold=ocr_char_threshold,
-                    gemini_api_key=gemini_api_key,
-                    gemini_model=extraction_model,
-                )
-                block_registry.update({b.id: b for b in pdf_extract.blocks})
-            except Exception:
-                pass
+            if extract_blocks:
+                try:
+                    pdf_extract = extract_pdf_text(
+                        pdf_path=pdf_path,
+                        temp_dir=temp_dir,
+                        ocr_char_threshold=ocr_char_threshold,
+                        gemini_api_key=gemini_api_key,
+                        gemini_model=extraction_model,
+                    )
+                    block_registry.update({b.id: b for b in pdf_extract.blocks})
+                except Exception:
+                    pass
 
     if dry_run:
         if status_update is not None:

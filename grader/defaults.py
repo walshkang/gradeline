@@ -35,6 +35,9 @@ DEFAULT_EXTRACTION_MODEL: str = (
     (_defaults.get("models") or {}).get("extraction")
     or "gemini-2.0-flash"
 )
+DEFAULT_CONCURRENCY: int = int(
+    (_defaults.get("grading") or {}).get("concurrency", 8)
+)
 
 
 def set_default_model(model: str) -> None:

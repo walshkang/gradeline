@@ -8,7 +8,7 @@ from typing import Any
 
 
 DEFAULT_PROFILE_DIR = Path(".manual_runs") / "profiles"
-from .defaults import DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL
+from .defaults import DEFAULT_CONCURRENCY, DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL
 DEFAULT_GRADING_MODE = "unified"
 DEFAULT_REVIEW_HOST = "127.0.0.1"
 DEFAULT_REVIEW_PORT = 8765
@@ -48,7 +48,8 @@ class GradeProfile:
     review_required_points: str = ""
     context_cache: bool = True
     context_cache_ttl_seconds: int = DEFAULT_CONTEXT_CACHE_TTL_SECONDS
-    concurrency: int = 5
+    concurrency: int = DEFAULT_CONCURRENCY
+    extract_blocks: bool = True
     plain: bool = False
     diagnostics_file: Path | None = None
     annotation_font_size: float = 24.0
@@ -101,6 +102,7 @@ ALLOWED_GRADE_KEYS = REQUIRED_GRADE_KEYS | {
     "context_cache",
     "context_cache_ttl_seconds",
     "concurrency",
+    "extract_blocks",
     "plain",
     "diagnostics_file",
     "annotation_font_size",
@@ -119,7 +121,7 @@ PATH_GRADE_FIELDS = {
 }
 INT_GRADE_FIELDS = {"ocr_char_threshold", "context_cache_ttl_seconds", "concurrency"}
 FLOAT_GRADE_FIELDS = {"annotation_font_size"}
-BOOL_GRADE_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "plain"}
+BOOL_GRADE_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "extract_blocks", "plain"}
 STRING_GRADE_FIELDS = {
     "grade_column",
     "grading_mode",
