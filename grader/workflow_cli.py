@@ -266,6 +266,12 @@ def build_parser() -> argparse.ArgumentParser:
     spot_grade_parser.add_argument("--profile", help="Workflow profile to use for rubric and answer key.")
     spot_grade_parser.add_argument("--student-name", help="Name of the student.")
 
+    delete_parser = subparsers.add_parser(
+        "delete",
+        help="Delete a profile and its associated rubric and outputs.",
+    )
+    delete_parser.add_argument("--profile", help="Profile to delete.")
+
     subparsers.add_parser(
         "configure-api-key",
         help="Configure the GenAI API key used via .env across profiles.",
@@ -283,6 +289,7 @@ _MENU_COMMANDS: list[tuple[str, str]] = [
     ("regrade", "Clear cache and re-run grading from scratch"),
     ("serve", "Launch review server for existing results"),
     ("setup", "Interactive profile setup wizard"),
+    ("delete", "Delete an assignment (profile, rubric, outputs)"),
     ("set-default-model", "Switch grading model"),
     ("configure-api-key", "Set or change GenAI API key (.env)"),
     ("list", "List local workflow profiles"),
@@ -462,6 +469,11 @@ def main(argv: list[str] | None = None) -> int:
                     except Exception as exc:
                         styled_error(f"Failed to set default model: {exc}")
                         return 2
+            elif command == "delete":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    continue
+                exit_code = delete_assignment_interactive(profile_spec=profile)
             elif command == "configure-api-key":
                 exit_code = configure_api_key_interactive()
             elif command == "spot-grade":
@@ -1337,6 +1349,68 @@ _CURATED_MODELS: list[tuple[str, str]] = [
     ("gemini-3-pro-preview",  "Newest, cutting edge"),
     ("gemini-3-flash-preview","Newest flash tier"),
 ]
+
+
+def delete_assignment_interactive(*, profile_spec: str) -> int:
+    """Interactively delete an assignment's profile, rubric, and/or outputs."""
+    project_root = get_project_root()
+    profile_path = resolve_profile_path(profile_spec, cwd=project_root, profile_dir=DEFAULT_PROFILE_DIR)
+    profile_name = profile_path.stem
+
+    # Discover what exists for this assignment.
+    rubric_path = (project_root / "configs" / f"{profile_name}.yaml").resolve()
+    output_dir = (project_root / "outputs" / profile_name).resolve()
+
+    candidates: list[tuple[str, Path]] = []
+    if profile_path.exists():
+        candidates.append(("Profile TOML", profile_path))
+    if rubric_path.exists():
+        candidates.append(("Rubric YAML", rubric_path))
+    if output_dir.exists():
+        candidates.append(("Outputs folder", output_dir))
+
+    if not candidates:
+        styled_warning(f"Nothing found for profile '{profile_name}'.")
+        return 0
+
+    styled_section_heading(f"Delete: {profile_name}")
+    styled_info("Select what to delete (space to toggle, Enter to confirm):")
+
+    # Show a checklist via prompt_select so the user can pick individual items,
+    # or offer "Delete all" and "Cancel" shortcuts.
+    choice_labels = [f"{label}  ({path})" for label, path in candidates]
+    shortcut_labels = ["— Delete all of the above —", "— Cancel —"]
+    all_choices = choice_labels + shortcut_labels
+
+    idx = prompt_select("Choose what to delete", all_choices, default=len(all_choices) - 2)
+    if idx is None or all_choices[idx] == "— Cancel —":
+        raise AbortToMenu
+
+    if all_choices[idx] == "— Delete all of the above —":
+        to_delete = candidates
+    else:
+        to_delete = [candidates[idx]]
+
+    # Confirm before destroying anything.
+    styled_warning("The following will be permanently deleted:")
+    for label, path in to_delete:
+        styled_info(f"  {label}: {path}")
+    if not prompt_yes_no("Confirm delete?", default=False):
+        styled_info("Cancelled.")
+        return 0
+
+    for label, path in to_delete:
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+            styled_success(f"Deleted {label}: {path.name}")
+        except Exception as exc:  # noqa: BLE001
+            styled_error(f"Failed to delete {label}: {exc}")
+
+    return 0
+
 
 
 def set_default_model_interactive() -> int:
