@@ -1,5 +1,5 @@
 [models]
-grading = "gemma4-31b-it"
+grading = "gemini-2.5-flash"
 extraction = "gemini-2.0-flash"
 locator = ""
 

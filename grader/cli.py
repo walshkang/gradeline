@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import atexit
+import concurrent.futures.thread as _cft
 import os
 import re
 import sys
@@ -753,64 +755,105 @@ def main(argv: list[str] | None = None) -> int:
 
     pending_api: set[Any] = set()
     pending_annotation: set[Any] = set()
+    _forced_exit_code: int | None = None
 
-    with ThreadPoolExecutor(max_workers=args.concurrency) as api_executor:
-        with ThreadPoolExecutor(max_workers=max(1, args.concurrency // 2)) as annotation_executor:
-            for i, unit in enumerate(units, start=1):
-                future = api_executor.submit(process_student, i, unit)
-                pending_api.add(future)
+    def _shutdown_executors(
+        api_ex: ThreadPoolExecutor,
+        ann_ex: ThreadPoolExecutor,
+        *,
+        cancel_annotation: bool,
+    ) -> bool:
+        """Shut down both executors, waiting for in-flight work.
 
-            while pending_api or pending_annotation:
-                try:
-                    # Wait for any future (grading OR annotation) to finish.
-                    # This prevents slow grading stragglers from blocking collection
-                    # of annotation results that already completed.
-                    all_pending = pending_api | pending_annotation
-                    done, _ = futures_wait(all_pending, return_when=FIRST_COMPLETED)
-                    for future in done:
-                        if future in pending_api:
-                            pending_api.discard(future)
-                            idx, result, elapsed = future.result()
-                            ann_future = annotation_executor.submit(
-                                annotate_and_finish,
-                                idx,
-                                result,
-                                elapsed,
-                            )
-                            pending_annotation.add(ann_future)
-                        else:
-                            pending_annotation.discard(future)
-                            submission_results.append(future.result())
+        Returns True if shutdown completed gracefully, False if a second
+        Ctrl+C forced an immediate (non-waiting) stop.
+        """
+        in_flight = sum(1 for f in pending_api if not f.done())
+        if in_flight > 0:
+            ui.info(
+                f"Waiting for {in_flight} in-flight request(s) to finish…"
+                "  (Ctrl+C again to force quit)"
+            )
+        try:
+            api_ex.shutdown(wait=True, cancel_futures=True)
+            ann_ex.shutdown(wait=True, cancel_futures=cancel_annotation)
+            return True
+        except KeyboardInterrupt:
+            ui.info("Force stopping — some in-flight results may be lost.")
+            api_ex.shutdown(wait=False, cancel_futures=True)
+            ann_ex.shutdown(wait=False, cancel_futures=True)
+            # Unregister the atexit thread-join handler so the interpreter
+            # doesn't hang waiting for threads we've already abandoned.
+            try:
+                atexit.unregister(_cft._python_exit)
+            except Exception:
+                pass
+            return False
 
-                except KeyboardInterrupt:
-                    ui.stop_progress()
-                    action = prompt_interrupt_action(ui)
+    try:
+        with ThreadPoolExecutor(max_workers=args.concurrency) as api_executor:
+            with ThreadPoolExecutor(max_workers=max(1, args.concurrency // 2)) as annotation_executor:
+                for i, unit in enumerate(units, start=1):
+                    future = api_executor.submit(process_student, i, unit)
+                    pending_api.add(future)
 
-                    if action == "resume":
-                        ui.start_progress(len(units))
-                        continue
-
-                    if action == "stop_keep":
-                        ui.info("Stopping after current tasks finish; keeping completed results.")
-                        api_executor.shutdown(wait=True, cancel_futures=True)
-                        annotation_executor.shutdown(wait=True, cancel_futures=False)
-                        for future in list(pending_annotation):
-                            if future.cancelled():
-                                continue
-                            try:
+                while pending_api or pending_annotation:
+                    try:
+                        # Wait for any future (grading OR annotation) to finish.
+                        # This prevents slow grading stragglers from blocking collection
+                        # of annotation results that already completed.
+                        all_pending = pending_api | pending_annotation
+                        done, _ = futures_wait(all_pending, return_when=FIRST_COMPLETED)
+                        for future in done:
+                            if future in pending_api:
+                                pending_api.discard(future)
+                                idx, result, elapsed = future.result()
+                                ann_future = annotation_executor.submit(
+                                    annotate_and_finish,
+                                    idx,
+                                    result,
+                                    elapsed,
+                                )
+                                pending_annotation.add(ann_future)
+                            else:
+                                pending_annotation.discard(future)
                                 submission_results.append(future.result())
-                            except Exception:
-                                continue
-                        pending_api.clear()
-                        pending_annotation.clear()
-                        break
 
-                    if action == "clear_all":
-                        api_executor.shutdown(wait=True, cancel_futures=True)
-                        annotation_executor.shutdown(wait=True, cancel_futures=True)
-                        delete_session_artifacts(ui, artifacts, submission_results)
-                        ui.info("Aborted grading run. All outputs from this session have been removed.")
-                        return 130
+                    except KeyboardInterrupt:
+                        ui.stop_progress()
+                        action = prompt_interrupt_action(ui)
+
+                        if action == "resume":
+                            ui.start_progress(len(units))
+                            continue
+
+                        if action == "stop_keep":
+                            ui.info("Stopping after current tasks finish; keeping completed results.")
+                            _shutdown_executors(api_executor, annotation_executor, cancel_annotation=False)
+                            for future in list(pending_annotation):
+                                if future.cancelled():
+                                    continue
+                                try:
+                                    submission_results.append(future.result())
+                                except Exception:
+                                    continue
+                            pending_api.clear()
+                            pending_annotation.clear()
+                            break
+
+                        if action == "clear_all":
+                            _shutdown_executors(api_executor, annotation_executor, cancel_annotation=True)
+                            delete_session_artifacts(ui, artifacts, submission_results)
+                            ui.info("Aborted grading run. All outputs from this session have been removed.")
+                            _forced_exit_code = 130
+                            return 130
+    except KeyboardInterrupt:
+        # A Ctrl+C during executor __exit__ (which re-calls shutdown(wait=True))
+        # surfaces here.  The user already chose their action; just continue.
+        pass
+
+    if _forced_exit_code is not None:
+        return _forced_exit_code
 
     warnings: list[str] = []
     try:

@@ -31,7 +31,7 @@ _THEME = Theme(
         "success": "green",
         "warning": "yellow",
         "error": "red bold",
-        "accent": "blue",
+        "accent": "bright_cyan",
         "muted": "dim",
     }
 ) if _RICH_AVAILABLE else None
@@ -79,7 +79,7 @@ def styled_error(message: str, *, force_plain: bool = False) -> None:
 def styled_banner(title: str, subtitle: str = "", *, force_plain: bool = False) -> None:
     if _use_rich(force_plain):
         text = title if not subtitle else f"{title}\n[muted]{subtitle}[/muted]"
-        _console().print(Panel.fit(text, border_style="blue", padding=(0, 2)))
+        _console().print(Panel.fit(text, border_style="bright_cyan", padding=(0, 2)))
     else:
         print(f"=== {title} ===")
         if subtitle:
@@ -99,7 +99,7 @@ def styled_section_heading(title: str, *, force_plain: bool = False) -> None:
     if _use_rich(force_plain):
         c = _console()
         c.print()
-        c.print(Rule(f"[bold blue]{title}[/bold blue]", style="blue"))
+        c.print(Rule(f"[bold bright_cyan]{title}[/bold bright_cyan]", style="bright_cyan"))
     else:
         print(f"\n--- {title} ---")
 
@@ -113,7 +113,7 @@ def styled_table(
 ) -> None:
     if _use_rich(force_plain):
         table = Table(
-            title=title, show_header=True, header_style="bold blue", border_style="dim"
+            title=title, show_header=True, header_style="bold bright_cyan", border_style="dim"
         )
         for col_name, col_kwargs in columns:
             table.add_column(col_name, **col_kwargs)
@@ -316,7 +316,10 @@ def _inquirerpy_select(
 def _plain_prompt_text(label: str, *, default: str | None, required: bool) -> str:
     while True:
         suffix = f" [{default}]" if default is not None else ""
-        raw = input(f"{label}{suffix}: ").strip()
+        try:
+            raw = input(f"{label}{suffix}: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            raise KeyboardInterrupt
         if raw:
             return raw
         if default is not None:
@@ -329,7 +332,10 @@ def _plain_prompt_text(label: str, *, default: str | None, required: bool) -> st
 def _plain_prompt_yes_no(label: str, *, default: bool) -> bool:
     default_text = "Y/n" if default else "y/N"
     while True:
-        raw = input(f"{label} [{default_text}]: ").strip().lower()
+        try:
+            raw = input(f"{label} [{default_text}]: ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            raise KeyboardInterrupt
         if raw in {"y", "yes"}:
             return True
         if raw in {"n", "no"}:
@@ -341,7 +347,10 @@ def _plain_prompt_yes_no(label: str, *, default: bool) -> bool:
 
 def _plain_prompt_int(label: str, *, default: int, minimum: int, maximum: int) -> int:
     while True:
-        raw = input(f"{label} [{default}]: ").strip()
+        try:
+            raw = input(f"{label} [{default}]: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            raise KeyboardInterrupt
         if raw == "":
             return default
         try:
@@ -355,13 +364,16 @@ def _plain_prompt_int(label: str, *, default: int, minimum: int, maximum: int) -
         return value
 
 
-def _plain_select(label: str, choices: list[str], *, default: int = 0) -> int:
+def _plain_select(label: str, choices: list[str], *, default: int = 0) -> int | None:
     print(f"{label}:")
     for i, choice in enumerate(choices):
         marker = ">" if i == default else " "
         print(f"  {marker} {i + 1}) {choice}")
     while True:
-        raw = input(f"Select [{default + 1}]: ").strip()
+        try:
+            raw = input(f"Select [{default + 1}]: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            return None
         if raw == "":
             return default
         try:

@@ -283,6 +283,7 @@ _MENU_COMMANDS: list[tuple[str, str]] = [
     ("regrade", "Clear cache and re-run grading from scratch"),
     ("serve", "Launch review server for existing results"),
     ("setup", "Interactive profile setup wizard"),
+    ("set-default-model", "Switch grading model"),
     ("configure-api-key", "Set or change GenAI API key (.env)"),
     ("list", "List local workflow profiles"),
     ("exit", "Exit"),
@@ -366,6 +367,7 @@ def main(argv: list[str] | None = None) -> int:
                     return 2
 
                 project_root = get_project_root()
+                styled_info("Press Ctrl+C at any prompt to return to the main menu.")
                 while True:
                     new_name = prompt_text("New assignment name", required=True)
                     profile_path = resolve_profile_path(
@@ -378,24 +380,27 @@ def main(argv: list[str] | None = None) -> int:
                             "Profile already exists. Choose an option.",
                             [
                                 "Use existing profile",
+                                "Overwrite with new setup",
                                 "Enter a different name",
                                 "Back to main menu",
                             ],
                             default=0,
                         )
-                        if choice_idx is None or choice_idx == 2:
+                        if choice_idx is None or choice_idx == 3:
                             raise AbortToMenu
-                        if choice_idx == 1:
+                        if choice_idx == 2:
                             continue
                         profile = new_name
+                        overwrite_profile = choice_idx == 1
                         break
                     else:
                         profile = new_name
+                        overwrite_profile = False
                         break
 
                 exit_code = setup_profile_interactive(
                     profile_spec=profile,
-                    overwrite=False,
+                    overwrite=overwrite_profile,
                 )
                 if exit_code in (1, 2):
                     return exit_code
@@ -448,15 +453,15 @@ def main(argv: list[str] | None = None) -> int:
             elif command == "set-default-model":
                 model_name = getattr(args, "model", None)
                 if not model_name:
-                    styled_error("Model name is required. Usage: set-default-model <model>")
-                    return 2
-                try:
-                    set_default_model(model_name)
-                    styled_success(f"Wrote default model '{model_name}' to configs/defaults.toml")
-                    exit_code = 0
-                except Exception as exc:
-                    styled_error(f"Failed to set default model: {exc}")
-                    return 2
+                    exit_code = set_default_model_interactive()
+                else:
+                    try:
+                        set_default_model(model_name)
+                        styled_success(f"Default model → {model_name}")
+                        exit_code = 0
+                    except Exception as exc:
+                        styled_error(f"Failed to set default model: {exc}")
+                        return 2
             elif command == "configure-api-key":
                 exit_code = configure_api_key_interactive()
             elif command == "spot-grade":
@@ -481,7 +486,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 styled_error("Unknown command.")
                 return 2
-        except AbortToMenu:
+        except (AbortToMenu, KeyboardInterrupt):
             if interactive_session:
                 styled_info("Returning to main menu.")
                 args.command = None
@@ -1111,7 +1116,7 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
         solutions_pdf = values.get("solutions_pdf")
         generated = False
         if isinstance(solutions_pdf, Path) and solutions_pdf.exists() and solutions_pdf.is_file():
-            if is_interactive_terminal() and prompt_yes_no("Generate a draft rubric from the solutions PDF using AI?", default=True):
+            if is_interactive_terminal() and prompt_yes_no("Convert solution key into rubric using AI?", default=True):
                 try:
                     generated = maybe_generate_rubric_with_ai(solutions_pdf=solutions_pdf, rubric_yaml=rubric_path, profile_name=profile_path.stem)
                 except Exception:  # noqa: BLE001
@@ -1257,6 +1262,21 @@ def edit_quickstart_field(
     cwd: Path,
 ) -> None:
     key = field.key
+    try:
+        _do_edit_quickstart_field(key=key, field=field, values=values, candidates=candidates, metadata=metadata, cwd=cwd)
+    except KeyboardInterrupt:
+        raise AbortToMenu
+
+
+def _do_edit_quickstart_field(
+    *,
+    key: str,
+    field: QuickstartFieldSpec,
+    values: dict[str, Any],
+    candidates: dict[str, list[Any]],
+    metadata: dict[str, tuple[str, float]],
+    cwd: Path,
+) -> None:
     if field.kind == "path":
         updated = prompt_path_candidate(
             label=field.label,
@@ -1306,6 +1326,48 @@ def prompt_text_candidate(*, label: str, current: str | None, candidates: list[s
     from .prompts import prompt_text_candidate as _ptc
 
     return _ptc(label=label, current=current, candidates=candidates)
+
+
+_CURATED_MODELS: list[tuple[str, str]] = [
+    ("gemini-2.5-flash",      "Recommended — fast, accurate, best value"),
+    ("gemini-2.5-pro",        "Most capable, slower"),
+    ("gemini-2.5-flash-lite", "Fastest, cheapest, less thorough"),
+    ("gemini-2.0-flash",      "Previous gen, solid and fast"),
+    ("gemma-4-31b-it",        "Open model"),
+    ("gemini-3-pro-preview",  "Newest, cutting edge"),
+    ("gemini-3-flash-preview","Newest flash tier"),
+]
+
+
+def set_default_model_interactive() -> int:
+    """Interactively pick a grading model and write it to configs/defaults.toml."""
+    from .defaults import DEFAULT_MODEL
+
+    styled_section_heading("Switch grading model")
+    current = DEFAULT_MODEL
+    styled_info(f"Current default: {current}")
+
+    choices = [
+        f"{name}  —  {desc}" + ("  ✓" if name == current else "")
+        for name, desc in _CURATED_MODELS
+    ] + ["Enter model name manually"]
+
+    idx = prompt_select("Choose a model", choices, default=0)
+    if idx is None:
+        raise AbortToMenu
+
+    if idx == len(_CURATED_MODELS):
+        model_name = prompt_text("Model name", default=current, required=True)
+    else:
+        model_name = _CURATED_MODELS[idx][0]
+
+    try:
+        set_default_model(model_name)
+        styled_success(f"Default model → {model_name}")
+        return 0
+    except Exception as exc:
+        styled_error(f"Failed to set default model: {exc}")
+        return 2
 
 
 def configure_api_key_interactive() -> int:
@@ -1510,7 +1572,8 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
 
     profile_name = profile_path.stem
     styled_banner(f"Configuring profile: {profile_name}", str(profile_path))
-    
+    styled_info("Press Ctrl+C at any prompt to return to the main menu.")
+
     default_data_root = project_root / "data" / profile_name
 
     submissions_dir = prompt_path(
@@ -1533,13 +1596,13 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
         required=True,
         cwd=project_root,
     )
-    # Try AI rubric generation first to avoid the "starter rubric overwrite" trap.
-    if not rubric_yaml.exists():
-        _ = maybe_generate_rubric_with_ai(
-            solutions_pdf=solutions_pdf,
-            rubric_yaml=rubric_yaml,
-            profile_name=profile_name,
-        )
+    # Always offer AI rubric generation; maybe_generate_rubric_with_ai handles
+    # the "rubric already exists → overwrite?" prompt internally.
+    _ = maybe_generate_rubric_with_ai(
+        solutions_pdf=solutions_pdf,
+        rubric_yaml=rubric_yaml,
+        profile_name=profile_name,
+    )
 
     # If we still don't have a valid rubric, offer a starter template (and allow overwriting invalid YAML).
     rubric_valid = False
@@ -1630,15 +1693,14 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
     # If a rubric already exists, confirm whether to overwrite it with an AI draft.
     if rubric_yaml.exists():
         overwrite = prompt_yes_no(
-            f"Rubric already exists at {rubric_yaml}. Overwrite with an AI-generated draft from {solutions_pdf.name}?",
+            f"Rubric already exists at {rubric_yaml}. Convert solution key into rubric (overwrite existing)?",
             default=False,
         )
         if not overwrite:
             return False
     else:
-        # New rubric path: ask whether to run the AI wizard at all.
         use_ai = prompt_yes_no(
-            "Generate a draft rubric from the solutions PDF using AI?",
+            "Convert solution key into rubric using AI?",
             default=True,
         )
         if not use_ai:
@@ -1711,8 +1773,8 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                 )
         except Exception as exc:  # noqa: BLE001
             styled_error(f"AI rubric generation failed: {exc}")
-            if not prompt_yes_no("Retry AI rubric generation?", default=False):
-                styled_warning("Skipping AI-based rubric generation.")
+            if not prompt_yes_no("Retry converting solution key into rubric?", default=False):
+                styled_warning("Skipping rubric conversion.")
                 return
             continue
 
@@ -1726,7 +1788,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
             "Accept and save rubric",
             "Edit in $EDITOR before saving",
             "Retry rubric generation",
-            "Skip AI rubric generation",
+            "Skip (keep existing rubric or create manually)",
         ]
         idx = prompt_select(
             "AI-generated rubric",
@@ -1734,8 +1796,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
             default=0,
         )
         if idx is None:
-            styled_warning("AI rubric wizard cancelled.")
-            return False
+            raise AbortToMenu
 
         choice = choices[idx]
 
@@ -1793,7 +1854,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                 styled_error(f"Edited rubric is not valid: {exc}")
                 follow_up_choices = [
                     "Reopen editor to fix YAML",
-                    "Retry AI rubric generation from solutions PDF",
+                    "Retry converting solution key into rubric",
                     "Abort and keep current (possibly invalid) YAML",
                 ]
                 follow_idx = prompt_select(
@@ -1801,7 +1862,9 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                     follow_up_choices,
                     default=0,
                 )
-                if follow_idx is None or follow_up_choices[follow_idx].startswith("Abort"):
+                if follow_idx is None:
+                    raise AbortToMenu
+                if follow_up_choices[follow_idx].startswith("Abort"):
                     return False
                 if follow_up_choices[follow_idx].startswith("Reopen editor"):
                     # Loop back to preview + choices, but keep existing file contents;
@@ -1823,7 +1886,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                     except Exception as exc:  # noqa: BLE001
                         styled_error(f"Edited rubric is still not valid: {exc}")
                         # After another failure, fall back to main AI loop or abort.
-                        if not prompt_yes_no("Retry AI rubric generation?", default=True):
+                        if not prompt_yes_no("Retry converting solution key into rubric?", default=True):
                             return False
                         continue
                 if follow_up_choices[follow_idx].startswith("Retry AI"):
@@ -1838,7 +1901,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
             continue
 
         # Skip choice.
-        styled_warning("Skipping AI-based rubric generation.")
+        styled_warning("Skipping rubric conversion.")
         return False
 
 

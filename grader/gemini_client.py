@@ -72,6 +72,16 @@ class DraftRubricQuestion(BaseModel):
     anchor_tokens: list[str] | None = None
 
 
+class DraftRubricBands(BaseModel):
+    """Grade band thresholds — concrete model avoids dict[str, float] which
+    serializes to additionalProperties and is rejected by the Gemini schema API."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    check_plus_min: float | None = None
+    check_min: float | None = None
+
+
 class DraftRubricConfig(BaseModel):
     """Top-level rubric schema produced by Gemini for rubric generation."""
 
@@ -79,7 +89,7 @@ class DraftRubricConfig(BaseModel):
 
     assignment_id: str
     total_points: float | None = None
-    bands: dict[str, float] | None = None
+    bands: DraftRubricBands | None = None
     scoring_mode: str | None = None
     partial_credit: float | None = None
     questions: list[DraftRubricQuestion]

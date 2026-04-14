@@ -306,7 +306,7 @@ class RichConsoleUI(ConsoleUI):
     def banner(self, title: str, subtitle: str = "") -> None:
         self.clear_status()
         text = title if not subtitle else f"{title}\n[dim]{subtitle}[/dim]"
-        self.console.print(Panel.fit(text, border_style="blue"))
+        self.console.print(Panel.fit(text, border_style="bright_cyan"))
 
     def info(self, message: str) -> None:
         self.clear_status()
@@ -411,7 +411,7 @@ class RichConsoleUI(ConsoleUI):
     def section_heading(self, title: str) -> None:
         self.clear_status()
         self.console.print()
-        self.console.print(Rule(f"[bold blue]{title}[/bold blue]", style="blue"))
+        self.console.print(Rule(f"[bold bright_cyan]{title}[/bold bright_cyan]", style="bright_cyan"))
 
     def status(self, message: str) -> None:
         text = " ".join(message.split())
