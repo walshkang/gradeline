@@ -17,7 +17,7 @@ from .streaming import StreamProgressParser
 from .types import JsonDict, QuestionResult, RubricConfig, TextBlock
 
 
-PROMPT_VERSION = "2026-02-26-gemini-brightspace-v4"
+PROMPT_VERSION = "2026-04-18-gemini-placement-v5"
 DEFAULT_CONTEXT_CACHE_TTL_SECONDS = 86400
 SHORT_REASON_MAX_CHARS = 42
 SHORT_REASON_MAX_WORDS = 12
@@ -638,10 +638,11 @@ def build_unified_grading_prompt(
     elif combined_text:
         student_section = "Student extracted text (may include OCR noise):\n" + combined_text[:12000]
 
+    files_list = "\n".join(f"  - {path.name}" for path in pdf_paths)
     return (
         f"Submission ID: {submission_id}\n"
         f"Expected question IDs: {labels}\n"
-        f"Attached student files: {files}\n"
+        f"Attached student PDF files (use exact filenames for source_file):\n{files_list}\n"
         "Grade this submission exactly according to the cached rubric and master solution.\n"
         f"{NUMERIC_EQUIVALENCE_RULE}\n\n"
         f"{student_section}"
@@ -715,8 +716,12 @@ def build_context_system_instruction(rubric: RubricConfig) -> str:
         "within a reasonable tolerance (typically ±1% or as specified in the rubric). Small rounding "
         "differences in intermediate steps should not change a correct verdict to incorrect.\n"
         "Feedback rules: correct => empty short_reason/detail_reason; incorrect/partial => short_reason under 42 chars plus optional one-sentence detail_reason in second-person voice.\n"
-        "Coordinate rule: if your detector yields [ymin, xmin, ymax, xmax], convert it to the center and return [y, x] integers on 0..1000.\n"
-        "Block ID rule: if the student text was provided as XML-wrapped blocks (<answer id=\"pN_bN\">...</answer>), set block_id to the id attribute of the block containing the answer. Otherwise omit block_id.\n"
+        "Coordinate rule: set coords=[y, x] (integers 0–1000, origin top-left) pointing to where the student's answer appears on the page. "
+        "If Gemini's detector yields [ymin, xmin, ymax, xmax], compute the center: [(ymin+ymax)//2, (xmin+xmax)//2]. "
+        "Always include page_number (1-indexed integer) and source_file set to exactly the PDF filename as it appears in the attached files list. "
+        "If you cannot locate an answer visually, omit coords/page_number/source_file rather than guessing.\n"
+        "Block ID rule: if the student text was provided as XML-wrapped blocks (<answer id=\"pN_bN\">...</answer>), set block_id to the id attribute of the block containing the answer. "
+        "When block_id is set it takes priority over coords for placement — omit coords when you have block_id.\n"
         "If uncertain, set verdict=needs_review and confidence near 0.0.\n"
         "You must generate logic_analysis BEFORE determining the verdict.\n"
         "Rubric rules:\n"

@@ -37,12 +37,14 @@ def annotate_submission_pdfs(
     annotation_font_size: float = DEFAULT_ANNOTATION_FONT_SIZE,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[Path], list[QuestionResult]]:
+    # Single-PDF submissions: skip source_file matching (no ambiguity about which file).
     import fitz  # Lazy import for testability without dependency.
 
     result_map = {item.id: item for item in question_results}
     rendered: set[str] = set()
     output_paths: list[Path] = []
     placement_details: dict[str, dict[str, object | None]] = {}
+    single_pdf = len(submission.pdf_paths) == 1
     render_question_marks = should_render_question_marks(
         dry_run=dry_run,
         annotate_dry_run_marks=annotate_dry_run_marks,
@@ -81,6 +83,7 @@ def annotate_submission_pdfs(
                         pdf_filename=pdf_path.name,
                         result=q_result,
                         block_registry=block_registry,
+                        ignore_source_file=single_pdf,
                     )
                     if model_location is not None:
                         # resolve_model_location may return (page_idx, point, normalized_coords)
@@ -109,7 +112,7 @@ def annotate_submission_pdfs(
                         doc[page_idx],
                         point,
                         mark_text=mark_text,
-                        is_correct=(q_result.verdict == "correct"),
+                        is_correct=(q_result.verdict in ("correct", "rounding_error")),
                         question_id=question.id,
                         fontsize=question_fontsize,
                     )
@@ -193,6 +196,7 @@ def resolve_model_location(
     pdf_filename: str,
     result: QuestionResult,
     block_registry: dict[str, "TextBlock"] | None = None,
+    ignore_source_file: bool = False,
 ):
     import fitz
 
@@ -216,9 +220,9 @@ def resolve_model_location(
     if result.coords is None:
         return None
 
-    if result.source_file:
-        expected = Path(result.source_file).name
-        actual = Path(pdf_filename).name
+    if result.source_file and not ignore_source_file:
+        expected = Path(result.source_file).name.lower()
+        actual = Path(pdf_filename).name.lower()
         if expected != actual:
             return None
 
@@ -232,6 +236,9 @@ def resolve_model_location(
     y_norm, x_norm = result.coords
     y_norm = clamp(y_norm, 0.0, 1000.0)
     x_norm = clamp(x_norm, 0.0, 1000.0)
+    # Reject coordinates suspiciously close to the corner — likely a model default/guess.
+    if y_norm < 5.0 and x_norm < 5.0:
+        return None
     x = clamp((x_norm / 1000.0) * page.rect.width, 4.0, max(4.0, page.rect.width - 4.0))
     y = clamp((y_norm / 1000.0) * page.rect.height, 4.0, max(4.0, page.rect.height - 4.0))
     point = fitz.Point(x, y)
@@ -340,11 +347,12 @@ def find_anchor_in_doc(
 
 
 def mark_text_for_result(question_id: str, result: QuestionResult) -> str:
-    symbol = "✓" if result.verdict == "correct" else "x"
     if result.verdict == "correct":
-        return f"{symbol} Q{question_id}"
+        return f"✓ Q{question_id}"
+    if result.verdict == "rounding_error":
+        return f"✓ Q{question_id} ≈"
     reason = compact_reason(result.short_reason, max_chars=42) or "Review manually."
-    return f"{symbol} Q{question_id}: {reason}"
+    return f"x Q{question_id}: {reason}"
 
 
 def compact_reason(text: str, max_chars: int = 42) -> str:
@@ -445,7 +453,7 @@ def insert_mark(
 ) -> None:
     mark_point = offset_mark_point(page=page, point=point)
     fontsize = max(8.0, float(fontsize))
-    color = (0.0, 0.55, 0.0) if is_correct else (0.8, 0.0, 0.0)
+    color = (0.0, 0.55, 0.0) if is_correct else (0.8, 0.0, 0.0)  # green / red
     rect = text_annotation_rect_from_baseline(
         page=page,
         x=mark_point.x,

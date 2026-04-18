@@ -382,6 +382,7 @@ Reviewed artifacts are written into `output_dir/review/`:
 ## Notes
 
 - If any question is `needs_review`, final band is `REVIEW_REQUIRED`.
+- `rounding_error` verdicts are fully forgiven (score 1.0, same as `correct`). They appear as `✓ Q1 ≈` in green on annotated PDFs and as `≈` in the summary line so you can still see where they occurred.
 - `--grading-mode` defaults to `legacy` for phased rollout.
 - In `unified` mode, grading and coordinate locating happen in one structured Gemini call.
 - In `agent` mode, the tool uses an installed CLI agent (like `gemini`, `codex`, or `claude`) to perform multi-step reasoning. This is often more robust for complex or handwritten submissions.

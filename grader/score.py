@@ -5,7 +5,7 @@ from .types import GradeResult, QuestionResult, RubricConfig
 
 VERDICT_TO_SCORE = {
     "correct": 1.0,
-    "rounding_error": 0.9,
+    "rounding_error": 1.0,
     "partial": 0.5,
     "incorrect": 0.0,
     "needs_review": 0.0,

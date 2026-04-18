@@ -146,14 +146,14 @@ def build_trust_rationale(
     band_label = _BAND_DISPLAY.get(band, band)
     parts = [f"{band_label} ({percent:.2f}%)"]
 
-    counts = {"correct": 0, "partial": 0, "incorrect": 0, "needs_review": 0}
+    counts = {"correct": 0, "rounding_error": 0, "partial": 0, "incorrect": 0, "needs_review": 0}
     low_conf: list[str] = []
     for qr in question_results:
         counts[qr.verdict] = counts.get(qr.verdict, 0) + 1
-        if qr.verdict != "correct" and qr.confidence < LOW_CONFIDENCE_THRESHOLD:
+        if qr.verdict not in ("correct", "rounding_error") and qr.confidence < LOW_CONFIDENCE_THRESHOLD:
             low_conf.append(f"{qr.id}({qr.confidence:.2f})")
 
-    mix = f"{counts['correct']}✓ {counts['partial']}◐ {counts['incorrect']}✗ {counts['needs_review']}⟳"
+    mix = f"{counts['correct']}✓ {counts['rounding_error']}≈ {counts['partial']}◐ {counts['incorrect']}✗ {counts['needs_review']}⟳"
     parts.append(mix)
 
     # Threshold delta to next band up
