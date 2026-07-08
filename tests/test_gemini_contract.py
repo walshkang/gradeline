@@ -65,7 +65,7 @@ class GeminiContractTests(unittest.TestCase):
         self.assertEqual(by_id["a"].short_reason, "")
         self.assertEqual(by_id["b"].verdict, "partial")
         self.assertEqual(by_id["c"].verdict, "needs_review")
-        self.assertEqual(by_id["c"].short_reason, "Review manually.")
+        self.assertEqual(by_id["c"].short_reason, "")
         self.assertEqual(normalized["global_flags"], ["flag1"])
 
     def test_reason_postprocessing_uses_sentence_and_fallbacks(self) -> None:
@@ -101,8 +101,8 @@ class GeminiContractTests(unittest.TestCase):
         normalized = normalize_model_response(payload, rubric)
         by_id = {item.id: item for item in normalized["questions"]}
         self.assertEqual(by_id["a"].short_reason, "Show the final probability value.")
-        self.assertEqual(by_id["b"].short_reason, "check")
-        self.assertEqual(by_id["c"].short_reason, "Review manually.")
+        self.assertEqual(by_id["b"].short_reason, "")
+        self.assertEqual(by_id["c"].short_reason, "")
 
     def test_prompts_include_numeric_equivalence_rule(self) -> None:
         rubric = make_rubric()
@@ -316,7 +316,7 @@ class TwoTierFeedbackTests(unittest.TestCase):
         }
         normalized = normalize_model_response(payload, rubric)
         by_id = {item.id: item for item in normalized["questions"]}
-        self.assertEqual(by_id["a"].short_reason, "Review manually.")
+        self.assertEqual(by_id["a"].short_reason, "")
         self.assertEqual(by_id["a"].detail_reason, "")
 
     def test_normalize_incorrect_short_raw_gives_reason_no_detail(self) -> None:
@@ -357,7 +357,7 @@ class TwoTierFeedbackTests(unittest.TestCase):
             raw_short_reason="The student forgot to show the derivation.",
             fallback_fail_note="Show your derivation.",
         )
-        self.assertEqual(result, "Show your derivation.")
+        self.assertEqual(result, "")
 
     def test_derive_short_reason_good_second_person_clamped(self) -> None:
         raw = "Show the final probability value."

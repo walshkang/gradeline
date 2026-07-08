@@ -30,12 +30,14 @@ from .report import (
 from .score import score_submission
 from .types import QuestionResult, SubmissionResult
 from .ui import RunSummary, args_to_subtitle, create_console_ui
+from .rate_limit import RateLimiterRegistry, DailyLimitExhausted
+from .checkpoint import compute_run_config_hash, save_checkpoint, load_checkpoint, clear_checkpoint
 
 
 LEGACY_MODE = "legacy"
 UNIFIED_MODE = "unified"
 AGENT_MODE = "agent"
-from .defaults import DEFAULT_CONCURRENCY, DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL
+from .defaults import DEFAULT_CONCURRENCY, DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL, DEFAULT_RATE_LIMIT_ENABLED
 DEFAULT_AGENT_TYPE = "gemini"
 DEFAULT_OCR_CHAR_THRESHOLD = 200
 LOW_CONFIDENCE_THRESHOLD = 0.55
@@ -157,14 +159,31 @@ def build_trust_rationale(
     parts.append(mix)
 
     # Threshold delta to next band up
-    check_plus_pct = float(rubric_bands.get("check_plus_min", 0.9)) * 100.0
-    check_pct = float(rubric_bands.get("check_min", 0.7)) * 100.0
-    if band == "REVIEW_REQUIRED" or band == "CHECK_MINUS" or band == "Check Minus":
-        delta = check_pct - percent
-        parts.append(f"{delta:+.2f}→Check")
-    elif band == "CHECK" or band == "Check":
-        delta = check_plus_pct - percent
-        parts.append(f"{delta:+.2f}→Check+")
+    sorted_bands = []
+    for name, val in rubric_bands.items():
+        try:
+            threshold = float(val)
+            if threshold <= 1.0:
+                threshold *= 100.0
+            sorted_bands.append((name, threshold))
+        except (TypeError, ValueError):
+            pass
+    sorted_bands.sort(key=lambda x: x[1])
+
+    next_band = None
+    for name, threshold in sorted_bands:
+        if threshold > percent:
+            next_band = (name, threshold)
+            break
+
+    if next_band is not None and band != "REVIEW_REQUIRED":
+        delta = next_band[1] - percent
+        dest_label = next_band[0]
+        if dest_label == "check_plus_min":
+            dest_label = "Check+"
+        elif dest_label == "check_min":
+            dest_label = "Check"
+        parts.append(f"{delta:+.2f}→{dest_label}")
 
     if low_conf:
         parts.append(f"low-conf {','.join(low_conf[:4])}")
@@ -248,6 +267,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--extract-blocks", dest="extract_blocks", action="store_true")
     parser.add_argument("--no-extract-blocks", dest="extract_blocks", action="store_false")
     parser.set_defaults(extract_blocks=True)
+    parser.add_argument("--rate-limit", dest="rate_limit", action="store_true")
+    parser.add_argument("--no-rate-limit", dest="rate_limit", action="store_false")
+    parser.set_defaults(rate_limit=DEFAULT_RATE_LIMIT_ENABLED)
+    parser.add_argument("--resume", action="store_true", default=False, help="Check for and resume from an interrupted run checkpoint.")
     parser.add_argument("--json", dest="json_output", action="store_true", default=False, help="Emit a JSON summary to stdout on completion (agent-friendly).")
     parser.add_argument("--quiet", action="store_true", default=False, help="Suppress all non-error output. Implies --plain. Errors still go to stderr.")
     parser.add_argument("--plain", action="store_true")
@@ -284,6 +307,8 @@ def main(argv: list[str] | None = None) -> int:
     def conclude(exit_code: int, submission_results: list[SubmissionResult], warnings: list[str]) -> int:
         ui.stop_progress()
         ui.clear_status()
+        if exit_code in (0, 3, 4):
+            clear_checkpoint(args.output_dir)
         ui.section_heading("Results")
         summary = summarize_results(
             submission_results=submission_results,
@@ -395,6 +420,10 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             except Exception as exc:  # noqa: BLE001
                 ui_obj.warning(f"Failed to delete artifact {path}: {exc}")
+        try:
+            clear_checkpoint(args.output_dir)
+        except Exception:
+            pass
 
     if args.grading_mode == LEGACY_MODE:
         missing = ensure_binaries_present()
@@ -546,7 +575,11 @@ def main(argv: list[str] | None = None) -> int:
                 ocr_char_threshold=args.ocr_char_threshold,
                 gemini_api_key=api_key or None,
                 gemini_model=args.extraction_model,
+                rate_limiter=rate_limiter,
             ).text
+        except DailyLimitExhausted as limit_exc:
+            ui.error(f"⚠ Daily API limit reached: {limit_exc}")
+            return 5
         except Exception as exc:  # noqa: BLE001
             message = f"Failed to extract text from solutions PDF {args.solutions_pdf}: {exc}"
             diagnostics.record(
@@ -578,16 +611,38 @@ def main(argv: list[str] | None = None) -> int:
         ui.error(message)
         return conclude(exit_code=2, submission_results=[], warnings=[])
 
+    rate_limiter = None
+    if getattr(args, "rate_limit", True) and not args.dry_run:
+        rate_limiter = RateLimiterRegistry()
+        rpm = 5
+        normalized_model = args.model.lower().strip()
+        from .rate_limit import FREE_TIER_LIMITS
+        for pattern, limits in FREE_TIER_LIMITS.items():
+            if pattern in normalized_model:
+                rpm = limits["rpm"]
+                break
+        max_concurrency = max(1, rpm - 1)
+        if args.concurrency > max_concurrency:
+            ui.warning(
+                f"Concurrency clamped from {args.concurrency} → {max_concurrency} "
+                f"to stay within {args.model} rate limit of {rpm} RPM."
+            )
+            args.concurrency = max_concurrency
+
     grader = None
     if not args.dry_run:
         from .llm_factory import get_llm_provider
         try:
-            grader = get_llm_provider(
-                provider_name=getattr(args, "provider", "gemini"),
-                api_key=api_key,
-                model=args.model,
-                cache_dir=args.cache_dir,
-            )
+            sig = inspect.signature(get_llm_provider)
+            kwargs = {
+                "provider_name": getattr(args, "provider", "gemini"),
+                "api_key": api_key,
+                "model": args.model,
+                "cache_dir": args.cache_dir,
+            }
+            if "rate_limiter" in sig.parameters:
+                kwargs["rate_limiter"] = rate_limiter
+            grader = get_llm_provider(**kwargs)
         except Exception as exc:  # noqa: BLE001
             message = f"Failed to initialize LLM client: {exc}"
             diagnostics.record(
@@ -600,9 +655,54 @@ def main(argv: list[str] | None = None) -> int:
             ui.error(message)
             return conclude(exit_code=1, submission_results=[], warnings=[])
 
-    submission_results: list[SubmissionResult] = []
+    run_config_hash = compute_run_config_hash(
+        rubric_path=args.rubric_yaml,
+        solutions_pdf=args.solutions_pdf,
+        model=args.model,
+        grading_mode=args.grading_mode,
+    )
+
+    checkpoint_data = None
+    from .checkpoint import get_checkpoint_path
+    checkpoint_file = get_checkpoint_path(args.output_dir)
+    if checkpoint_file.exists():
+        checkpoint_data = load_checkpoint(args.output_dir, run_config_hash)
+        if checkpoint_data is not None:
+            ui.info(
+                f"Resuming from checkpoint: {len(checkpoint_data.results)}/{len(units)} "
+                f"submissions completed previously."
+            )
+        else:
+            ui.warning(f"A stale checkpoint file exists at {checkpoint_file} (rubric or model changed).")
+            is_interactive = sys.stdin.isatty() and not getattr(args, "quiet", False)
+            discard = True
+            if is_interactive:
+                try:
+                    res = input("Discard stale checkpoint and start fresh? [Y/n]: ").strip().lower()
+                    if res == "n":
+                        discard = False
+                except (KeyboardInterrupt, EOFError):
+                    pass
+            if discard:
+                clear_checkpoint(args.output_dir)
+                ui.info("Cleared stale checkpoint.")
+
+    if checkpoint_data:
+        submission_results = list(checkpoint_data.results)
+        rolling = checkpoint_data.rolling
+        completed_submissions = len(checkpoint_data.results)
+        completed_folders = checkpoint_data.completed_folders
+        remaining_units = [u for u in units if u.folder_token not in completed_folders]
+    else:
+        submission_results = []
+        rolling = None
+        completed_submissions = 0
+        remaining_units = list(units)
+
     ui.section_heading("Grading")
     ui.start_progress(len(units))
+    for _ in range(completed_submissions):
+        ui.advance_progress()
 
     ui_lock = threading.Lock()
     rolling_lock = threading.Lock()
@@ -666,7 +766,10 @@ def main(argv: list[str] | None = None) -> int:
                 diagnostics=diagnostics,
                 status_update=status_update,
                 progress_callback=grading_progress,
+                rate_limiter=rate_limiter,
             )
+        except DailyLimitExhausted:
+            raise
         except Exception as exc:  # noqa: BLE001
             message = f"Unhandled submission failure: {exc}"
             with rolling_lock:
@@ -793,7 +896,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with ThreadPoolExecutor(max_workers=args.concurrency) as api_executor:
             with ThreadPoolExecutor(max_workers=max(1, args.concurrency // 2)) as annotation_executor:
-                for i, unit in enumerate(units, start=1):
+                for i, unit in enumerate(remaining_units, start=completed_submissions + 1):
                     future = api_executor.submit(process_student, i, unit)
                     pending_api.add(future)
 
@@ -807,14 +910,53 @@ def main(argv: list[str] | None = None) -> int:
                         for future in done:
                             if future in pending_api:
                                 pending_api.discard(future)
-                                idx, result, elapsed = future.result()
-                                ann_future = annotation_executor.submit(
-                                    annotate_and_finish,
-                                    idx,
-                                    result,
-                                    elapsed,
-                                )
-                                pending_annotation.add(ann_future)
+                                try:
+                                    idx, result, elapsed = future.result()
+                                    ann_future = annotation_executor.submit(
+                                        annotate_and_finish,
+                                        idx,
+                                        result,
+                                        elapsed,
+                                    )
+                                    pending_annotation.add(ann_future)
+                                except DailyLimitExhausted as limit_exc:
+                                    ui.stop_progress()
+                                    ui.error(f"⚠ Daily API limit reached: {limit_exc}")
+                                    # Cancel all queued api tasks, wait for running ones
+                                    api_executor.shutdown(wait=True, cancel_futures=True)
+                                    # Wait for running annotation tasks to complete
+                                    annotation_executor.shutdown(wait=True, cancel_futures=False)
+                                    
+                                    # Harvest completed results
+                                    for api_fut in list(pending_api):
+                                        if api_fut.done():
+                                            try:
+                                                idx_h, result_h, elapsed_h = api_fut.result()
+                                                ann_res = annotate_and_finish(idx_h, result_h, elapsed_h)
+                                                submission_results.append(ann_res)
+                                            except Exception:
+                                                pass
+                                    for ann_fut in list(pending_annotation):
+                                        if ann_fut.done() and not ann_fut.cancelled():
+                                            try:
+                                                submission_results.append(ann_fut.result())
+                                            except Exception:
+                                                pass
+                                    
+                                    # Save checkpoint
+                                    checkpoint_path = save_checkpoint(
+                                        output_dir=args.output_dir,
+                                        results=submission_results,
+                                        rolling=rolling,
+                                        run_config_hash=run_config_hash,
+                                        stop_reason="rate_limit_exhausted",
+                                    )
+                                    ui.info(
+                                        f"✓ Checkpointed {len(submission_results)}/{len(units)} "
+                                        f"submissions to {checkpoint_path}"
+                                    )
+                                    _forced_exit_code = 5
+                                    return 5
                             else:
                                 pending_annotation.discard(future)
                                 submission_results.append(future.result())
@@ -837,6 +979,14 @@ def main(argv: list[str] | None = None) -> int:
                                     submission_results.append(future.result())
                                 except Exception:
                                     continue
+                            # Save checkpoint
+                            save_checkpoint(
+                                output_dir=args.output_dir,
+                                results=submission_results,
+                                rolling=rolling,
+                                run_config_hash=run_config_hash,
+                                stop_reason="user_interrupt",
+                            )
                             pending_api.clear()
                             pending_annotation.clear()
                             break
@@ -844,7 +994,7 @@ def main(argv: list[str] | None = None) -> int:
                         if action == "clear_all":
                             _shutdown_executors(api_executor, annotation_executor, cancel_annotation=True)
                             delete_session_artifacts(ui, artifacts, submission_results)
-                            ui.info("Aborted grading run. All outputs from this session have been removed.")
+                            ui.info("Aborted grading run. All outputs and checkpoints from this session have been removed.")
                             _forced_exit_code = 130
                             return 130
     except KeyboardInterrupt:
@@ -1004,6 +1154,7 @@ def grade_one_submission(
     diagnostics: DiagnosticsCollector | None = None,
     status_update: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
+    rate_limiter: Any | None = None,
 ) -> SubmissionResult:
     extracted = []
     extraction_sources: dict[str, str] = {}
@@ -1023,6 +1174,7 @@ def grade_one_submission(
                     ocr_char_threshold=ocr_char_threshold,
                     gemini_api_key=gemini_api_key,
                     gemini_model=extraction_model,
+                    rate_limiter=rate_limiter,
                 )
             except Exception as exc:  # noqa: BLE001
                 extraction_sources[pdf_path.name] = "error"
@@ -1061,6 +1213,7 @@ def grade_one_submission(
                         ocr_char_threshold=ocr_char_threshold,
                         gemini_api_key=gemini_api_key,
                         gemini_model=extraction_model,
+                        rate_limiter=rate_limiter,
                     )
                     block_registry.update({b.id: b for b in pdf_extract.blocks})
                 except Exception:

@@ -351,8 +351,10 @@ def mark_text_for_result(question_id: str, result: QuestionResult) -> str:
         return f"✓ Q{question_id}"
     if result.verdict == "rounding_error":
         return f"✓ Q{question_id} ≈"
-    reason = compact_reason(result.short_reason, max_chars=42) or "Review manually."
-    return f"x Q{question_id}: {reason}"
+    reason = compact_reason(result.short_reason, max_chars=42)
+    if reason:
+        return f"x Q{question_id}: {reason}"
+    return f"x Q{question_id}"
 
 
 def compact_reason(text: str, max_chars: int = 42) -> str:
@@ -402,6 +404,33 @@ def text_annotation_rect_from_baseline(
     return fitz.Rect(x0, y0, x0 + width, y0 + height)
 
 
+def is_dark_background(page: "fitz.Page", rect: "fitz.Rect") -> bool:
+    try:
+        pix = page.get_pixmap(clip=rect)
+        samples = pix.samples
+        if not samples:
+            return False
+        n = pix.n
+        pixels = len(samples) // n
+        if pixels == 0:
+            return False
+        total_luminance = 0.0
+        if n >= 3:
+            for i in range(0, len(samples), n):
+                r = samples[i]
+                g = samples[i+1]
+                b = samples[i+2]
+                total_luminance += 0.299 * r + 0.587 * g + 0.114 * b
+        else:
+            for i in range(0, len(samples), n):
+                val = samples[i]
+                total_luminance += val
+        avg_luminance = total_luminance / pixels
+        return avg_luminance < 128.0
+    except Exception:
+        return False
+
+
 def add_movable_freetext_annotation(
     page: "fitz.Page",
     rect: "fitz.Rect",
@@ -409,6 +438,8 @@ def add_movable_freetext_annotation(
     fontsize: float,
     color: tuple[float, float, float],
     subject: str,
+    fill_color: tuple[float, float, float] | None = None,
+    border_color: tuple[float, float, float] | None = None,
 ) -> None:
     import fitz
 
@@ -419,9 +450,9 @@ def add_movable_freetext_annotation(
         fontsize=fontsize,
         fontname="Helv",
         text_color=color,
-        fill_color=None,
-        border_color=None,
-        border_width=0,
+        fill_color=fill_color,
+        border_color=border_color,
+        border_width=1 if border_color is not None else 0,
     )
     # Set metadata. We skip 'content' here as it's already set by add_freetext_annot;
     # redundant setting can cause some viewers (like macOS Preview) to render a "ghost" text box.
@@ -429,7 +460,7 @@ def add_movable_freetext_annotation(
         title=ANNOTATION_INFO_TITLE,
         subject=subject,
     )
-    annot.set_border(width=0)
+    annot.set_border(width=1 if border_color is not None else 0)
     # Ensure annotation is printable and visible.
     annot.set_flags((annot.flags or 0) | fitz.PDF_ANNOT_IS_PRINT)
     # Generate the Appearance Stream (/AP). This is the "static" version of the annotation.
@@ -438,8 +469,8 @@ def add_movable_freetext_annotation(
         fontsize=fontsize,
         fontname="Helv",
         text_color=color,
-        border_color=None,
-        fill_color=None,
+        border_color=border_color,
+        fill_color=fill_color,
     )
 
 
@@ -453,7 +484,6 @@ def insert_mark(
 ) -> None:
     mark_point = offset_mark_point(page=page, point=point)
     fontsize = max(8.0, float(fontsize))
-    color = (0.0, 0.55, 0.0) if is_correct else (0.8, 0.0, 0.0)  # green / red
     rect = text_annotation_rect_from_baseline(
         page=page,
         x=mark_point.x,
@@ -462,6 +492,18 @@ def insert_mark(
         fontsize=fontsize,
         min_width=140.0,
     )
+
+    # Detect background brightness at the location of the mark to prioritize readability
+    dark = is_dark_background(page, rect)
+    if dark:
+        color = (0.3, 0.9, 0.3) if is_correct else (1.0, 0.4, 0.4)  # light green / light red
+        fill_color = (0.15, 0.15, 0.15)
+        border_color = (0.3, 0.3, 0.3)
+    else:
+        color = (0.0, 0.6, 0.0) if is_correct else (0.8, 0.0, 0.0)  # vibrant green / red
+        fill_color = None
+        border_color = None
+
     subject = build_annotation_subject(
         "question_mark",
         q=question_id,
@@ -476,6 +518,8 @@ def insert_mark(
         fontsize=fontsize,
         color=color,
         subject=subject,
+        fill_color=fill_color,
+        border_color=border_color,
     )
 
 
@@ -511,17 +555,31 @@ def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False, f
         fontsize=fontsize,
         min_width=220.0,
     )
+
+    # Detect background brightness for the header
+    dark = is_dark_background(page, rect)
+    if dark:
+        color = (0.9, 0.9, 0.9)  # light gray
+        fill_color = (0.15, 0.15, 0.15)
+        border_color = (0.3, 0.3, 0.3)
+    else:
+        color = (0.0, 0.0, 0.0)  # black
+        fill_color = None
+        border_color = None
+
     add_movable_freetext_annotation(
         page=page,
         rect=rect,
         text=text,
         fontsize=fontsize,
-        color=(0.0, 0.0, 0.0),
+        color=color,
         subject=build_annotation_subject(
             "header",
             p=page.number + 1,
             band=final_band,
         ),
+        fill_color=fill_color,
+        border_color=border_color,
     )
 
 
@@ -544,26 +602,41 @@ def add_fallback_summary(
         fontsize=title_size,
         min_width=120.0,
     )
+
+    # Detect background brightness for title
+    dark_title = is_dark_background(page, title_rect)
+    if dark_title:
+        title_color = (0.9, 0.9, 0.9)
+        title_fill = (0.15, 0.15, 0.15)
+        title_border = (0.3, 0.3, 0.3)
+    else:
+        title_color = (0.1, 0.1, 0.1)
+        title_fill = None
+        title_border = None
+
     add_movable_freetext_annotation(
         page=page,
         rect=title_rect,
         text=title_text,
         fontsize=title_size,
-        color=(0.1, 0.1, 0.1),
+        color=title_color,
         subject=build_annotation_subject(
             "review_title",
             p=page.number + 1,
         ),
+        fill_color=title_fill,
+        border_color=title_border,
     )
 
     for idx, question in enumerate(unresolved, start=1):
         q_result = result_map.get(question.id)
         verdict = q_result.verdict if q_result else "needs_review"
-        color = (0.0, 0.55, 0.0) if verdict == "correct" else (0.8, 0.0, 0.0)
+
         if q_result is None:
             line_text = f"x Q{question.id}: No result."
         else:
             line_text = mark_text_for_result(question_id=question.id, result=q_result)
+
         line_size = max(8.0, float(line_fontsize))
         line_rect = text_annotation_rect_from_baseline(
             page=page,
@@ -573,6 +646,18 @@ def add_fallback_summary(
             fontsize=line_size,
             min_width=150.0,
         )
+
+        # Detect background brightness for each line
+        dark_line = is_dark_background(page, line_rect)
+        if dark_line:
+            color = (0.3, 0.9, 0.3) if verdict == "correct" else (1.0, 0.4, 0.4)
+            line_fill = (0.15, 0.15, 0.15)
+            line_border = (0.3, 0.3, 0.3)
+        else:
+            color = (0.0, 0.6, 0.0) if verdict == "correct" else (0.8, 0.0, 0.0)
+            line_fill = None
+            line_border = None
+
         add_movable_freetext_annotation(
             page=page,
             rect=line_rect,
@@ -585,4 +670,6 @@ def add_fallback_summary(
                 p=page.number + 1,
                 n=idx,
             ),
+            fill_color=line_fill,
+            border_color=line_border,
         )

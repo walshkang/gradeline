@@ -11,6 +11,7 @@ def get_llm_provider(
     api_key: str,
     model: str,
     cache_dir: Path,
+    rate_limiter: Any | None = None,
 ) -> Any:
     """Factory to instantiate the appropriate grader provider."""
     normalized = str(provider_name).strip().lower()
@@ -20,6 +21,7 @@ def get_llm_provider(
             api_key=api_key,
             model=model,
             cache_dir=cache_dir,
+            rate_limiter=rate_limiter,
         )
     elif normalized == "openai":
         raise NotImplementedError(

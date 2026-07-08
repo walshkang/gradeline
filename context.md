@@ -2,25 +2,17 @@
 
 ## Next up
 
-**TUI + agent-friendly CLI** — see [`docs/plans/tui-agent-improvements.md`](docs/plans/tui-agent-improvements.md)
-
-Four slices. Wave 1 is fully parallelizable (no shared files):
-
-| Slice | What | Agent level | Wave |
-|---|---|---|---|
-| A — Exit codes | New codes 3/4 in `conclude()`, fix 4 review-server gates in `workflow_cli.py`, update tests | Sonnet | 1 |
-| B — Progress bar | `MofNCompleteColumn` + `TimeRemainingColumn` + rolling tally in `ui.py` | Haiku | 1 |
-| C — `CLAUDE.md` | Repo-root project instructions for AI assistant sessions | Haiku | 1 |
-| D — `--json` + `--quiet` | `QuietConsoleUI`, JSON summary to stdout, env var support | Sonnet | 2 (after A) |
+- **Web Review App Custom Bands Support** — update `grader/review/static/app.js` and HTML view to support dynamic numeric bands editing instead of hardcoded `check_plus_min` / `check_min` fields.
 
 ---
 
 ## Recent work
 
-- **Bounding box annotation pipeline** — Tesseract TSV → `TextBlock` block registry → XML-wrapped blocks in grading prompt → `block_id` lookup for spatial annotation placement. Fallback chain: `block_id` → `model_coords` → `local_anchor` → `summary_fallback`. See `grader/extract.py`, `grader/ocr_gemini.py`, `grader/annotate.py`.
-- **Grading pipeline fixes** — CASCADING ERROR RULE and TOLERANCE RULE added to system prompt; `assignment4.yaml` rubric updated with explicit tolerance ranges. See `grader/gemini_client.py`.
-- **Performance** — `concurrency = 8` global default in `configs/defaults.toml`; `extract_blocks = false` profile flag to skip OCR for all-handwritten assignments; `FIRST_COMPLETED` event loop fix that eliminated end-of-run hang.
-- **Docs** — `README.md` How It Works section, `docs/runbook.md`.
+- **Rate Limiter & Concurrency Auto-Clamping** — Added thread-safe sliding window RPM and daily RPD limit enforcement via `RateLimiterRegistry` ([rate_limit.py](file:///Users/walsh.kang/Documents/GitHub/gradeline/grader/rate_limit.py)). Auto-clamps execution workers to fit within API free-tier RPM limits.
+- **Checkpoint / Resume grading runs** — Added run configuration hashing and file-based state serialization ([checkpoint.py](file:///Users/walsh.kang/Documents/GitHub/gradeline/grader/checkpoint.py)). Gradeline gracefully checkpoints progress upon a `DailyLimitExhausted` exception or a `KeyboardInterrupt` stop, resuming cleanly on subsequent runs via `--resume` or the TUI `resume` menu item.
+- **No-Fallback Pithy Feedback Policy** — Eradicated boilerplate and static fallback strings when the AI fails to produce correct second-person reasons, opting to print clean `x Q{id}` marks with empty text comments to "air on the side of caution".
+- **Custom Dynamic Grading Bands** — Removed hardcoded `Check Plus`/`Check`/`Check Minus` validation in rubric parsing. Grading now evaluates arbitrary bands (like `10, 9, 8, 7, 6, 5`) dynamically by sorted threshold order and assigns numeric band names directly to CSV points.
+- **Performance & Tests** — Added comprehensive unit test coverage for rate limits and checkpoints (`161 passed`).
 
 ## Branch
 

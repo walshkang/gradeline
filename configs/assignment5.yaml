@@ -1,0 +1,76 @@
+assignment_id: "assignment5"
+scoring_mode: "equal_weights"
+partial_credit: 0.5
+
+bands:
+  check_plus_min: 0.90
+  check_min: 0.70
+
+questions:
+  - id: "1"
+    label_patterns: ["1)", "1.", "(1)", "Regression 1", "Regression I", "Regression1"]
+    anchor_tokens: ["1)", "1.", "Regression", "TOTCON", "FDEXP", "3.080", "0.08756"]
+    scoring_rules: >
+      Student must provide the simple regression of T (TOTCON) on F (FDEXP).
+      Correct equation: T-hat = 3.080 + 0.08756F.
+      Accept equivalent forms (hat notation, caret, or written as "predicted T").
+      100R² = 32.1% and Se = 0.966 should be reported.
+      Award full credit if the equation is correct and fit statistics are present.
+      Award partial credit if the equation is correct but fit statistics are missing or slightly off.
+    short_note_pass: "Correct regression equation with R² and Se."
+    short_note_fail: "Incorrect equation or missing fit statistics."
+    weight: 1.0
+
+  - id: "2"
+    label_patterns: ["2)", "2.", "(2)", "Regression 2", "Regression II", "Regression2"]
+    anchor_tokens: ["2)", "2.", "Regression", "RELIND", "31.5464", "18.651"]
+    scoring_rules: >
+      Student must provide the simple regression of T (TOTCON) on R (RELIND).
+      Correct equation: T-hat = 31.5464 – 18.651R.
+      100R² = 65.4% and Se = 0.690 should be reported.
+      Award full credit if the equation is correct and fit statistics are present.
+      Award partial credit if the equation is correct but fit statistics are missing or slightly off.
+    short_note_pass: "Correct regression equation with R² and Se."
+    short_note_fail: "Incorrect equation or missing fit statistics."
+    weight: 1.0
+
+  - id: "3"
+    label_patterns: ["3)", "3.", "(3)", "Regression 3", "Regression III", "Regression3"]
+    anchor_tokens: ["3)", "3.", "Regression", "21.890", "0.07214", "17.211"]
+    scoring_rules: >
+      Student must provide the multiple regression of T on both F and R.
+      Correct equation: T-hat = 21.890 + 0.07214F – 17.211R.
+      100R² = 86.7% and Se = 0.450 should be reported.
+      Award full credit if the equation is correct and fit statistics are present.
+      Award partial credit if the equation is correct but fit statistics are missing or slightly off.
+    short_note_pass: "Correct multiple regression equation with R² and Se."
+    short_note_fail: "Incorrect equation or missing fit statistics."
+    weight: 1.0
+
+  - id: "4"
+    label_patterns: ["4)", "4.", "(4)", "ANOVA", "T ratio", "T-ratio", "T statistic"]
+    anchor_tokens: ["4)", "4.", "ANOVA", "F ratio", "T ratio", "29.44", "3.81", "6.09", "2.262", "statistically significant"]
+    scoring_rules: >
+      Student must perform ANOVA and T-ratio analysis to justify choosing Regression III.
+      Required elements:
+        - Report F ratio = 29.44 and compare to F.05(2,9) = 4.26 (or equivalent critical value)
+        - Report T1 = 3.81 and T2 = -6.09 (or |T| values)
+        - Explicitly state that T statistics are statistically significant by comparing |Ti| to
+          t0.025 = 2.262 with 9 degrees of freedom (or equivalent language)
+        - Conclude Regression III is best because F and T ratios are all statistically significant
+
+      HARD CAP: If the student does NOT explicitly address the statistical significance of the
+      T statistics (i.e., no comparison of |Ti| to a t-critical value, no mention of T ratios
+      being statistically significant), the maximum score for this question is 0.70 (Check),
+      regardless of all other content quality. Citing higher R² or lower Se alone is NOT
+      sufficient — those will always increase when a variable is added; only the T test
+      determines whether the increase is statistically meaningful.
+
+      Award full credit (Check+) only if all four elements above are present and correct.
+      Award Check if ANOVA is performed correctly but T-stat significance is mentioned only
+      implicitly or incompletely.
+      Award Check- if ANOVA is missing or if the student justifies Regression III solely
+      on R² or Se without any T-ratio analysis.
+    short_note_pass: "ANOVA complete; T ratios explicitly tested for significance; Regression III correctly justified."
+    short_note_fail: "Missing T-stat significance test or Regression III justified by R²/Se only."
+    weight: 1.0

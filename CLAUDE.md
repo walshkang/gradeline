@@ -17,6 +17,7 @@ Exit codes
 - 0 = full success
 - 3 = some REVIEW_REQUIRED (no errors)
 - 4 = some grading errors
+- 5 = rate limit exhausted, checkpoint saved
 - 1 = report I/O failure
 - 2 = input/preflight error
 - 130 = user abort

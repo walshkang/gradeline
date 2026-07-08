@@ -61,6 +61,41 @@ class ScoreTests(unittest.TestCase):
         self.assertEqual(grade.band, "REVIEW_REQUIRED")
         self.assertEqual(grade.points, "")
 
+    def test_custom_dynamic_bands(self) -> None:
+        questions = [
+            QuestionRubric(id="a", label_patterns=[], scoring_rules="", short_note_pass="", short_note_fail=""),
+            QuestionRubric(id="b", label_patterns=[], scoring_rules="", short_note_pass="", short_note_fail=""),
+            QuestionRubric(id="c", label_patterns=[], scoring_rules="", short_note_pass="", short_note_fail=""),
+            QuestionRubric(id="d", label_patterns=[], scoring_rules="", short_note_pass="", short_note_fail=""),
+            QuestionRubric(id="e", label_patterns=[], scoring_rules="", short_note_pass="", short_note_fail=""),
+        ]
+        # Custom dynamic bands: 10 (100%), 9 (90%), 8 (80%), 7 (70%), 6 (60%), 5 (0%)
+        rubric = RubricConfig(
+            assignment_id="test_custom",
+            bands={"10": 1.0, "9": 0.9, "8": 0.8, "7": 0.7, "6": 0.6, "5": 0.0},
+            questions=questions,
+            scoring_mode="equal_weights",
+            partial_credit=0.5,
+        )
+        
+        # 4 correct out of 5 -> 80% -> matches band "8"
+        results = [
+            QuestionResult(id="a", verdict="correct", confidence=1, short_reason="", evidence_quote=""),
+            QuestionResult(id="b", verdict="correct", confidence=1, short_reason="", evidence_quote=""),
+            QuestionResult(id="c", verdict="correct", confidence=1, short_reason="", evidence_quote=""),
+            QuestionResult(id="d", verdict="correct", confidence=1, short_reason="", evidence_quote=""),
+            QuestionResult(id="e", verdict="incorrect", confidence=1, short_reason="", evidence_quote=""),
+        ]
+        
+        grade = score_submission(
+            rubric=rubric,
+            question_results=results,
+            grade_points={"REVIEW_REQUIRED": ""},  # No custom mappings provided for "8", should fallback to "8"
+        )
+        self.assertEqual(grade.band, "8")
+        self.assertEqual(grade.points, "8")
+        self.assertEqual(grade.percent, 80.0)
+
 
 if __name__ == "__main__":
     unittest.main()

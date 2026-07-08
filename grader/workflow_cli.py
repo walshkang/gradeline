@@ -277,6 +277,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Configure the GenAI API key used via .env across profiles.",
     )
 
+    resume_parser = subparsers.add_parser(
+        "resume",
+        help="Resume an interrupted grading run from a checkpoint.",
+    )
+    resume_parser.add_argument("--profile", required=True)
+    resume_parser.add_argument("--host", default=None)
+    resume_parser.add_argument("--port", type=int, default=None)
+
+    clear_run_parser = subparsers.add_parser(
+        "clear-run",
+        help="Clear partial grading run checkpoint and associated outputs.",
+    )
+    clear_run_parser.add_argument("--profile", required=True)
+
     return parser
 
 
@@ -285,6 +299,8 @@ _MENU_COMMANDS: list[tuple[str, str]] = [
     ("import", "Import assignment assets (from Downloads)"),
     ("quickstart", "Auto-detect settings, grade, and review"),
     ("run", "Grade submissions and launch review server"),
+    ("resume", "Resume an interrupted grading run"),
+    ("clear-run", "Clear partial run (checkpoint + outputs)"),
     ("spot-grade", "Grade a single late submission PDF (no Brightspace ID required)"),
     ("regrade", "Clear cache and re-run grading from scratch"),
     ("serve", "Launch review server for existing results"),
@@ -296,8 +312,8 @@ _MENU_COMMANDS: list[tuple[str, str]] = [
     ("exit", "Exit"),
 ]
 
-_COMMANDS_NEEDING_PROFILE = {"import", "quickstart", "run", "serve", "setup", "spot-grade"}
-_COMMANDS_WITH_REVIEW_SERVER = {"run", "serve", "regrade"}
+_COMMANDS_NEEDING_PROFILE = {"import", "quickstart", "run", "resume", "clear-run", "serve", "setup", "spot-grade"}
+_COMMANDS_WITH_REVIEW_SERVER = {"run", "serve", "regrade", "resume"}
 
 
 def interactive_command_menu() -> str | None:
@@ -336,6 +352,89 @@ def prompt_profile_interactive() -> str | None:
     return prompt_text("Profile name", required=True)
 
 
+def resume_from_profile(*, profile_spec: str, host_override: str | None, port_override: int | None) -> int:
+    profile = load_workflow_profile(profile_spec, cwd=get_project_root())
+    
+    # Check if checkpoint exists before running
+    from .checkpoint import get_checkpoint_path
+    checkpoint_file = get_checkpoint_path(profile.grade.output_dir)
+    if not checkpoint_file.exists():
+        styled_error(f"No checkpoint file found at {checkpoint_file} for profile '{profile_spec}'.")
+        return 2
+
+    grading_argv = build_grading_argv(profile.grade)
+    grading_argv.append("--resume")
+
+    exit_code = invoke_grading_main(grading_argv)
+    if exit_code in (1, 2):
+        return exit_code
+
+    state_path = initialize_review_state(output_dir=profile.grade.output_dir, rubric_yaml=None)
+    status, reason = review_state_status(profile.grade.output_dir)
+    if status != "valid":
+        raise ValueError(f"Review state invalid at {state_path}: {reason}")
+
+    host = resolve_host(profile=profile, host_override=host_override)
+    requested_port = resolve_requested_port(profile=profile, port_override=port_override)
+    port, shifted = resolve_available_port(host=host, preferred_port=requested_port)
+
+    styled_section_heading("Review Server")
+    styled_info(f"Profile: {profile.name}")
+    styled_info(f"Output dir: {profile.grade.output_dir}")
+    if shifted:
+        styled_warning(f"Port {requested_port} is busy. Using {port}.")
+    styled_url("Review URL", f"http://{host}:{port}")
+    run_review_server(output_dir=profile.grade.output_dir, host=host, port=port)
+    return 0
+
+
+def clear_run_from_profile(*, profile_spec: str) -> int:
+    profile = load_workflow_profile(profile_spec, cwd=get_project_root())
+    output_dir = profile.grade.output_dir
+    
+    from .checkpoint import get_checkpoint_path, clear_checkpoint
+    checkpoint_file = get_checkpoint_path(output_dir)
+    
+    checkpoint_exists = checkpoint_file.exists()
+    outputs_exist = output_dir.exists() and any(output_dir.iterdir())
+    
+    if not checkpoint_exists and not outputs_exist:
+        styled_info("No checkpoint or output files found to clear.")
+        return 0
+        
+    styled_section_heading(f"Clear Grading Run: {profile_spec}")
+    styled_warning("This will permanently delete the following files/folders:")
+    if checkpoint_exists:
+        styled_info(f"  - Checkpoint file: {checkpoint_file}")
+    if outputs_exist:
+        styled_info(f"  - Outputs & reports: {output_dir}/*")
+        
+    if not prompt_yes_no("Are you sure you want to clear this run?", default=False):
+        styled_info("Clear run cancelled.")
+        return 0
+        
+    removed_count = 0
+    if checkpoint_exists:
+        clear_checkpoint(output_dir)
+        removed_count += 1
+        styled_info("Cleared checkpoint file.")
+        
+    if output_dir.is_dir():
+        import shutil
+        for child in output_dir.iterdir():
+            try:
+                if child.is_dir():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
+                removed_count += 1
+            except Exception as exc:
+                styled_warning(f"Could not remove {child}: {exc}")
+                
+    styled_success(f"Successfully cleared {removed_count} item(s)/folder(s).")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv if argv is not None else sys.argv[1:])
     interactive_session = args.command is None and is_interactive_terminal()
@@ -367,6 +466,22 @@ def main(argv: list[str] | None = None) -> int:
                     profile_spec=profile,
                     host_override=getattr(args, "host", None),
                     port_override=getattr(args, "port", None),
+                )
+            elif command == "resume":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    return 0
+                exit_code = resume_from_profile(
+                    profile_spec=profile,
+                    host_override=getattr(args, "host", None),
+                    port_override=getattr(args, "port", None),
+                )
+            elif command == "clear-run":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    return 0
+                exit_code = clear_run_from_profile(
+                    profile_spec=profile,
                 )
             elif command == "grade-new":
                 if not is_interactive_terminal():

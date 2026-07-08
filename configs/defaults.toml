@@ -1,10 +1,13 @@
 [models]
-grading = "gemini-2.5-flash"
-extraction = "gemini-2.0-flash"
+grading = "gemma-4-31b-it"
+extraction = "gemini-3.1-flash-lite"
 locator = ""
 
 [grading]
 concurrency = 8
+
+[rate_limit]
+enabled = true
 
 [extraction]
 ocr_char_threshold = "200"

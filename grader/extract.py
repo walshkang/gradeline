@@ -6,6 +6,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
+from typing import Any
 from .types import ExtractedPdf, TextBlock
 
 
@@ -75,7 +76,8 @@ def extract_pdf_text(
     temp_dir: Path,
     ocr_char_threshold: int = 200,
     gemini_api_key: str | None = None,
-    gemini_model: str = "gemini-2.0-flash",
+    gemini_model: str = "gemini-3.1-flash-lite",
+    rate_limiter: Any | None = None,
 ) -> ExtractedPdf:
     native_text = run_pdftotext(pdf_path)
     native_chars = non_whitespace_char_count(native_text)
@@ -103,6 +105,7 @@ def extract_pdf_text(
             temp_dir=temp_dir,
             api_key=gemini_api_key,
             model=gemini_model,
+            rate_limiter=rate_limiter,
         )
 
     ocr_text = "\n".join(b.text for b in ocr_blocks)
@@ -141,6 +144,7 @@ def _run_gemini_fallback(
     api_key: str,
     model: str,
     dpi: float = 216.0,
+    rate_limiter: Any | None = None,
 ) -> list[TextBlock]:
     from .ocr_gemini import extract_blocks_gemini
 
@@ -174,6 +178,7 @@ def _run_gemini_fallback(
                 api_key=api_key,
                 model=model,
                 dpi=dpi,
+                rate_limiter=rate_limiter,
             )
             all_blocks.extend(page_blocks)
         finally:

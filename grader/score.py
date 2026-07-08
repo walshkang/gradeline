@@ -42,6 +42,9 @@ def score_submission(
 
     band = determine_band(percent=percent, bands=rubric.bands, has_needs_review=has_needs_review)
     points = grade_points.get(band, "")
+    if not points and band.replace(".", "", 1).isdigit():
+        points = band
+
     return GradeResult(
         percent=round(percent, 2),
         band=band,
@@ -55,11 +58,33 @@ def determine_band(percent: float, bands: dict[str, float], has_needs_review: bo
     if has_needs_review:
         return "REVIEW_REQUIRED"
 
-    check_plus_min = float(bands["check_plus_min"]) * 100.0
-    check_min = float(bands["check_min"]) * 100.0
-    if percent >= check_plus_min:
-        return "Check Plus"
-    if percent >= check_min:
-        return "Check"
+    # If it is the legacy check style:
+    if "check_plus_min" in bands and "check_min" in bands:
+        check_plus_min = float(bands["check_plus_min"]) * 100.0
+        check_min = float(bands["check_min"]) * 100.0
+        if percent >= check_plus_min:
+            return "Check Plus"
+        if percent >= check_min:
+            return "Check"
+        return "Check Minus"
+
+    # Otherwise evaluate custom bands dynamically
+    sorted_bands = []
+    for name, val in bands.items():
+        threshold = float(val)
+        if threshold <= 1.0:
+            threshold *= 100.0
+        sorted_bands.append((name, threshold))
+
+    sorted_bands.sort(key=lambda x: x[1], reverse=True)
+
+    for name, threshold in sorted_bands:
+        if percent >= threshold:
+            return name
+
+    # Fallback to the lowest threshold band if none matched
+    if sorted_bands:
+        return sorted_bands[-1][0]
+
     return "Check Minus"
 

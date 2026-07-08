@@ -29,14 +29,17 @@ _defaults = _read_defaults()
 DEFAULT_MODEL: str = (
     (_defaults.get("models") or {}).get("grading")
     or (_defaults.get("defaults") or {}).get("model")
-    or "gemma4-31b-it"
+    or "gemma-4-31b-it"
 )
 DEFAULT_EXTRACTION_MODEL: str = (
     (_defaults.get("models") or {}).get("extraction")
-    or "gemini-2.0-flash"
+    or "gemini-3.1-flash-lite"
 )
 DEFAULT_CONCURRENCY: int = int(
     (_defaults.get("grading") or {}).get("concurrency", 8)
+)
+DEFAULT_RATE_LIMIT_ENABLED: bool = bool(
+    (_defaults.get("rate_limit") or {}).get("enabled", True)
 )
 
 

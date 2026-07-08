@@ -1,0 +1,57 @@
+assignment_id: "hw1_probability_distributions_lenient"
+scoring_mode: "equal_weights"
+partial_credit: 0.5
+
+# Extremely lenient grading thresholds
+bands:
+  "10": 0.80 # 80%+ (Allows 1 partial deduction, still gets a 10)
+  "9": 0.60  # 60%+ (Allows getting a full question wrong)
+  "8": 0.45  # 45%+ (Allows missing half the assignment)
+  "7": 0.25  # 25%+ (Barely grasped anything, but tried)
+  "5": 0.00  # Default minimum score
+
+questions:
+  - id: "6"
+    weight: 1.0
+    label_patterns: ["Question 6", "Q6", "6)", "6."]
+    anchor_tokens: ["According to the Empirical Rule", "6."]
+    scoring_rules: |
+      Correct final ranges are: 68% (493k to 557k), 95% (461k to 589k), and 99.7% (429k to 621k).
+      Evaluate the student's work. If wrong, classify their mistake and write ONLY the exact topic name for the short_reason:
+      - If they failed to apply the correct 1, 2, and 3 standard deviation multipliers: "Empirical Rule"
+      - If they used the correct rule but made a basic addition/subtraction error: "Arithmetic"
+      
+      Rules:
+      - If correct, leave short_reason empty.
+      - Output ONLY the name of the topic/error itself. Do not write full sentences, and do not use the word "Topic".
+
+  - id: "7"
+    weight: 1.0
+    label_patterns: ["Question 7", "Q7", "7)", "7."]
+    anchor_tokens: ["packaged cereals industry", "7."]
+    scoring_rules: |
+      Correct answers are: a) 0.45, b) 0.55, c) 0.21.
+      Evaluate the student's work. If wrong, classify their mistake and write ONLY the exact topic name for the short_reason:
+      - If they failed to apply the general addition rule P(A U B) = P(A) + P(B) - P(A ∩ B): "Union Probability"
+      - If they miscalculated the 'neither' or 'only one' scenarios: "Complement Rules"
+      - If they made a basic addition/subtraction error: "Arithmetic"
+      
+      Rules:
+      - If correct, leave short_reason empty.
+      - Output ONLY the name of the topic/error itself. Do not write full sentences, and do not use the word "Topic".
+
+  - id: "8"
+    weight: 1.0
+    label_patterns: ["Question 8", "Q8", "8)", "8."]
+    anchor_tokens: ["A survey of workers", "8."]
+    scoring_rules: |
+      Correct calculations are: P(A) = 0.436, P(B) = 0.291, P(A|B) = 0.375.
+      Correct conclusion: Events are NOT independent because P(A|B) != P(A).
+      Evaluate the student's work. If wrong, classify their mistake and write ONLY the exact topic name for the short_reason:
+      - If they extracted the wrong numerators/denominators from the text: "Conditional Probability"
+      - If they failed to prove/disprove independence using P(A|B) = P(A) or P(A ∩ B) = P(A)P(B): "Independence Logic"
+      - If they set up the fractions correctly but made a calculation error: "Arithmetic"
+      
+      Rules:
+      - If correct, leave short_reason empty.
+      - Output ONLY the name of the topic/error itself. Do not write full sentences, and do not use the word "Topic".

@@ -94,7 +94,6 @@ class DraftRubricConfig(BaseModel):
     partial_credit: float | None = None
     questions: list[DraftRubricQuestion]
 
-
 class GeminiGrader:
     def __init__(
         self,
@@ -102,11 +101,13 @@ class GeminiGrader:
         model: str,
         cache_dir: Path,
         max_retries: int = 5,
+        rate_limiter: Any | None = None,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.cache_dir = cache_dir
         self.max_retries = max_retries
+        self.rate_limiter = rate_limiter
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._init_db()
         self._resolved_context_names: dict[str, str] = {}
@@ -115,6 +116,10 @@ class GeminiGrader:
 
         self._genai = genai
         self.client = genai.Client(api_key=api_key)
+
+    def _acquire(self, model: str) -> None:
+        if self.rate_limiter is not None:
+            self.rate_limiter.get_limiter(model).acquire()
 
     def grade_submission(
         self,
@@ -147,6 +152,7 @@ class GeminiGrader:
         )
 
         def invoke() -> JsonDict:
+            self._acquire(self.model)
             response = self.client.models.generate_content(
                 model=self.model,
                 contents=[*files, prompt],
@@ -212,6 +218,7 @@ class GeminiGrader:
             )
 
         def invoke() -> JsonDict:
+            self._acquire(self.model)
             config: JsonDict = {
                 "response_mime_type": "application/json",
                 "response_schema": UnifiedSubmissionResponse,
@@ -335,6 +342,7 @@ class GeminiGrader:
         prompt = build_locator_prompt(pdf_name=pdf_path.name, rubric=rubric)
 
         def invoke() -> JsonDict:
+            self._acquire(locator_model)
             response = self.client.models.generate_content(
                 model=locator_model,
                 contents=[file_ref, prompt],
@@ -367,6 +375,7 @@ class GeminiGrader:
         prompt = build_rubric_draft_prompt(assignment_id=assignment_id)
 
         def invoke() -> JsonDict:
+            self._acquire(self.model)
             response = self.client.models.generate_content(
                 model=self.model,
                 contents=[file_ref, prompt],
@@ -420,19 +429,23 @@ class GeminiGrader:
                     flags.append("context_cache_lookup_failed")
                     self._delete_context_cache(context_key)
 
+        def create_cache() -> Any:
+            self._acquire(self.model)
+            return self.client.caches.create(
+                model=self.model,
+                config={
+                    "display_name": f"sda-solutions-{context_key[:12]}",
+                    "ttl": f"{ttl}s",
+                    "contents": [file_ref],
+                    "system_instruction": build_context_system_instruction(rubric),
+                },
+            )
+
         ttl = max(60, int(ttl_seconds))
         try:
             file_ref = self._upload_and_wait(solutions_pdf_path)
             cache = call_with_backoff(
-                lambda: self.client.caches.create(
-                    model=self.model,
-                    config={
-                        "display_name": f"sda-solutions-{context_key[:12]}",
-                        "ttl": f"{ttl}s",
-                        "contents": [file_ref],
-                        "system_instruction": build_context_system_instruction(rubric),
-                    },
-                ),
+                create_cache,
                 max_retries=self.max_retries,
             )
             cache_name = str(getattr(cache, "name", "")).strip()
@@ -838,7 +851,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                     verdict="needs_review",
                     confidence=0.0,
                     logic_analysis="",
-                    short_reason="Review manually.",
+                    short_reason="",
                     detail_reason="",
                     evidence_quote="",
                 )
@@ -893,7 +906,7 @@ def normalize_feedback(
     if verdict == "correct":
         return "", ""
     if verdict == "needs_review":
-        return "Review manually.", ""
+        return "", ""
 
     short_reason = derive_short_reason(raw_short_reason=raw_short_reason, fallback_fail_note=fallback_fail_note)
     detail_reason = derive_detail_reason(
@@ -913,14 +926,7 @@ def derive_short_reason(*, raw_short_reason: str, fallback_fail_note: str) -> st
     if candidate and (not is_third_person_feedback(candidate)):
         return clamp_short_reason(candidate)
 
-    fallback = extract_pithy_sentence(
-        fallback_fail_note,
-        max_chars=SHORT_REASON_MAX_CHARS,
-        max_words=SHORT_REASON_MAX_WORDS,
-    )
-    if fallback:
-        return clamp_short_reason(fallback)
-    return "Check your work."
+    return ""
 
 
 def derive_detail_reason(*, raw_short_reason: str, raw_detail_reason: str, short_reason: str) -> str:
@@ -1405,7 +1411,12 @@ def call_with_backoff(func: Callable[[], Any], max_retries: int = 5) -> Any:
             attempts += 1
             if attempts >= max_retries or not should_retry(exc):
                 raise
-            delay = (2 ** (attempts - 1)) + random.uniform(0.0, 0.25)
+            message = str(exc).lower()
+            is_429 = "429" in message or "rate" in message
+            if is_429:
+                delay = 15.0 + (5.0 * attempts) + random.uniform(0.0, 1.0)
+            else:
+                delay = (2 ** (attempts - 1)) + random.uniform(0.0, 0.25)
             time.sleep(delay)
 
 

@@ -42,8 +42,9 @@ def extract_blocks_gemini(
     image_path: Path,
     page: int,
     api_key: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-3.1-flash-lite",
     dpi: float = 216.0,
+    rate_limiter: Any | None = None,
 ) -> list[TextBlock]:
     """Send a rasterized page image to Gemini Flash and parse TextBlock objects."""
     from google import genai

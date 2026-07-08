@@ -35,15 +35,14 @@ def load_rubric(path: Path) -> RubricConfig:
     bands_raw = payload.get("bands")
     if not isinstance(bands_raw, dict):
         raise ValueError("Rubric config must include 'bands'.")
-    if "check_plus_min" not in bands_raw or "check_min" not in bands_raw:
-        raise ValueError("Bands must include check_plus_min and check_min.")
+    if not bands_raw:
+        raise ValueError("Bands must not be empty.")
+
+    bands = {str(k).strip(): float(v) for k, v in bands_raw.items()}
 
     return RubricConfig(
         assignment_id=str(payload.get("assignment_id", "assignment")).strip(),
-        bands={
-            "check_plus_min": float(bands_raw["check_plus_min"]),
-            "check_min": float(bands_raw["check_min"]),
-        },
+        bands=bands,
         questions=questions,
         scoring_mode=str(payload.get("scoring_mode", "equal_weights")).strip(),
         partial_credit=float(payload.get("partial_credit", 0.5)),
