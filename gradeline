@@ -15,4 +15,4 @@ if [ -f "${VENV_DIR}/bin/activate" ]; then
     source "${VENV_DIR}/bin/activate"
 fi
 
-exec python3 -m grader.workflow_cli "$@"
+exec python3 -u -m grader.workflow_cli "$@"

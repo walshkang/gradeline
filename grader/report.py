@@ -174,8 +174,13 @@ def find_matching_result(
     identifier_column: str,
 ) -> SubmissionResult | None:
     identifier = normalize_name(row.get(identifier_column, ""))
-    if identifier and identifier in result_by_token:
-        return result_by_token[identifier]
+    if identifier:
+        if identifier in result_by_token:
+            return result_by_token[identifier]
+        # Support prefix matching (e.g., OrgDefinedId "11774" matches folder token "117741199265")
+        for token_key, result in result_by_token.items():
+            if token_key.startswith(identifier) or identifier.startswith(token_key):
+                return result
 
     first = row.get("First Name", "").strip()
     last = row.get("Last Name", "").strip()

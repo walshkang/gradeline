@@ -144,3 +144,25 @@ def test_apply_locator_candidates_only_fills_missing_coords_and_sets_source():
     assert updated_map["b"].coords == (500.0, 600.0)
     assert updated_map["b"].placement_source == "locator_coords"
 
+
+def test_add_movable_freetext_annotation_with_border():
+    import fitz
+    from grader.annotate import add_movable_freetext_annotation
+    doc = fitz.open()
+    page = doc.new_page()
+    rect = fitz.Rect(10, 10, 100, 50)
+    # Should not raise ValueError: cannot set border_color if rich_text is False
+    add_movable_freetext_annotation(
+        page=page,
+        rect=rect,
+        text="Test",
+        fontsize=12,
+        color=(0, 0, 0),
+        subject="test",
+        border_color=(1, 0, 0),
+    )
+    annots = list(page.annots())
+    assert len(annots) == 1
+    assert annots[0].type[1] == "FreeText"
+
+

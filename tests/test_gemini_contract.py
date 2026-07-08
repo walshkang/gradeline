@@ -226,6 +226,44 @@ class GeminiContractTests(unittest.TestCase):
             key3 = compute_context_cache_key(model="gemini-3-flash-preview", rubric=rubric, solutions_pdf_path=path)
             self.assertNotEqual(key1, key3)
 
+    def test_failed_context_cache_is_cached(self) -> None:
+        from grader.gemini_client import GeminiGrader
+        from unittest.mock import MagicMock
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            grader = GeminiGrader(
+                api_key="dummy_key",
+                model="dummy_model",
+                cache_dir=Path(tmp_dir),
+            )
+            # Mock _upload_and_wait so it fails
+            grader._upload_and_wait = MagicMock(side_effect=RuntimeError("Upload failed"))
+
+            rubric = make_rubric()
+            solutions_pdf = Path(tmp_dir) / "solutions.pdf"
+            solutions_pdf.write_bytes(b"%PDF-1.4")
+
+            # First call should try to upload and fail, returning (None, flags)
+            res1, flags1 = grader._resolve_context_cache(
+                context_key="test_key",
+                rubric=rubric,
+                solutions_pdf_path=solutions_pdf,
+                ttl_seconds=60,
+            )
+            self.assertIsNone(res1)
+            self.assertIn("context_cache_create_failed", flags1)
+            self.assertEqual(grader._upload_and_wait.call_count, 1)
+
+            # Second call should bypass upload and return immediately
+            res2, flags2 = grader._resolve_context_cache(
+                context_key="test_key",
+                rubric=rubric,
+                solutions_pdf_path=solutions_pdf,
+                ttl_seconds=60,
+            )
+            self.assertIsNone(res2)
+            self.assertIn("context_cache_create_failed", flags2)
+            self.assertEqual(grader._upload_and_wait.call_count, 1)  # should still be 1!
+
 
 class TwoTierFeedbackTests(unittest.TestCase):
     # -- clamp_short_reason --------------------------------------------------

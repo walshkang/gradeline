@@ -240,6 +240,51 @@ class ReportCsvTests(unittest.TestCase):
             self.assertEqual(out_csv.name, "custom.csv")
             self.assertTrue(out_csv.exists())
 
+    def test_prefix_matching_for_org_defined_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            template = root / "template.csv"
+            output_dir = root / "out"
+            output_dir.mkdir()
+
+            with template.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle,
+                    fieldnames=[
+                        "OrgDefinedId",
+                        "Assignment 1 Points Grade",
+                    ],
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "OrgDefinedId": "123",
+                        "Assignment 1 Points Grade": "",
+                    }
+                )
+
+            # folder_token has a suffix like "-456"
+            result = make_submission_result(
+                folder_name="123-456 - Jane Doe - Feb 24",
+                folder_token="123-456",
+                student_name="Jane Doe",
+                band="Check Plus",
+                points="100",
+            )
+            out_csv, warnings = write_brightspace_import_csv(
+                output_dir=output_dir,
+                template_csv_path=template,
+                submission_results=[result],
+                grade_column="Assignment 1 Points Grade",
+                identifier_column="OrgDefinedId",
+                comment_column=None,
+            )
+            self.assertEqual(len(warnings), 0)
+
+            with out_csv.open("r", newline="", encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(rows[0]["Assignment 1 Points Grade"], "100")
+
 
 if __name__ == "__main__":
     unittest.main()

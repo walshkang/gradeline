@@ -111,6 +111,7 @@ class GeminiGrader:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._init_db()
         self._resolved_context_names: dict[str, str] = {}
+        self._failed_context_keys: set[str] = set()
 
         from google import genai  # Lazy import for testability without dependency.
 
@@ -408,6 +409,10 @@ class GeminiGrader:
         ttl_seconds: int,
     ) -> tuple[str | None, list[str]]:
         flags: list[str] = []
+        if context_key in self._failed_context_keys:
+            flags.extend(["context_cache_create_failed", "context_cache_bypassed"])
+            return None, flags
+
         resolved = self._resolved_context_names.get(context_key)
         if resolved:
             return resolved, flags
@@ -460,7 +465,9 @@ class GeminiGrader:
             })
             self._resolved_context_names[context_key] = cache_name
             return cache_name, flags
-        except Exception:
+        except Exception as exc:
+            # We cache the failure to avoid trying to upload and create the cache again.
+            self._failed_context_keys.add(context_key)
             flags.extend(["context_cache_create_failed", "context_cache_bypassed"])
             return None, flags
 

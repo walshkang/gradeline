@@ -453,6 +453,7 @@ def add_movable_freetext_annotation(
         fill_color=fill_color,
         border_color=border_color,
         border_width=1 if border_color is not None else 0,
+        richtext=True if border_color is not None else False,
     )
     # Set metadata. We skip 'content' here as it's already set by add_freetext_annot;
     # redundant setting can cause some viewers (like macOS Preview) to render a "ghost" text box.
