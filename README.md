@@ -401,3 +401,17 @@ Reviewed artifacts are written into `output_dir/review/`:
 - **No-Fallback Policy**: If the AI feedback contains third-person tokens or is too wordy, the system drops the feedback and prints only a clean `x Q{id}` mark with no description, "airing on the side of caution".
 - `--dry-run` defaults to header-only annotation (no per-question x/✓ marks). Use `--annotate-dry-run-marks` for debug placement marks.
 - Rich console output with section headings, colored bands, and progress bars is used automatically in interactive terminals; use `--plain` for deterministic text output.
+
+## AI Coding Sessions & Agent Guidance
+
+If you are an AI assistant or agent opening a coding session or executing commands/tool calls in this workspace, please adhere to the following rules:
+
+1. **Activate the Virtual Environment**: Always run the activation script before any other command:
+   ```bash
+   source .venv/bin/activate
+   ```
+2. **Use Python 3**: Always run python commands using `python3` explicitly rather than `python` (e.g., when executing scripts, running tests, or performing tool calls):
+   ```bash
+   source .venv/bin/activate && python3 -m pytest tests/ -x -q
+   ```
+

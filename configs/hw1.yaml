@@ -21,6 +21,10 @@ questions:
       - If they failed to apply the correct 1, 2, and 3 standard deviation multipliers: "Empirical Rule"
       - If they used the correct rule but made a basic addition/subtraction error: "Arithmetic"
       
+      CRITICAL GRADING NOTES:
+      - Accept answers expressed in thousands (e.g. 493.00, 493k, 493) instead of 493,000. These are correct.
+      - This question uses the Empirical Rule for a population. It is NOT a confidence interval of the mean; do NOT expect or penalize the student for not dividing by sqrt(n).
+      
       Rules:
       - If correct, leave short_reason empty.
       - Output ONLY the name of the topic/error itself. Do not write full sentences, and do not use the word "Topic".
@@ -35,6 +39,10 @@ questions:
       - If they failed to apply the general addition rule P(A U B) = P(A) + P(B) - P(A ∩ B): "Union Probability"
       - If they miscalculated the 'neither' or 'only one' scenarios: "Complement Rules"
       - If they made a basic addition/subtraction error: "Arithmetic"
+      
+      CRITICAL GRADING NOTES:
+      - Part c asks for the probability that the VP holds an MBA but NOT an undergraduate business degree. The correct value is 0.21 (or 21%).
+      - Do NOT expect 0.33 (33%) or 0.24 (24%) for part c. If the student answers 0.21 or 21%, it is correct.
       
       Rules:
       - If correct, leave short_reason empty.
@@ -51,6 +59,12 @@ questions:
       - If they extracted the wrong numerators/denominators from the text: "Conditional Probability"
       - If they failed to prove/disprove independence using P(A|B) = P(A) or P(A ∩ B) = P(A)P(B): "Independence Logic"
       - If they set up the fractions correctly but made a calculation error: "Arithmetic"
+      
+      CRITICAL GRADING NOTES:
+      - The total worker count is 440 (Plant 1 = 192, Plant 2 = 248). Poor = 128 (48 in Plant 1, 80 in Plant 2).
+      - P(A) = 192/440 = 24/55 ≈ 0.436. P(B) = 128/440 = 16/55 ≈ 0.291. P(A|B) = 48/128 = 3/8 = 0.375.
+      - Do NOT assume any other table sizes or totals (e.g. 568 or 240).
+      - The conclusion must be that the events are dependent (not independent) because P(A|B) != P(A).
       
       Rules:
       - If correct, leave short_reason empty.

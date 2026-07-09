@@ -1,5 +1,9 @@
 CLAUDE.md — Project-level instructions for AI sessions
 
+AI Session Startup & Tool Calls:
+- Always activate the virtual environment: `source .venv/bin/activate`
+- Always use `python3` (not `python`) for executing python scripts, running tests, or making tool calls.
+
 Repo layout (key files)
 - grader/cli.py — Main grading CLI: parse_args(), main(), conclude() closure, RollingSnapshot handling, summarize_results, update_rolling_snapshot.
 - grader/ui.py — Console UI: ConsoleUI base class, PlainConsoleUI and RichConsoleUI implementations, create_console_ui(), args_to_subtitle(), RunSummary.
@@ -23,7 +27,8 @@ Exit codes
 - 130 = user abort
 
 Running tests
-source .venv/bin/activate && python -m pytest tests/ -x -q
+source .venv/bin/activate && python3 -m pytest tests/ -x -q
+
 
 Key conventions (verified in code)
 - ConsoleUI is the UI base in grader/ui.py; PlainConsoleUI and RichConsoleUI implement its methods. create_console_ui(force_plain=...) chooses PlainConsoleUI when force_plain=True or when stdout is not a TTY or Rich is unavailable; otherwise RichConsoleUI is used.
