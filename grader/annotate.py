@@ -455,6 +455,11 @@ def add_movable_freetext_annotation(
         border_width=1 if border_color is not None else 0,
         richtext=True if border_color is not None else False,
     )
+    if fill_color is not None:
+        try:
+            annot.set_opacity(0.9)
+        except AttributeError:
+            pass
     # Set metadata. We skip 'content' here as it's already set by add_freetext_annot;
     # redundant setting can cause some viewers (like macOS Preview) to render a "ghost" text box.
     annot.set_info(
@@ -497,9 +502,9 @@ def insert_mark(
     # Detect background brightness at the location of the mark to prioritize readability
     dark = is_dark_background(page, rect)
     if dark:
-        color = (0.3, 0.9, 0.3) if is_correct else (1.0, 0.4, 0.4)  # light green / light red
-        fill_color = (0.15, 0.15, 0.15)
-        border_color = (0.3, 0.3, 0.3)
+        color = (0.0, 0.6, 0.0) if is_correct else (0.8, 0.0, 0.0)  # vibrant green / red
+        fill_color = (1.0, 1.0, 1.0)  # mostly opaque white box
+        border_color = (0.7, 0.7, 0.7)  # light gray border
     else:
         color = (0.0, 0.6, 0.0) if is_correct else (0.8, 0.0, 0.0)  # vibrant green / red
         fill_color = None
@@ -560,9 +565,9 @@ def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False, f
     # Detect background brightness for the header
     dark = is_dark_background(page, rect)
     if dark:
-        color = (0.9, 0.9, 0.9)  # light gray
-        fill_color = (0.15, 0.15, 0.15)
-        border_color = (0.3, 0.3, 0.3)
+        color = (0.0, 0.0, 0.0)  # black
+        fill_color = (1.0, 1.0, 1.0)  # mostly opaque white box
+        border_color = (0.7, 0.7, 0.7)  # light gray border
     else:
         color = (0.0, 0.0, 0.0)  # black
         fill_color = None
@@ -607,9 +612,9 @@ def add_fallback_summary(
     # Detect background brightness for title
     dark_title = is_dark_background(page, title_rect)
     if dark_title:
-        title_color = (0.9, 0.9, 0.9)
-        title_fill = (0.15, 0.15, 0.15)
-        title_border = (0.3, 0.3, 0.3)
+        title_color = (0.1, 0.1, 0.1)  # dark charcoal
+        title_fill = (1.0, 1.0, 1.0)  # mostly opaque white box
+        title_border = (0.7, 0.7, 0.7)  # light gray border
     else:
         title_color = (0.1, 0.1, 0.1)
         title_fill = None
@@ -651,9 +656,9 @@ def add_fallback_summary(
         # Detect background brightness for each line
         dark_line = is_dark_background(page, line_rect)
         if dark_line:
-            color = (0.3, 0.9, 0.3) if verdict == "correct" else (1.0, 0.4, 0.4)
-            line_fill = (0.15, 0.15, 0.15)
-            line_border = (0.3, 0.3, 0.3)
+            color = (0.0, 0.6, 0.0) if verdict == "correct" else (0.8, 0.0, 0.0)
+            line_fill = (1.0, 1.0, 1.0)  # mostly opaque white box
+            line_border = (0.7, 0.7, 0.7)  # light gray border
         else:
             color = (0.0, 0.6, 0.0) if verdict == "correct" else (0.8, 0.0, 0.0)
             line_fill = None
