@@ -70,6 +70,7 @@ class DraftRubricQuestion(BaseModel):
     short_note_pass: str | None = None
     short_note_fail: str | None = None
     anchor_tokens: list[str] | None = None
+    expected_answers: list[str] | None = None
 
 
 class DraftRubricBands(BaseModel):
@@ -1175,6 +1176,12 @@ def normalize_draft_rubric_payload(payload: JsonDict, assignment_id: str) -> Jso
         else:
             anchor_tokens = list(label_patterns)
 
+        raw_expected_answers = item.get("expected_answers")
+        if isinstance(raw_expected_answers, list) and raw_expected_answers:
+            expected_answers = [str(v) for v in raw_expected_answers if str(v).strip()]
+        else:
+            expected_answers = []
+
         normalized_questions.append(
             {
                 "id": qid,
@@ -1184,6 +1191,7 @@ def normalize_draft_rubric_payload(payload: JsonDict, assignment_id: str) -> Jso
                 "short_note_fail": short_note_fail,
                 "weight": weight_val,
                 "anchor_tokens": anchor_tokens,
+                "expected_answers": expected_answers,
             }
         )
 
@@ -1392,6 +1400,7 @@ def rubric_to_cache_payload(rubric: RubricConfig) -> JsonDict:
                 "scoring_rules": question.scoring_rules,
                 "weight": question.weight,
                 "anchor_tokens": question.anchor_tokens,
+                "expected_answers": question.expected_answers,
             }
             for question in rubric.questions
         ],

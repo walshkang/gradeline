@@ -30,6 +30,7 @@ def load_rubric(path: Path) -> RubricConfig:
             short_note_fail=str(item.get("short_note_fail", "Check")).strip(),
             weight=float(item.get("weight", 1.0)),
             anchor_tokens=[str(v) for v in item.get("anchor_tokens", [])],
+            expected_answers=[str(v) for v in item.get("expected_answers", [])],
         )
         if not q_rubric.short_note_fail or q_rubric.short_note_fail == "Check":
             warnings.warn(

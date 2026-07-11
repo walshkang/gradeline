@@ -93,6 +93,42 @@ class DraftRubricNormalizationTests(unittest.TestCase):
         self.assertAlmostEqual(normalized["partial_credit"], 0.5, places=6)
 
 
+    def test_expected_answers_normalization_and_cache(self) -> None:
+        from grader.gemini_client import rubric_to_cache_payload
+        from grader.types import QuestionRubric, RubricConfig
+
+        payload = {
+            "assignment_id": "test",
+            "questions": [
+                {"id": "1", "scoring_rules": "r1", "expected_answers": ["493.*557"]},
+                {"id": "2", "scoring_rules": "r2"},
+            ],
+        }
+
+        normalized = normalize_draft_rubric_payload(payload, assignment_id="fallback")
+        questions = normalized["questions"]
+        self.assertEqual(questions[0]["expected_answers"], ["493.*557"])
+        self.assertEqual(questions[1]["expected_answers"], [])
+
+        # Test cache payload serialization
+        rubric = RubricConfig(
+            assignment_id="test",
+            bands={"check_plus_min": 0.9, "check_min": 0.7},
+            questions=[
+                QuestionRubric(
+                    id="1",
+                    label_patterns=["1)"],
+                    scoring_rules="r1",
+                    short_note_pass="ok",
+                    short_note_fail="fail",
+                    expected_answers=["493.*557"],
+                )
+            ],
+        )
+        cache_payload = rubric_to_cache_payload(rubric)
+        self.assertEqual(cache_payload["questions"][0]["expected_answers"], ["493.*557"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

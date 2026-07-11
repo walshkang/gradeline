@@ -14,6 +14,7 @@ class QuestionRubric:
     short_note_fail: str
     weight: float = 1.0
     anchor_tokens: list[str] = field(default_factory=list)
+    expected_answers: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,7 @@ class QuestionResult:
     source_file: str | None = None
     placement_source: str | None = None
     block_id: str | None = None
+    grading_source: str = "llm"
 
 
 @dataclass(frozen=True)

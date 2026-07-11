@@ -806,6 +806,34 @@ questions:
                 load_rubric(rubric_yaml)
                 self.assertEqual(len(w), 0)
 
+    def test_load_rubric_expected_answers(self) -> None:
+        from grader.config import load_rubric
+        
+        with tempfile.TemporaryDirectory() as tmp:
+            rubric_yaml = Path(tmp) / "rubric.yaml"
+            
+            rubric_yaml.write_text("""
+assignment_id: test
+bands:
+  check_plus_min: 0.9
+  check_min: 0.7
+questions:
+  - id: q1
+    scoring_rules: rules
+    short_note_fail: "Fail"
+    expected_answers:
+      - "493.*557"
+      - "461.*589"
+  - id: q2
+    scoring_rules: rules
+    short_note_fail: "Fail"
+""", encoding="utf-8")
+            rubric = load_rubric(rubric_yaml)
+            self.assertEqual(len(rubric.questions), 2)
+            self.assertEqual(rubric.questions[0].expected_answers, ["493.*557", "461.*589"])
+            self.assertEqual(rubric.questions[1].expected_answers, [])
+
+
 
 class WorkflowDetectDataTests(unittest.TestCase):
     def test_detect_defaults_prefers_data_directory_over_downloads(self) -> None:
