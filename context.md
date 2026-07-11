@@ -14,8 +14,9 @@ We are working towards the ideal, polished end-state of Gradeline based on the "
 
 ## Active Checklist
 - `[x]` Draft new end-state architectural plan in `docs/plans/architecture-endstate.md`
-- `[ ]` Brainstorm orchestrator refactoring and zero-trust state management improvements
-
+- `[x]` Execute architecture-endstate.md: Slice 1 (State Decoupling)
+- `[x]` Execute architecture-endstate.md: Slice 2 (Orchestrator Refactor)
+- `[x]` Execute architecture-endstate.md: Slice 3 (Zero-Trust Boundaries)
 ---
 *End-State Architecture Plan: [architecture-endstate.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/architecture-endstate.md)*
 

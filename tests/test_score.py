@@ -123,8 +123,40 @@ class ScoreTests(unittest.TestCase):
         self.assertFalse(grade.has_needs_review)
         self.assertNotEqual(grade.band, "")
 
+    def test_submission_result_from_error(self) -> None:
+        from grader.types import SubmissionResult, SubmissionUnit
+        from pathlib import Path
+
+        rubric = make_rubric()
+        unit = SubmissionUnit(
+            folder_path=Path("dummy"),
+            folder_relpath=Path("dummy"),
+            folder_token="dummy",
+            student_name="Test Student",
+            pdf_paths=[],
+        )
+        grade_points = {"Check Plus": "100", "Check": "85", "Check Minus": "65", "REVIEW_REQUIRED": "0"}
+        
+        result = SubmissionResult.from_error(
+            unit=unit,
+            rubric=rubric,
+            grade_points=grade_points,
+            error_message="Test unhandled exception",
+        )
+
+        self.assertEqual(result.error, "Test unhandled exception")
+        self.assertEqual(len(result.question_results), 5)
+        for qr in result.question_results:
+            self.assertEqual(qr.verdict, "needs_review")
+            self.assertEqual(qr.short_reason, "Test unhandled exception")
+            self.assertEqual(qr.confidence, 0.0)
+
+        self.assertEqual(result.grade_result.band, "REVIEW_REQUIRED")
+        self.assertEqual(result.grade_result.points, "0")
+        self.assertEqual(result.grade_result.percent, 0.0)
+        self.assertTrue(result.grade_result.has_needs_review)
+
 
 if __name__ == "__main__":
     unittest.main()
-
 

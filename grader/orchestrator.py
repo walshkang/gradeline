@@ -273,36 +273,7 @@ def summarize_results(
         total_seconds=snapshot.total_seconds if snapshot else None,
     )
 
-def build_failed_submission_result(
-    unit,
-    rubric,
-    grade_points: dict[str, str],
-    error_message: str,
-) -> SubmissionResult:
-    question_results = [
-        QuestionResult(
-            id=question.id,
-            verdict="needs_review",
-            confidence=0.0,
-            short_reason=error_message,
-            evidence_quote="",
-        )
-        for question in rubric.questions
-    ]
-    grade_result = score_submission(
-        rubric=rubric,
-        question_results=question_results,
-        grade_points=grade_points,
-    )
-    return SubmissionResult(
-        submission=unit,
-        question_results=question_results,
-        grade_result=grade_result,
-        output_pdf_paths=[],
-        extraction_sources={},
-        global_flags=["grading_error"],
-        error=error_message,
-    )
+
 
 def append_error(existing: str | None, new_error: str) -> str:
     return f"{existing}; {new_error}" if existing else new_error
@@ -812,7 +783,7 @@ class Orchestrator:
                         submission_folder=folder_name,
                         exc=exc,
                     )
-            result = build_failed_submission_result(
+            result = SubmissionResult.from_error(
                 unit=unit,
                 rubric=self.config.rubric,
                 grade_points=self.config.grade_points,

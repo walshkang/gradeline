@@ -98,5 +98,40 @@ class SubmissionResult:
     def question_result_map(self) -> dict[str, QuestionResult]:
         return {result.id: result for result in self.question_results}
 
+    @classmethod
+    def from_error(
+        cls,
+        unit: SubmissionUnit,
+        rubric: RubricConfig,
+        grade_points: dict[str, str],
+        error_message: str,
+    ) -> SubmissionResult:
+        from .score import score_submission
+
+        question_results = [
+            QuestionResult(
+                id=question.id,
+                verdict="needs_review",
+                confidence=0.0,
+                short_reason=error_message,
+                evidence_quote="",
+            )
+            for question in rubric.questions
+        ]
+        grade_result = score_submission(
+            rubric=rubric,
+            question_results=question_results,
+            grade_points=grade_points,
+        )
+        return cls(
+            submission=unit,
+            question_results=question_results,
+            grade_result=grade_result,
+            output_pdf_paths=[],
+            extraction_sources={},
+            global_flags=["grading_error"],
+            error=error_message,
+        )
+
 
 JsonDict = dict[str, Any]
