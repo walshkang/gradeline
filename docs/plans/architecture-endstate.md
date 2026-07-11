@@ -7,9 +7,10 @@ Gradeline is structured as a highly deterministic ETL (Extract, Transform, Load)
 
 1. **Ingestion & Profiling** (`workflow_cli.py`): Takes a Brightspace "Download All" zip, matches it to a specific configuration profile, and normalizes the files.
 2. **Stage 1: Extract (The Spatial Map)** (`extract.py`): Runs Tesseract OCR (with vision fallback) to build a "Block Registry"—a literal map of where every word lives on the X/Y axis of the page.
-3. **Stage 2: Grade (The Brain)** (`gemini_client.py`): The reasoning model looks at the rubric and the PDF. It outputs structured JSON containing a grading verdict and the exact `block_id` used as evidence. It does not handle drawing or file saving.
-4. **Stage 3: Annotate (The Printer)** (`annotate.py`): Takes the LLM's `block_id`, looks it up in the Block Registry, and stamps a mark (✓/✗) on that exact coordinate.
-5. **Stage 4: Review & Finalize (The Human Arbiter)** (`review/server.py`): The local web app allows instructors to quickly audit the pipeline's work, modify the state JSON, and trigger `report.py` to dump the final Brightspace-ready CSV.
+3. **Stage 1.5: Regex Pre-check (Hybrid Pipeline)** (`precheck.py`): A fast, localized regex pass over the extracted text blocks for cost/speed optimization. Perfect matches bypass the LLM.
+4. **Stage 2: Grade (The Reasoning Engine / LLM Factory)** (`llm_factory.py`): Routes the grading request (via Gemini, OpenAI, or Anthropic). Outputs structured JSON containing a grading verdict and the exact `block_id` used as evidence. It does not handle drawing or file saving.
+5. **Stage 3: Annotate (The Printer)** (`annotate.py`): Takes the `block_id` from the model (or regex), looks it up in the Block Registry, and stamps a mark (✓/✗) on that exact coordinate.
+6. **Stage 4: Review & Finalize (The Human Arbiter)** (`review/server.py`): The local web app allows instructors to quickly audit the pipeline's work, modify the state JSON, and trigger `report.py` to dump the final Brightspace-ready CSV.
 
 ---
 
@@ -61,10 +62,40 @@ To achieve extreme accuracy (fail-closed), cost/speed optimization (deterministi
 2. **Phase 2: Bulletproof Zero-Trust Fail-Closed Handling**
    - Review the primary processing loop in the orchestrator.
    - Wrap the pipeline (`extract -> grade -> annotate`) in a robust try-except.
-   - Ensure the fallback state correctly emits `REVIEW_REQUIRED` and writes the audit row.
+   - Explicitly define a `SubmissionResult.from_error()` factory method to deterministically generate a result that matches the schema expected by the CSV exporter and Review App.
+   - Ensure the fallback state correctly emits `REVIEW_REQUIRED` and prevents downstream crashes.
 
-3. **Phase 3: Review App Enhancements**
-   - Audit the frontend JS for `j/k` keyboard navigation.
-   - Ensure drag-and-drop bounding box logic perfectly syncs back to the backend state.
+~~3. **Phase 3: Review App Enhancements**~~ *(Already completed! `j/k` navigation and drag-and-drop are fully implemented in `grader/review/static/app.js`)*
 
-*(Feel free to edit this file or add comments as we iterate on the plan!)*
+---
+
+## Execution Slices (Delegation Prompts)
+
+To ensure we maintain a stable, fail-closed pipeline during the refactoring, the work is sliced into three distinct, verifiable prompts:
+
+### Slice 1: State Decoupling (`GradingConfig`)
+**Goal:** Disentangle the massive list of arguments currently passed around in `cli.py` and `score_submission` without altering the concurrency loop.
+- **Tasks:**
+  1. Define a strict `GradingConfig` dataclass in a new module (e.g., `grader/orchestrator.py` or `grader/config_types.py`).
+  2. Update `parse_args` in `cli.py` to instantiate `GradingConfig` from the raw CLI arguments.
+  3. Refactor `grade_one_submission` and the `process_student` / `annotate_and_finish` closures to accept the single `GradingConfig` object instead of 20+ separate arguments.
+  4. Ensure no core logic or threading behavior changes.
+- **Verification:** Run `pytest tests/test_workflow_cli.py` and `tests/test_cli_ui.py` to ensure all existing pipeline tests still pass.
+
+### Slice 2: The Orchestrator Skeleton
+**Goal:** Extract the `ThreadPoolExecutor`, `RateLimiterRegistry`, and high-level pipeline loop out of the bloated `cli.py`.
+- **Tasks:**
+  1. Create a primary `Orchestrator` class in `grader/orchestrator.py`.
+  2. Move the `process_student`, `annotate_and_finish`, and thread-pool draining (`FIRST_COMPLETED`) logic from `cli.py` into `Orchestrator.run(config: GradingConfig, units: list[SubmissionUnit])`.
+  3. Move the `RateLimiterRegistry` and Checkpoint handling into the Orchestrator.
+  4. Strip `cli.py` so it simply parses arguments, sets up the `DiagnosticsCollector` / UI, and calls `Orchestrator().run()`.
+- **Verification:** Verify that `concurrency`, interrupts (Ctrl+C), and checkpointing tests continue to pass with the new structural boundary.
+
+### Slice 3: Zero-Trust Boundaries & `SubmissionResult.from_error()`
+**Goal:** Bulletproof the Orchestrator against corrupted data, OCR crashes, and LLM hallucinations.
+- **Tasks:**
+  1. Expand `build_failed_submission_result` inside `cli.py` (now `orchestrator.py`) into a formal `SubmissionResult.from_error(error: Exception, ...)` factory method in `types.py`.
+  2. Guarantee that this factory method deterministically generates a fallback state with `verdict="needs_review"` and a `0` grade for the CSV exporter.
+  3. Wrap the core `extract -> precheck -> grade -> annotate` execution within the Orchestrator with a rigorous top-level `try/except`.
+  4. Ensure any unhandled `Exception` triggers `SubmissionResult.from_error()`, logging the error and proceeding gracefully to the next student without crashing.
+- **Verification:** Introduce targeted unit tests in `test_score.py` or `test_cli_errors.py` that intentionally raise exceptions during extraction or grading, asserting that the orchestrator falls back to a perfect `SubmissionResult` instead of a crash.
