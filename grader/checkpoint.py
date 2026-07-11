@@ -60,6 +60,7 @@ def serialize_result(res: SubmissionResult) -> dict[str, Any]:
                 "source_file": qr.source_file,
                 "placement_source": qr.placement_source,
                 "block_id": qr.block_id,
+                "grading_source": qr.grading_source,
             }
             for qr in res.question_results
         ],
@@ -103,6 +104,7 @@ def deserialize_result(data: dict[str, Any]) -> SubmissionResult:
             source_file=q.get("source_file"),
             placement_source=q.get("placement_source"),
             block_id=q.get("block_id"),
+            grading_source=q.get("grading_source", "llm"),
         )
         for q in data["question_results"]
     ]

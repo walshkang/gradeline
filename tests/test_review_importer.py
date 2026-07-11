@@ -21,6 +21,7 @@ HEADERS = [
     "points",
     "question_id",
     "verdict",
+    "grading_source",
     "confidence",
     "reason",
     "evidence_quote",
@@ -106,6 +107,7 @@ questions:
                         "100",
                         "a",
                         "correct",
+                        "regex",
                         "0.95",
                         "Looks good",
                         "sample",
@@ -133,6 +135,7 @@ questions:
             self.assertEqual(submission["identity"]["student_name"], "Jane Doe")
             self.assertEqual(submission["questions"]["a"]["auto"]["coords"], [120.0, 210.0])
             self.assertEqual(submission["questions"]["a"]["final"]["coords"], [120.0, 210.0])
+            self.assertEqual(submission["questions"]["a"]["auto"]["grading_source"], "regex")
 
             events_path = output_dir / "review" / "review_events.jsonl"
             self.assertTrue(events_path.exists())

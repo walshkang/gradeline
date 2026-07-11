@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from grader.report import write_brightspace_import_csv
+from grader.report import write_brightspace_import_csv, write_grading_audit_csv
 from grader.types import (
     GradeResult,
     QuestionResult,
@@ -280,10 +280,62 @@ class ReportCsvTests(unittest.TestCase):
                 comment_column=None,
             )
             self.assertEqual(len(warnings), 0)
-
             with out_csv.open("r", newline="", encoding="utf-8") as handle:
                 rows = list(csv.DictReader(handle))
             self.assertEqual(rows[0]["Assignment 1 Points Grade"], "100")
+
+    def test_write_grading_audit_csv_includes_grading_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            submission = SubmissionUnit(
+                folder_path=Path("123 - Student"),
+                folder_relpath=Path("123 - Student"),
+                folder_token="123",
+                student_name="Student",
+                pdf_paths=[],
+            )
+            grade_result = GradeResult(
+                percent=100.0,
+                band="Check Plus",
+                points="100",
+                has_needs_review=False,
+                per_question_scores={},
+            )
+            result = SubmissionResult(
+                submission=submission,
+                question_results=[
+                    QuestionResult(
+                        id="q1",
+                        verdict="correct",
+                        confidence=1.0,
+                        short_reason="regex matched",
+                        evidence_quote="evidence",
+                        grading_source="regex",
+                    ),
+                    QuestionResult(
+                        id="q2",
+                        verdict="correct",
+                        confidence=0.9,
+                        short_reason="llm matched",
+                        evidence_quote="evidence",
+                        grading_source="llm",
+                    ),
+                ],
+                grade_result=grade_result,
+                output_pdf_paths=[],
+                extraction_sources={},
+                global_flags=[],
+            )
+            out_csv = write_grading_audit_csv(output_dir, [result])
+            self.assertTrue(out_csv.exists())
+            with out_csv.open("r", newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                rows = list(reader)
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0]["question_id"], "q1")
+            self.assertEqual(rows[0]["grading_source"], "regex")
+            self.assertEqual(rows[1]["question_id"], "q2")
+            self.assertEqual(rows[1]["grading_source"], "llm")
 
 
 if __name__ == "__main__":

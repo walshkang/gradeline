@@ -101,6 +101,7 @@ def question_result_to_payload(result: QuestionResult) -> dict[str, Any]:
         "page_number": int(result.page_number) if result.page_number is not None else None,
         "source_file": str(result.source_file) if result.source_file else None,
         "placement_source": str(result.placement_source) if result.placement_source else None,
+        "grading_source": result.grading_source,
     }
 
 
@@ -126,6 +127,7 @@ def question_result_from_payload(question_id: str, payload: dict[str, Any]) -> Q
         page_number=page_number,
         source_file=str(payload.get("source_file") or "").strip() or None,
         placement_source=str(payload.get("placement_source") or "").strip() or None,
+        grading_source=str(payload.get("grading_source", "llm")).strip(),
     )
 
 

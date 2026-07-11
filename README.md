@@ -346,7 +346,7 @@ Inside `--output-dir`:
 
 - Mirrored student submission folders with annotated PDFs (same names as originals)
 - `brightspace_grades_import.csv`
-- `grading_audit.csv`
+- `grading_audit.csv` (includes a `grading_source` column indicating if the grade came from `llm` or `regex` pre-check)
 - `review_queue.csv`
 - `index_audit.csv`
 - `grading_diagnostics.json` (unless overridden with `--diagnostics-file`)

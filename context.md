@@ -7,9 +7,11 @@
 - `[x]` **Phase 2: Feedback Integrity** — wire `fallback_fail_note` in `derive_short_reason()`, validate rubric `short_note_fail`
 - `[x]` **Phase 3A: Hybrid Schema** — add `expected_answers` to `QuestionRubric`, add `grading_source` to `QuestionResult`
 
-## Active Checklist
 - `[x]` **Phase 3B: Regex Engine** — build `regex_precheck()`, integrate into `grade_one_submission()`
-- `[ ]` **Phase 3C: Audit Trail** — wire `grading_source` into `grading_audit.csv`
+- `[x]` **Phase 3C: Audit Trail** — wire `grading_source` into `grading_audit.csv`
+
+## Active Checklist
+- None! All phases are now fully complete.
 
 ---
 *Delegation prompts: [refactor-delegation-prompts.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/refactor-delegation-prompts.md)*

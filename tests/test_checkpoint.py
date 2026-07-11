@@ -47,6 +47,7 @@ class TestCheckpoint(unittest.TestCase):
                 confidence=0.95,
                 short_reason="perfect",
                 evidence_quote="formula verified",
+                grading_source="regex",
             )
             
             gr_res = GradeResult(
@@ -104,6 +105,7 @@ class TestCheckpoint(unittest.TestCase):
             self.assertEqual(restored_res.submission.folder_token, "student_token_123")
             self.assertEqual(restored_res.grade_result.band, "Check Plus")
             self.assertEqual(restored_res.question_results[0].short_reason, "perfect")
+            self.assertEqual(restored_res.question_results[0].grading_source, "regex")
             
             # Load with mismatched expected hash (simulates rubric edit/model shift)
             mismatched = load_checkpoint(out_dir, expected_config_hash="different-hash")

@@ -262,6 +262,7 @@ def row_to_question_payload(row: dict[str, str]) -> dict[str, Any]:
         page_number=parse_int(row.get("page_number"), default=None),
         source_file=str(row.get("source_file", "")).strip() or None,
         placement_source=str(row.get("placement_source", "")).strip() or None,
+        grading_source=str(row.get("grading_source", "llm")).strip() or "llm",
     )
     return question_result_to_payload(question_result)
 
