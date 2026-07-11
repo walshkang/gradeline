@@ -933,7 +933,7 @@ def derive_short_reason(*, raw_short_reason: str, fallback_fail_note: str) -> st
     if candidate and (not is_third_person_feedback(candidate)):
         return clamp_short_reason(candidate)
 
-    return ""
+    return fallback_fail_note or ""
 
 
 def derive_detail_reason(*, raw_short_reason: str, raw_detail_reason: str, short_reason: str) -> str:

@@ -747,6 +747,65 @@ class WorkflowCliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             setup_mock.assert_called_once_with(profile_spec="a2", overwrite=False)
 
+    def test_load_rubric_warning_on_empty_or_generic_short_note_fail(self) -> None:
+        import warnings
+        from grader.config import load_rubric
+        
+        with tempfile.TemporaryDirectory() as tmp:
+            rubric_yaml = Path(tmp) / "rubric.yaml"
+            
+            # 1. Rubric with default "Check"
+            rubric_yaml.write_text("""
+assignment_id: test
+bands:
+  check_plus_min: 0.9
+  check_min: 0.7
+questions:
+  - id: q1
+    scoring_rules: rules
+    short_note_fail: Check
+""", encoding="utf-8")
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                load_rubric(rubric_yaml)
+                self.assertEqual(len(w), 1)
+                self.assertTrue(issubclass(w[0].category, UserWarning))
+                self.assertIn("has an empty or generic short_note_fail", str(w[0].message))
+
+            # 2. Rubric with explicit empty short_note_fail
+            rubric_yaml.write_text("""
+assignment_id: test
+bands:
+  check_plus_min: 0.9
+  check_min: 0.7
+questions:
+  - id: q1
+    scoring_rules: rules
+    short_note_fail: ""
+""", encoding="utf-8")
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                load_rubric(rubric_yaml)
+                self.assertEqual(len(w), 1)
+                self.assertTrue(issubclass(w[0].category, UserWarning))
+                self.assertIn("has an empty or generic short_note_fail", str(w[0].message))
+
+            # 3. Rubric with descriptive short_note_fail (should not warn)
+            rubric_yaml.write_text("""
+assignment_id: test
+bands:
+  check_plus_min: 0.9
+  check_min: 0.7
+questions:
+  - id: q1
+    scoring_rules: rules
+    short_note_fail: "Empirical Rule"
+""", encoding="utf-8")
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                load_rubric(rubric_yaml)
+                self.assertEqual(len(w), 0)
+
 
 class WorkflowDetectDataTests(unittest.TestCase):
     def test_detect_defaults_prefers_data_directory_over_downloads(self) -> None:

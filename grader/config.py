@@ -16,21 +16,28 @@ def load_rubric(path: Path) -> RubricConfig:
     if not isinstance(questions_raw, list) or not questions_raw:
         raise ValueError("Rubric config must include a non-empty 'questions' list.")
 
+    import warnings
+
     questions: list[QuestionRubric] = []
     for item in questions_raw:
         if not isinstance(item, dict):
             raise ValueError("Each rubric question must be an object.")
-        questions.append(
-            QuestionRubric(
-                id=str(item["id"]).strip().lower(),
-                label_patterns=[str(v) for v in item.get("label_patterns", [])],
-                scoring_rules=str(item.get("scoring_rules", "")).strip(),
-                short_note_pass=str(item.get("short_note_pass", "OK")).strip(),
-                short_note_fail=str(item.get("short_note_fail", "Check")).strip(),
-                weight=float(item.get("weight", 1.0)),
-                anchor_tokens=[str(v) for v in item.get("anchor_tokens", [])],
-            )
+        q_rubric = QuestionRubric(
+            id=str(item["id"]).strip().lower(),
+            label_patterns=[str(v) for v in item.get("label_patterns", [])],
+            scoring_rules=str(item.get("scoring_rules", "")).strip(),
+            short_note_pass=str(item.get("short_note_pass", "OK")).strip(),
+            short_note_fail=str(item.get("short_note_fail", "Check")).strip(),
+            weight=float(item.get("weight", 1.0)),
+            anchor_tokens=[str(v) for v in item.get("anchor_tokens", [])],
         )
+        if not q_rubric.short_note_fail or q_rubric.short_note_fail == "Check":
+            warnings.warn(
+                f"Question '{q_rubric.id}' has an empty or generic short_note_fail ('{q_rubric.short_note_fail}'). "
+                "It is recommended to provide a descriptive failure note.",
+                UserWarning,
+            )
+        questions.append(q_rubric)
 
     bands_raw = payload.get("bands")
     if not isinstance(bands_raw, dict):

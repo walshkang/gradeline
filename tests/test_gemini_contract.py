@@ -101,7 +101,7 @@ class GeminiContractTests(unittest.TestCase):
         normalized = normalize_model_response(payload, rubric)
         by_id = {item.id: item for item in normalized["questions"]}
         self.assertEqual(by_id["a"].short_reason, "Show the final probability value.")
-        self.assertEqual(by_id["b"].short_reason, "")
+        self.assertEqual(by_id["b"].short_reason, "check")
         self.assertEqual(by_id["c"].short_reason, "")
 
     def test_prompts_include_numeric_equivalence_rule(self) -> None:
@@ -395,7 +395,21 @@ class TwoTierFeedbackTests(unittest.TestCase):
             raw_short_reason="The student forgot to show the derivation.",
             fallback_fail_note="Show your derivation.",
         )
-        self.assertEqual(result, "")
+        self.assertEqual(result, "Show your derivation.")
+
+    def test_derive_short_reason_third_person_empirical_fallback(self) -> None:
+        result = derive_short_reason(
+            raw_short_reason="The student forgot the empirical rule",
+            fallback_fail_note="Empirical Rule",
+        )
+        self.assertEqual(result, "Empirical Rule")
+
+    def test_derive_short_reason_clean_phrase_not_replaced(self) -> None:
+        result = derive_short_reason(
+            raw_short_reason="Missing calculation",
+            fallback_fail_note="Empirical Rule",
+        )
+        self.assertEqual(result, "Missing calculation")
 
     def test_derive_short_reason_good_second_person_clamped(self) -> None:
         raw = "Show the final probability value."
