@@ -385,24 +385,32 @@ Reviewed artifacts are written into `output_dir/review/`:
 - `brightspace_grades_import_reviewed.csv`
 - `review_decisions.json`
 
-## Notes
+## Advanced Concepts & Notes
 
-- If any question is `needs_review`, final band is `REVIEW_REQUIRED`.
-- `rounding_error` verdicts are fully forgiven (score 1.0, same as `correct`). They appear as `✓ Q1 ≈` in green on annotated PDFs and as `≈` in the summary line so you can still see where they occurred.
+### Grading & Scoring Policies
+- **Custom Dynamic Grading Bands**: You can define any arbitrary grading bands (like `10, 9, 8...`) in the Rubric YAML under `bands`. Gradeline evaluates them dynamically by sorted descending threshold, and numeric band names automatically map directly to the output points score without manual CLI flag mappings.
+- **Rounding Error Forgiveness**: `rounding_error` verdicts are fully forgiven (score 1.0, same as `correct`). They appear as `✓ Q1 ≈` in green on annotated PDFs and as `≈` in the summary line so you can still see where they occurred.
+- **Feedback Fallback Policy**: If the AI feedback contains third-person tokens or is too wordy, the system drops the LLM feedback and falls back to the rubric's `short_note_fail` rather than dropping the note entirely. This ensures that the student is never penalized without a descriptive failure reason.
+- If any question is `needs_review`, the final band is automatically escalated to `REVIEW_REQUIRED`.
+- Grade points are configurable via CLI flags: `--check-plus-points`, `--check-points`, `--check-minus-points`, `--review-required-points`.
+
+### Reliability & Error Handling
+- **Fail-Closed Error Handling**: If a PDF is corrupted, text extraction fails, or the LLM returns an invalid schema, the pipeline catches the error, flags the submission as `REVIEW_REQUIRED` (with a score of 0), logs the failure, and gracefully proceeds to the next student without crashing.
+- **Checkpoints**: Progress checkpoints are saved automatically on interrupts (Ctrl+C) or daily limit exhaustion, allowing you to resume seamlessly via `--resume` or the interactive menu. Checkpoints are automatically cleared upon successful completion of the grading run.
+- **Rate Limiting**: Thread-safe sliding window RPM limits and daily RPD limits are enforced by default. If a daily limit is hit, grading exits with code `5` and saves a checkpoint.
+
+### Execution Modes (`unified` vs `agent` vs `legacy`)
 - `--grading-mode` defaults to `legacy` for phased rollout.
 - In `unified` mode, grading and coordinate locating happen in one structured Gemini call.
-- In `agent` mode, the tool uses an installed CLI agent (like `gemini`, `codex`, or `claude`) to perform multi-step reasoning. This is often more robust for complex or handwritten submissions.
-- `gemini` agent requires the `gemini` CLI.
-- `codex` agent requires the `codex` CLI.
-- `claude` agent requires the `claude` CLI (Claude Code).
-- In `legacy` mode, `--locator-model` is optional; if set, model-provided PDF coordinates are used before local anchor fallback.
-- In `unified` mode, `--locator-model` and `--ocr-char-threshold` are ignored with warnings.
 - Unified mode uses Gemini context caching for `solutions.pdf` unless `--no-context-cache` is passed.
-- Grade points are configurable via CLI flags: `--check-plus-points`, `--check-points`, `--check-minus-points`, `--review-required-points`.
-- **Custom Dynamic Grading Bands**: You can define any arbitrary grading bands (like `10, 9, 8...`) in the Rubric YAML under `bands`. Gradeline evaluates them dynamically by sorted descending threshold, and numeric band names automatically map directly to the output points score without manual CLI flag mappings.
-- **Rate Limiting**: Thread-safe sliding window RPM limits and daily RPD limits are enforced by default. If a daily limit is hit, grading exits with code `5` and saves a checkpoint.
-- **Checkpoints**: Progress checkpoints are saved automatically on interrupts (Ctrl+C) or daily limit exhaustion, allowing you to resume seamlessly via `--resume` or the interactive menu. Checkpoints are automatically cleared upon successful completion of the grading run.
-- **Feedback Fallback Policy**: If the AI feedback contains third-person tokens or is too wordy, the system drops the LLM feedback and falls back to the rubric's `short_note_fail` rather than dropping the note entirely. This ensures that the student is never penalized without a descriptive failure reason.
+- In `unified` mode, `--locator-model` and `--ocr-char-threshold` are ignored with warnings.
+- In `legacy` mode, `--locator-model` is optional; if set, model-provided PDF coordinates are used before local anchor fallback.
+- In `agent` mode, the tool uses an installed CLI agent to perform multi-step reasoning. This is often more robust for complex or handwritten submissions.
+  - `gemini` agent requires the `gemini` CLI.
+  - `codex` agent requires the `codex` CLI.
+  - `claude` agent requires the `claude` CLI (Claude Code).
+
+### Output & Display
 - `--dry-run` defaults to header-only annotation (no per-question x/✓ marks). Use `--annotate-dry-run-marks` for debug placement marks.
 - Rich console output with section headings, colored bands, and progress bars is used automatically in interactive terminals; use `--plain` for deterministic text output.
 

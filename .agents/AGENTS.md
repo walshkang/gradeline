@@ -16,3 +16,10 @@
 - Resolution order: configs/defaults.toml → profile TOML → CLI flags.
 - Never hardcode model names outside of configs/ or FREE_TIER_LIMITS.
 - Profile TOMLs that omit `model` automatically inherit DEFAULT_MODEL.
+
+## Zero-Trust State Management (MUST)
+- Never crash the pipeline on individual submission errors (e.g. corrupted PDFs, LLM invalid schema, OCR failures).
+- Catch all unhandled exceptions, flag the submission as `REVIEW_REQUIRED` with a score of 0, save a checkpoint, and gracefully proceed to the next student.
+
+## Additional Scoring Rules
+- `rounding_error` verdicts must be fully forgiven and scored identically to `correct` (1.0).
