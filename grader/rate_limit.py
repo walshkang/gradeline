@@ -16,7 +16,7 @@ FREE_TIER_LIMITS: dict[str, dict[str, int]] = {
     "gemini-2.5-flash":   {"rpm": 10, "rpd": 1500},
     "gemini-2.0-flash":   {"rpm": 10, "rpd": 1500},
 }
-DEFAULT_LIMITS = {"rpm": 5, "rpd": 500}
+DEFAULT_LIMITS = {"rpm": 60, "rpd": 14400}
 
 
 class DailyLimitExhausted(Exception):

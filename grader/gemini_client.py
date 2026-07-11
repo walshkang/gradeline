@@ -224,18 +224,12 @@ class GeminiGrader:
                 "response_mime_type": "application/json",
                 "response_schema": UnifiedSubmissionResponse,
             }
-            invoke_contents = [*files, prompt]
-            
             if cached_content:
                 config["cached_content"] = cached_content
-            else:
-                config["system_instruction"] = build_context_system_instruction(rubric)
-                solutions_file_ref = self._upload_and_wait(solutions_pdf_path)
-                invoke_contents = [solutions_file_ref] + invoke_contents
 
             response = self.client.models.generate_content(
                 model=self.model,
-                contents=invoke_contents,
+                contents=[*files, prompt],
                 config=config,
             )
             return structured_response_payload(response)

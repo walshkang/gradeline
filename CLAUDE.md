@@ -50,3 +50,10 @@ EXIT=$? # 0=success, 3=review_required, 4=errors, 1=io_failure, 2=bad_input
 ```
 
 Keep this file concise — it is loaded into every AI session context.
+
+## Architectural Guardrails
+Refer to [.agents/AGENTS.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/.agents/AGENTS.md) for core project invariants:
+- **Grade Integrity**: Never award unearned points, never auto-promote REVIEW_REQUIRED, grades in Brightspace CSV must trace to grading_audit.csv.
+- **Feedback Integrity**: Never annotate point deduction without a short_reason, fall back to rubric's short_note_fail when LLM feedback is dropped.
+- **Config Hierarchy**: defaults.toml -> Profile TOML -> CLI flags. Do not hardcode model names outside configs/ or FREE_TIER_LIMITS.
+

@@ -36,8 +36,8 @@ class TestRateLimit(unittest.TestCase):
         
         # Test fallback / default
         lim_unknown = registry.get_limiter("unknown-model-xyz")
-        self.assertEqual(lim_unknown.rpm, 5)
-        self.assertEqual(lim_unknown.rpd, 500)
+        self.assertEqual(lim_unknown.rpm, 60)
+        self.assertEqual(lim_unknown.rpd, 14400)
 
         # Registry should return same instance for same model
         self.assertIs(registry.get_limiter("gemma4-31b-it"), lim_gemma)

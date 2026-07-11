@@ -414,4 +414,5 @@ If you are an AI assistant or agent opening a coding session or executing comman
    ```bash
    source .venv/bin/activate && python3 -m pytest tests/ -x -q
    ```
+3. **Follow Architectural Guardrails**: Read and comply with the core project invariants defined in [.agents/AGENTS.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/.agents/AGENTS.md) (Grade Integrity, Feedback Integrity, Config Hierarchy).
 

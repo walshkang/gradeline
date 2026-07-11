@@ -1,6 +1,6 @@
 [models]
-grading = "gemini-2.5-flash"
-extraction = "gemini-2.5-flash"
+grading = "gemini-3.1-flash-lite"
+extraction = "gemini-3.1-flash-lite"
 locator = ""
 
 [grading]

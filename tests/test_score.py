@@ -96,7 +96,35 @@ class ScoreTests(unittest.TestCase):
         self.assertEqual(grade.points, "8")
         self.assertEqual(grade.percent, 80.0)
 
+    def test_empty_results_forces_review_required(self) -> None:
+        rubric = make_rubric()
+        grade = score_submission(
+            rubric=rubric,
+            question_results=[],
+            grade_points={"Check Plus": "100", "Check": "85", "Check Minus": "65", "REVIEW_REQUIRED": ""},
+        )
+        self.assertEqual(grade.band, "REVIEW_REQUIRED")
+        self.assertEqual(grade.points, "")
+        self.assertTrue(grade.has_needs_review)
+
+    def test_all_incorrect_results_gets_check_minus(self) -> None:
+        rubric = make_rubric()
+        results = [
+            QuestionResult(id=label, verdict="incorrect", confidence=1, short_reason="", evidence_quote="")
+            for label in ["a", "b", "c", "d", "e"]
+        ]
+        grade = score_submission(
+            rubric=rubric,
+            question_results=results,
+            grade_points={"Check Plus": "100", "Check": "85", "Check Minus": "65", "REVIEW_REQUIRED": ""},
+        )
+        self.assertEqual(grade.band, "Check Minus")
+        self.assertEqual(grade.points, "65")
+        self.assertFalse(grade.has_needs_review)
+        self.assertNotEqual(grade.band, "")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

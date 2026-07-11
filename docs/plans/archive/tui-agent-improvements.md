@@ -1,6 +1,6 @@
 # Plan: TUI + Agent-Friendly CLI
 
-**Status:** Ready to implement  
+**Status:** Completed (Merged in commit c265ebe)  
 **Parallelization:** Wave 1 (Blocks 1 + 3 + 4 in parallel) → Wave 2 (Block 2)
 
 ---
