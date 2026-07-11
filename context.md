@@ -8,7 +8,7 @@
 - `[x]` **Phase 3A: Hybrid Schema** — add `expected_answers` to `QuestionRubric`, add `grading_source` to `QuestionResult`
 
 ## Active Checklist
-- `[ ]` **Phase 3B: Regex Engine** — build `regex_precheck()`, integrate into `grade_one_submission()`
+- `[x]` **Phase 3B: Regex Engine** — build `regex_precheck()`, integrate into `grade_one_submission()`
 - `[ ]` **Phase 3C: Audit Trail** — wire `grading_source` into `grading_audit.csv`
 
 ---

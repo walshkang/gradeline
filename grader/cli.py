@@ -21,6 +21,7 @@ from .discovery import discover_submission_units, parse_index_html
 from .env import load_dotenv_if_present
 from .extract import ensure_binaries_present, extract_pdf_text
 from .gemini_client import GeminiGrader
+from .precheck import regex_precheck
 from .report import (
     write_brightspace_import_csv,
     write_grading_audit_csv,
@@ -1203,6 +1204,7 @@ def grade_one_submission(
         # Unified/agent modes send PDFs directly to the model for grading. Optionally
         # run extraction to build the block registry for spatial annotation placement.
         # Disable with extract_blocks=False to skip OCR overhead when not needed.
+        extracted_for_precheck = []
         for pdf_path in unit.pdf_paths:
             extraction_sources[pdf_path.name] = "model_vision"
             if extract_blocks:
@@ -1216,8 +1218,16 @@ def grade_one_submission(
                         rate_limiter=rate_limiter,
                     )
                     block_registry.update({b.id: b for b in pdf_extract.blocks})
+                    extracted_for_precheck.append(pdf_extract)
                 except Exception:
                     pass
+
+        if extract_blocks:
+            combined_text = "\n\n".join(
+                f"### FILE: {item.pdf_path.name}\n{item.text}" for item in extracted_for_precheck
+            )
+
+    prechecked_results = regex_precheck(rubric, combined_text)
 
     if dry_run:
         if status_update is not None:
@@ -1229,6 +1239,7 @@ def grade_one_submission(
                 confidence=0.0,
                 short_reason="Dry run mode.",
                 evidence_quote="",
+                grading_source="dry_run",
             )
             for question in rubric.questions
         ]
@@ -1365,6 +1376,10 @@ def grade_one_submission(
             ]
             global_flags.append("grading_error")
             accumulated_error = append_error(accumulated_error, str(exc))
+
+    for i, result in enumerate(question_results):
+        if result.id in prechecked_results:
+            question_results[i] = prechecked_results[result.id]
 
     needs_locator = any(result.coords is None for result in question_results)
     if (not dry_run) and locator_model and grader is not None and needs_locator:

@@ -231,7 +231,7 @@ The list view includes:
 
 ## How It Works
 
-Gradeline runs a three-stage pipeline per submission: **extraction → grading → annotation**. Grading and annotation use separate models so a lighter extraction model handles vision/OCR work while a stronger reasoning model handles scoring.
+Gradeline runs a four-stage pipeline per submission: **extraction → pre-check → grading → annotation**. Grading and annotation use separate models so a lighter extraction model handles vision/OCR work while a stronger reasoning model handles scoring.
 
 ### Stage 1 — Extraction (block registry)
 
@@ -246,6 +246,10 @@ Each block has a unique `id` (`p{page}_b{block_num}`), the text content, and pix
 If Tesseract confidence is too low (handwritten pages, scans), a Gemini vision fallback (`extraction_model`) can be used instead.
 
 > Set `extract_blocks = false` in your profile to skip this stage — the annotation layer falls back gracefully. Useful for all-handwritten submissions where Tesseract blocks are too noisy to be useful.
+
+### Stage 1.5 — Regex Pre-check (Hybrid Pipeline)
+
+Before calling the LLM, the extracted block text is evaluated against `expected_answers` defined in the rubric. If a question's regex patterns fully match the text, a correct result is generated deterministically (`grading_source="regex"`). This bypasses the LLM entirely for verifiable numeric or short-text answers, saving time and API costs.
 
 ### Stage 2 — Grading (unified mode)
 
