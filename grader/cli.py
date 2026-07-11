@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .annotate import annotate_submission_pdfs
+from .orchestrator import GradingConfig
 from .config import load_rubric
 from .diagnostics import DiagnosticsCollector, serialize_cli_args
 from .discovery import discover_submission_units, parse_index_html
@@ -656,6 +657,31 @@ def main(argv: list[str] | None = None) -> int:
             ui.error(message)
             return conclude(exit_code=1, submission_results=[], warnings=[])
 
+    config = GradingConfig(
+        submissions_root=args.submissions_dir,
+        output_dir=args.output_dir,
+        temp_dir=args.temp_dir,
+        ocr_char_threshold=args.ocr_char_threshold,
+        rubric=rubric,
+        solutions_text=solutions_text,
+        solutions_pdf_path=args.solutions_pdf,
+        grade_points=grade_points,
+        grader=grader,
+        grading_mode=args.grading_mode,
+        agent_type=args.agent_type,
+        context_cache=args.context_cache,
+        context_cache_ttl_seconds=args.context_cache_ttl_seconds,
+        dry_run=args.dry_run,
+        locator_model=args.locator_model.strip(),
+        annotate_dry_run_marks=args.annotate_dry_run_marks,
+        extraction_model=args.extraction_model,
+        gemini_api_key=api_key or None,
+        extract_blocks=args.extract_blocks,
+        diagnostics=diagnostics,
+        rate_limiter=rate_limiter,
+        annotation_font_size=float(getattr(args, "annotation_font_size", DEFAULT_ANNOTATION_FONT_SIZE)),
+    )
+
     run_config_hash = compute_run_config_hash(
         rubric_path=args.rubric_yaml,
         solutions_pdf=args.solutions_pdf,
@@ -745,29 +771,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             result = grade_one_submission(
                 unit=unit,
-                submissions_root=args.submissions_dir,
-                output_dir=args.output_dir,
-                temp_dir=args.temp_dir,
-                ocr_char_threshold=args.ocr_char_threshold,
-                extraction_model=args.extraction_model,
-                gemini_api_key=api_key or None,
-                extract_blocks=args.extract_blocks,
-                rubric=rubric,
-                solutions_text=solutions_text,
-                solutions_pdf_path=args.solutions_pdf,
-                grade_points=grade_points,
-                grader=grader,
-                grading_mode=args.grading_mode,
-                agent_type=args.agent_type,
-                context_cache=args.context_cache,
-                context_cache_ttl_seconds=args.context_cache_ttl_seconds,
-                dry_run=args.dry_run,
-                locator_model=args.locator_model.strip(),
-                annotate_dry_run_marks=args.annotate_dry_run_marks,
-                diagnostics=diagnostics,
+                config=config,
                 status_update=status_update,
                 progress_callback=grading_progress,
-                rate_limiter=rate_limiter,
             )
         except DailyLimitExhausted:
             raise
@@ -805,15 +811,15 @@ def main(argv: list[str] | None = None) -> int:
         try:
             output_pdf_paths, updated_question_results = annotate_submission_pdfs(
                 submission=result.submission,
-                rubric=rubric,
+                rubric=config.rubric,
                 question_results=result.question_results,
                 block_registry=result.block_registry or {},
-                output_dir=args.output_dir,
-                submissions_root=args.submissions_dir,
+                output_dir=config.output_dir,
+                submissions_root=config.submissions_root,
                 final_band=result.grade_result.band,
-                dry_run=args.dry_run,
-                annotate_dry_run_marks=args.annotate_dry_run_marks,
-                annotation_font_size=float(getattr(args, "annotation_font_size", DEFAULT_ANNOTATION_FONT_SIZE)),
+                dry_run=config.dry_run,
+                annotate_dry_run_marks=config.annotate_dry_run_marks,
+                annotation_font_size=config.annotation_font_size,
             )
             result.output_pdf_paths = output_pdf_paths
             result.question_results = updated_question_results
@@ -834,7 +840,7 @@ def main(argv: list[str] | None = None) -> int:
             question_results=result.question_results,
             percent=result.grade_result.percent,
             band=result.grade_result.band,
-            rubric_bands=rubric.bands,
+            rubric_bands=config.rubric.bands,
             global_flags=result.global_flags,
         )
         
@@ -1133,30 +1139,32 @@ def context_cache_flag_message(flag: str) -> str:
 
 def grade_one_submission(
     unit,
-    submissions_root: Path,
-    output_dir: Path,
-    temp_dir: Path,
-    ocr_char_threshold: int,
-    rubric,
-    solutions_text: str | None,
-    solutions_pdf_path: Path,
-    grade_points: dict[str, str],
-    grader: Any | None,
-    grading_mode: str,
-    agent_type: str,
-    context_cache: bool,
-    context_cache_ttl_seconds: int,
-    dry_run: bool,
-    locator_model: str,
-    annotate_dry_run_marks: bool,
-    extraction_model: str = DEFAULT_EXTRACTION_MODEL,
-    gemini_api_key: str | None = None,
-    extract_blocks: bool = True,
-    diagnostics: DiagnosticsCollector | None = None,
+    config: GradingConfig,
     status_update: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
-    rate_limiter: Any | None = None,
 ) -> SubmissionResult:
+    submissions_root = config.submissions_root
+    output_dir = config.output_dir
+    temp_dir = config.temp_dir
+    ocr_char_threshold = config.ocr_char_threshold
+    rubric = config.rubric
+    solutions_text = config.solutions_text
+    solutions_pdf_path = config.solutions_pdf_path
+    grade_points = config.grade_points
+    grader = config.grader
+    grading_mode = config.grading_mode
+    agent_type = config.agent_type
+    context_cache = config.context_cache
+    context_cache_ttl_seconds = config.context_cache_ttl_seconds
+    dry_run = config.dry_run
+    locator_model = config.locator_model
+    annotate_dry_run_marks = config.annotate_dry_run_marks
+    extraction_model = config.extraction_model
+    gemini_api_key = config.gemini_api_key
+    extract_blocks = config.extract_blocks
+    diagnostics = config.diagnostics
+    rate_limiter = config.rate_limiter
+
     extracted = []
     extraction_sources: dict[str, str] = {}
     accumulated_error: str | None = None
