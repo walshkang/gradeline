@@ -10,7 +10,7 @@ from grader.annotate import (
     find_anchor_in_doc,
     offset_mark_point,
 )
-from grader.cli import apply_locator_candidates
+from grader.orchestrator import apply_locator_candidates
 from grader.types import QuestionResult
 
 

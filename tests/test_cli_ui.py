@@ -9,10 +9,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from grader.cli import (
-    build_annotation_progress_callback,
-    build_grading_progress_callback,
+    
+    
     main,
 )
+from grader.orchestrator import build_annotation_progress_callback, build_grading_progress_callback, prompt_interrupt_action
 from grader.types import (
     ExtractedPdf,
     QuestionResult,
@@ -103,12 +104,12 @@ class CliUiTests(unittest.TestCase):
                 patch("grader.cli.discover_submission_units", return_value=[unit]),
                 patch("grader.cli.parse_index_html", return_value=[]),
                 patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
-                patch("grader.cli.extract_pdf_text", side_effect=fake_extract),
-                patch("grader.cli.annotate_submission_pdfs", side_effect=fake_annotate),
-                patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
-                patch("grader.cli.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
+                patch("grader.orchestrator.extract_pdf_text", side_effect=fake_extract),
+                patch("grader.orchestrator.annotate_submission_pdfs", side_effect=fake_annotate),
+                patch("grader.orchestrator.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
+                patch("grader.orchestrator.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
                 patch(
-                    "grader.cli.write_brightspace_import_csv",
+                    "grader.orchestrator.write_brightspace_import_csv",
                     return_value=(output_dir / "brightspace_grades_import.csv", []),
                 ),
                 redirect_stdout(stdout),
@@ -196,7 +197,7 @@ class CliUiTests(unittest.TestCase):
 
 class TrustUxTests(unittest.TestCase):
     def test_build_trust_rationale_correct_band_and_mix(self) -> None:
-        from grader.cli import build_trust_rationale
+        from grader.orchestrator import build_trust_rationale
 
         results = [
             QuestionResult(id="q1", verdict="correct", confidence=0.95, short_reason="ok", evidence_quote="e"),
@@ -212,7 +213,7 @@ class TrustUxTests(unittest.TestCase):
         self.assertIn("→Check", out)
 
     def test_build_trust_rationale_low_confidence_items(self) -> None:
-        from grader.cli import build_trust_rationale
+        from grader.orchestrator import build_trust_rationale
 
         results = [
             QuestionResult(id="q1", verdict="correct", confidence=0.95, short_reason="ok", evidence_quote="e"),
@@ -224,7 +225,7 @@ class TrustUxTests(unittest.TestCase):
         self.assertIn("q2", out)
 
     def test_build_trust_rationale_flags(self) -> None:
-        from grader.cli import build_trust_rationale
+        from grader.orchestrator import build_trust_rationale
 
         results = [
             QuestionResult(id="q1", verdict="correct", confidence=0.95, short_reason="ok", evidence_quote="e"),
@@ -234,7 +235,7 @@ class TrustUxTests(unittest.TestCase):
         self.assertIn("flags:dry_run", out)
 
     def test_update_rolling_snapshot_accumulates(self) -> None:
-        from grader.cli import RollingSnapshot, update_rolling_snapshot
+        from grader.orchestrator import RollingSnapshot, update_rolling_snapshot
         from grader.types import GradeResult, SubmissionResult, SubmissionUnit
 
         unit = SubmissionUnit(
@@ -292,13 +293,13 @@ class TrustUxTests(unittest.TestCase):
         self.assertIn("Total grading time", rendered)
 
     def test_stage_timing_duration(self) -> None:
-        from grader.cli import StageTiming
+        from grader.orchestrator import StageTiming
 
         st = StageTiming(name="extract", start=100.0, end=102.5)
         self.assertAlmostEqual(st.duration, 2.5)
 
     def test_submission_telemetry_begin_end_stage(self) -> None:
-        from grader.cli import SubmissionTelemetry
+        from grader.orchestrator import SubmissionTelemetry
 
         tel = SubmissionTelemetry()
         tel.begin_stage("extract")

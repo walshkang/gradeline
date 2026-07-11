@@ -213,13 +213,13 @@ class CliErrorTests(unittest.TestCase):
                 patch("grader.cli.discover_submission_units", return_value=[unit1, unit2]),
                 patch("grader.cli.parse_index_html", return_value=[]),
                 patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
-                patch("grader.cli.extract_pdf_text", side_effect=fake_extract),
+                patch("grader.orchestrator.extract_pdf_text", side_effect=fake_extract),
                 patch("grader.llm_factory.get_llm_provider", side_effect=lambda provider_name, api_key, model, cache_dir: FakeGrader(api_key, model, cache_dir)),
-                patch("grader.cli.annotate_submission_pdfs", side_effect=fake_annotate),
-                patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
-                patch("grader.cli.write_review_queue_csv", review_writer),
+                patch("grader.orchestrator.annotate_submission_pdfs", side_effect=fake_annotate),
+                patch("grader.orchestrator.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
+                patch("grader.orchestrator.write_review_queue_csv", review_writer),
                 patch(
-                    "grader.cli.write_brightspace_import_csv",
+                    "grader.orchestrator.write_brightspace_import_csv",
                     return_value=(output_dir / "brightspace_grades_import.csv", []),
                 ),
                 patch.dict("os.environ", {"GEMINI_API_KEY": "token"}, clear=False),
@@ -236,6 +236,8 @@ class CliErrorTests(unittest.TestCase):
                     )
                 )
 
+            print('STDOUT:', stdout.getvalue())
+            print('STDERR:', stderr.getvalue())
             self.assertEqual(exit_code, 4)
             results = review_writer.call_args.args[1]
             self.assertTrue(any(result.error for result in results))
@@ -283,13 +285,13 @@ class CliErrorTests(unittest.TestCase):
                 patch("grader.cli.discover_submission_units", return_value=[unit]),
                 patch("grader.cli.parse_index_html", return_value=[]),
                 patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
-                patch("grader.cli.extract_pdf_text", side_effect=fake_extract),
+                patch("grader.orchestrator.extract_pdf_text", side_effect=fake_extract),
                 patch("grader.llm_factory.get_llm_provider", side_effect=lambda provider_name, api_key, model, cache_dir: FakeGrader(api_key, model, cache_dir)),
-                patch("grader.cli.annotate_submission_pdfs", side_effect=RuntimeError("annotation boom")),
-                patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
-                patch("grader.cli.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
+                patch("grader.orchestrator.annotate_submission_pdfs", side_effect=RuntimeError("annotation boom")),
+                patch("grader.orchestrator.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
+                patch("grader.orchestrator.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
                 patch(
-                    "grader.cli.write_brightspace_import_csv",
+                    "grader.orchestrator.write_brightspace_import_csv",
                     return_value=(output_dir / "brightspace_grades_import.csv", []),
                 ),
                 patch.dict("os.environ", {"GEMINI_API_KEY": "token"}, clear=False),
@@ -307,6 +309,8 @@ class CliErrorTests(unittest.TestCase):
                     + ["--locator-model", "gemini-3-flash-preview"]
                 )
 
+            print('STDOUT:', stdout.getvalue())
+            print('STDERR:', stderr.getvalue())
             self.assertEqual(exit_code, 4)
             diagnostics_path = output_dir / "grading_diagnostics.json"
             payload = json.loads(diagnostics_path.read_text(encoding="utf-8"))
@@ -347,9 +351,9 @@ class CliErrorTests(unittest.TestCase):
                 patch("grader.cli.discover_submission_units", return_value=[unit]),
                 patch("grader.cli.parse_index_html", return_value=[]),
                 patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
-                patch("grader.cli.extract_pdf_text", side_effect=fake_extract),
-                patch("grader.cli.annotate_submission_pdfs", side_effect=fake_annotate),
-                patch("grader.cli.write_grading_audit_csv", side_effect=RuntimeError("audit csv boom")),
+                patch("grader.orchestrator.extract_pdf_text", side_effect=fake_extract),
+                patch("grader.orchestrator.annotate_submission_pdfs", side_effect=fake_annotate),
+                patch("grader.orchestrator.write_grading_audit_csv", side_effect=RuntimeError("audit csv boom")),
                 redirect_stdout(stdout),
                 redirect_stderr(stderr),
             ):
@@ -417,11 +421,11 @@ class CliErrorTests(unittest.TestCase):
                 patch("grader.cli.parse_index_html", return_value=[]),
                 patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
                 patch("grader.llm_factory.get_llm_provider", side_effect=lambda provider_name, api_key, model, cache_dir: FakeGrader(api_key, model, cache_dir)),
-                patch("grader.cli.annotate_submission_pdfs", side_effect=fake_annotate),
-                patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
-                patch("grader.cli.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
+                patch("grader.orchestrator.annotate_submission_pdfs", side_effect=fake_annotate),
+                patch("grader.orchestrator.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
+                patch("grader.orchestrator.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
                 patch(
-                    "grader.cli.write_brightspace_import_csv",
+                    "grader.orchestrator.write_brightspace_import_csv",
                     return_value=(output_dir / "brightspace_grades_import.csv", []),
                 ),
                 patch.dict("os.environ", {"GEMINI_API_KEY": "token"}, clear=False),
@@ -439,6 +443,8 @@ class CliErrorTests(unittest.TestCase):
                     + ["--grading-mode", "unified", "--no-extract-blocks"]
                 )
 
+            print('STDOUT:', stdout.getvalue())
+            print('STDERR:', stderr.getvalue())
             self.assertEqual(exit_code, 4)
             diagnostics_path = output_dir / "grading_diagnostics.json"
             payload = json.loads(diagnostics_path.read_text(encoding="utf-8"))
@@ -504,11 +510,11 @@ class CliErrorTests(unittest.TestCase):
                 patch("grader.cli.parse_index_html", return_value=[]),
                 patch("grader.cli.write_index_audit_csv", return_value=output_dir / "index_audit.csv"),
                 patch("grader.llm_factory.get_llm_provider", side_effect=lambda provider_name, api_key, model, cache_dir: FakeGrader(api_key, model, cache_dir)),
-                patch("grader.cli.annotate_submission_pdfs", side_effect=fake_annotate),
-                patch("grader.cli.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
-                patch("grader.cli.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
+                patch("grader.orchestrator.annotate_submission_pdfs", side_effect=fake_annotate),
+                patch("grader.orchestrator.write_grading_audit_csv", return_value=output_dir / "grading_audit.csv"),
+                patch("grader.orchestrator.write_review_queue_csv", return_value=output_dir / "review_queue.csv"),
                 patch(
-                    "grader.cli.write_brightspace_import_csv",
+                    "grader.orchestrator.write_brightspace_import_csv",
                     return_value=(output_dir / "brightspace_grades_import.csv", []),
                 ),
                 patch.dict("os.environ", {"GEMINI_API_KEY": "token"}, clear=False),

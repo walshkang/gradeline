@@ -1,238 +1,29 @@
 from __future__ import annotations
 
 import argparse
-import atexit
-import concurrent.futures.thread as _cft
 import os
 import re
 import sys
-import time
-import threading
 import inspect
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait as futures_wait
-from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable
 
-from .annotate import annotate_submission_pdfs
-from .orchestrator import GradingConfig
+from .orchestrator import GradingConfig, Orchestrator
 from .config import load_rubric
 from .diagnostics import DiagnosticsCollector, serialize_cli_args
 from .discovery import discover_submission_units, parse_index_html
 from .env import load_dotenv_if_present
 from .extract import ensure_binaries_present, extract_pdf_text
-from .gemini_client import GeminiGrader
-from .precheck import regex_precheck
-from .report import (
-    write_brightspace_import_csv,
-    write_grading_audit_csv,
-    write_index_audit_csv,
-    write_review_queue_csv,
-)
-from .score import score_submission
-from .types import QuestionResult, SubmissionResult
-from .ui import RunSummary, args_to_subtitle, create_console_ui
+from .report import write_index_audit_csv
+from .ui import args_to_subtitle, create_console_ui
+from .defaults import DEFAULT_CONCURRENCY, DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL, DEFAULT_RATE_LIMIT_ENABLED
 from .rate_limit import RateLimiterRegistry, DailyLimitExhausted
-from .checkpoint import compute_run_config_hash, save_checkpoint, load_checkpoint, clear_checkpoint
-
 
 LEGACY_MODE = "legacy"
 UNIFIED_MODE = "unified"
 AGENT_MODE = "agent"
-from .defaults import DEFAULT_CONCURRENCY, DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL, DEFAULT_RATE_LIMIT_ENABLED
 DEFAULT_AGENT_TYPE = "gemini"
 DEFAULT_OCR_CHAR_THRESHOLD = 200
-LOW_CONFIDENCE_THRESHOLD = 0.55
 DEFAULT_ANNOTATION_FONT_SIZE = 24.0
-
-# Limit concurrent locator passes across submissions to avoid API rate limits.
-LOCATOR_MAX_CONCURRENT = 1
-locator_semaphore = threading.Semaphore(LOCATOR_MAX_CONCURRENT)
-
-VERDICT_SYMBOLS = {"correct": "✓", "partial": "◐", "rounding_error": "≈", "incorrect": "✗", "needs_review": "⟳"}
-
-
-def prompt_interrupt_action(ui) -> str:
-    """Prompt the user for how to handle a Ctrl+C interrupt.
-
-    Returns one of: "resume", "stop_keep", "clear_all".
-    A second Ctrl+C during the prompt is treated as "stop_keep".
-    """
-
-    try:
-        from InquirerPy import inquirer  # type: ignore[import-not-found]
-    except Exception:
-        # Fallback to a simple numbered input prompt.
-        options: list[tuple[str, str]] = [
-            ("Resume grading", "resume"),
-            ("Stop now and keep completed results", "stop_keep"),
-            ("Clear this run's outputs and abort", "clear_all"),
-        ]
-        while True:
-            ui.info("Interrupt detected. Choose an action:")
-            for idx, (label, _) in enumerate(options, start=1):
-                ui.info(f"{idx}. {label}")
-            try:
-                raw = input("Enter choice [1-3]: ").strip()
-            except (KeyboardInterrupt, EOFError):
-                ui.info("Second Ctrl+C detected; stopping and keeping completed results.")
-                return "stop_keep"
-            if raw in {"1", "2", "3"}:
-                return options[int(raw) - 1][1]
-            ui.warning("Invalid choice. Please enter 1, 2, or 3.")
-
-    options_for_inquirer = [
-        ("Resume grading", "resume"),
-        ("Stop now and keep completed results", "stop_keep"),
-        ("Clear this run's outputs and abort", "clear_all"),
-    ]
-    try:
-        choice = inquirer.select(
-            message="Interrupt detected. Choose an action:",
-            choices=options_for_inquirer,
-        ).execute()
-    except KeyboardInterrupt:
-        ui.info("Second Ctrl+C detected; stopping and keeping completed results.")
-        return "stop_keep"
-
-    return str(choice)
-
-
-@dataclass
-class StageTiming:
-    name: str
-    start: float = 0.0
-    end: float = 0.0
-
-    @property
-    def duration(self) -> float:
-        return max(0.0, self.end - self.start) if self.end else 0.0
-
-
-@dataclass
-class SubmissionTelemetry:
-    stages: list[StageTiming] = field(default_factory=list)
-    start: float = 0.0
-    end: float = 0.0
-
-    @property
-    def total_seconds(self) -> float:
-        return max(0.0, self.end - self.start) if self.end else 0.0
-
-    def begin_stage(self, name: str) -> None:
-        self.stages.append(StageTiming(name=name, start=time.monotonic()))
-
-    def end_stage(self) -> None:
-        if self.stages and not self.stages[-1].end:
-            self.stages[-1].end = time.monotonic()
-
-
-@dataclass(frozen=True)
-class RollingSnapshot:
-    band_counts: dict[str, int]
-    failure_count: int
-    submissions_done: int
-    total_seconds: float
-    mean_seconds: float
-    eta_seconds: float
-
-
-def build_trust_rationale(
-    question_results: list[QuestionResult],
-    percent: float,
-    band: str,
-    rubric_bands: dict[str, float],
-    global_flags: list[str],
-) -> str:
-    """Build a deterministic one-line trust rationale for a graded submission."""
-    from .ui import _BAND_DISPLAY
-
-    band_label = _BAND_DISPLAY.get(band, band)
-    parts = [f"{band_label} ({percent:.2f}%)"]
-
-    counts = {"correct": 0, "rounding_error": 0, "partial": 0, "incorrect": 0, "needs_review": 0}
-    low_conf: list[str] = []
-    for qr in question_results:
-        counts[qr.verdict] = counts.get(qr.verdict, 0) + 1
-        if qr.verdict not in ("correct", "rounding_error") and qr.confidence < LOW_CONFIDENCE_THRESHOLD:
-            low_conf.append(f"{qr.id}({qr.confidence:.2f})")
-
-    mix = f"{counts['correct']}✓ {counts['rounding_error']}≈ {counts['partial']}◐ {counts['incorrect']}✗ {counts['needs_review']}⟳"
-    parts.append(mix)
-
-    # Threshold delta to next band up
-    sorted_bands = []
-    for name, val in rubric_bands.items():
-        try:
-            threshold = float(val)
-            if threshold <= 1.0:
-                threshold *= 100.0
-            sorted_bands.append((name, threshold))
-        except (TypeError, ValueError):
-            pass
-    sorted_bands.sort(key=lambda x: x[1])
-
-    next_band = None
-    for name, threshold in sorted_bands:
-        if threshold > percent:
-            next_band = (name, threshold)
-            break
-
-    if next_band is not None and band != "REVIEW_REQUIRED":
-        delta = next_band[1] - percent
-        dest_label = next_band[0]
-        if dest_label == "check_plus_min":
-            dest_label = "Check+"
-        elif dest_label == "check_min":
-            dest_label = "Check"
-        parts.append(f"{delta:+.2f}→{dest_label}")
-
-    if low_conf:
-        parts.append(f"low-conf {','.join(low_conf[:4])}")
-
-    if global_flags:
-        parts.append(f"flags:{','.join(global_flags[:3])}")
-
-    return " | ".join(parts)
-
-
-def update_rolling_snapshot(
-    previous: RollingSnapshot | None,
-    result: SubmissionResult,
-    elapsed: float,
-    remaining: int,
-) -> RollingSnapshot:
-    """Accumulate rolling stats after each submission."""
-    if previous is None:
-        band_counts: dict[str, int] = {}
-        failure_count = 0
-        total_seconds = 0.0
-        submissions_done = 0
-    else:
-        band_counts = dict(previous.band_counts)
-        failure_count = previous.failure_count
-        total_seconds = previous.total_seconds
-        submissions_done = previous.submissions_done
-
-    submissions_done += 1
-    total_seconds += elapsed
-    band = result.grade_result.band
-    band_counts[band] = band_counts.get(band, 0) + 1
-    if result.error:
-        failure_count += 1
-
-    mean_seconds = total_seconds / submissions_done if submissions_done else 0.0
-    eta_seconds = mean_seconds * remaining
-
-    return RollingSnapshot(
-        band_counts=band_counts,
-        failure_count=failure_count,
-        submissions_done=submissions_done,
-        total_seconds=total_seconds,
-        mean_seconds=mean_seconds,
-        eta_seconds=eta_seconds,
-    )
-
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Gemini-backed Brightspace PDF grader.")
@@ -281,12 +72,21 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+
+
+
+def abort_preflight(exit_code: int, ui, diagnostics, output_dir: Path) -> int:
+    try:
+        diagnostics.write_json(output_dir / "grading_diagnostics.json")
+    except Exception:
+        pass
+    return exit_code
+
 def main(argv: list[str] | None = None) -> int:
     load_dotenv_if_present()
     args = parse_args(argv if argv is not None else sys.argv[1:])
     if os.environ.get("GRADELINE_PLAIN", "").lower() in {"1", "true", "yes"}:
         args.plain = True
-    # Honor environment variables for agent-friendly runs
     if os.environ.get("GRADELINE_JSON"):
         args.json_output = True
     if os.environ.get("GRADELINE_QUIET"):
@@ -297,135 +97,6 @@ def main(argv: list[str] | None = None) -> int:
     ui.banner("Brightspace PDF Grader", subtitle=args_to_subtitle(args))
 
     diagnostics = DiagnosticsCollector(args_snapshot=serialize_cli_args(args))
-    diagnostics_path = args.diagnostics_file or (args.output_dir / "grading_diagnostics.json")
-    artifacts: dict[str, Path | None] = {
-        "Index audit CSV": None,
-        "Grading audit CSV": None,
-        "Review queue CSV": None,
-        "Brightspace import CSV": None,
-    }
-    rolling: RollingSnapshot | None = None
-
-    def conclude(exit_code: int, submission_results: list[SubmissionResult], warnings: list[str]) -> int:
-        ui.stop_progress()
-        ui.clear_status()
-        if exit_code in (0, 3, 4):
-            clear_checkpoint(args.output_dir)
-        ui.section_heading("Results")
-        summary = summarize_results(
-            submission_results=submission_results,
-            warning_count=len(warnings),
-            snapshot=rolling,
-        )
-        # Remap exit code so that REVIEW_REQUIRED and grading errors surface to callers
-        # but avoid doing this for dry-run (dry-run intentionally marks items as needs_review).
-        if exit_code == 0 and not getattr(args, "dry_run", False):
-            if summary.failed_with_error_count > 0:
-                exit_code = 4
-            elif summary.review_required_count > 0:
-                exit_code = 3
-
-        diagnostics.set_run_totals(
-            {
-                "submissions_processed": summary.submissions_processed,
-                "success_count": summary.success_count,
-                "review_required_count": summary.review_required_count,
-                "failed_with_error_count": summary.failed_with_error_count,
-                "warning_count": summary.warning_count,
-            }
-        )
-
-        written_diagnostics: Path | None = None
-        try:
-            written_diagnostics = diagnostics.write_json(diagnostics_path)
-        except Exception as exc:  # noqa: BLE001
-            ui.warning(f"Failed to write diagnostics file {diagnostics_path}: {exc}")
-
-        for warning in warnings:
-            ui.warning(warning)
-
-        ui.emit_summary(summary)
-        artifact_payload = dict(artifacts)
-        artifact_payload["Diagnostics JSON"] = written_diagnostics or diagnostics_path
-        ui.emit_artifacts(artifact_payload)
-
-        if getattr(args, "json_output", False):
-            import json as _json
-
-            payload = {
-                "exit_code": exit_code,
-                "submissions_processed": summary.submissions_processed,
-                "success_count": summary.success_count,
-                "review_required_count": summary.review_required_count,
-                "failed_with_error_count": summary.failed_with_error_count,
-                "warning_count": summary.warning_count,
-                "band_counts": summary.band_counts or {},
-                "mean_seconds_per_submission": summary.mean_seconds,
-                "artifacts": {k: str(v) for k, v in artifact_payload.items() if v is not None},
-                "diagnostics_file": str(diagnostics_path),
-            }
-            sys.stdout.write(_json.dumps(payload) + "\n")
-            sys.stdout.flush()
-
-        return exit_code
-
-    def delete_session_artifacts(
-        ui_obj,
-        artifacts_map: dict[str, Path | None],
-        submission_results_list: list[SubmissionResult],
-    ) -> None:
-        """Best-effort deletion of this run's output files.
-
-        Only deletes files under args.output_dir, never directories or user-supplied inputs.
-        """
-
-        output_root = args.output_dir.resolve()
-        dangerous_roots = {
-            Path("/").resolve(),
-            Path.home().resolve(),
-            Path.cwd().resolve(),
-        }
-        if output_root in dangerous_roots:
-            ui_obj.warning(f"Refusing to delete artifacts: unsafe output_dir {output_root}")
-            return
-
-        candidates: set[Path] = set()
-
-        for path in artifacts_map.values():
-            if path is not None:
-                candidates.add(path)
-
-        for result in submission_results_list:
-            for pdf_path in getattr(result, "output_pdf_paths", []) or []:
-                candidates.add(Path(pdf_path))
-
-        candidates.add(diagnostics_path)
-
-        for path in candidates:
-            try:
-                resolved = path.resolve()
-            except Exception:
-                continue
-
-            if not resolved.is_file():
-                continue
-
-            try:
-                if not resolved.is_relative_to(output_root):
-                    continue
-            except Exception:
-                continue
-
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                continue
-            except Exception as exc:  # noqa: BLE001
-                ui_obj.warning(f"Failed to delete artifact {path}: {exc}")
-        try:
-            clear_checkpoint(args.output_dir)
-        except Exception:
-            pass
 
     if args.grading_mode == LEGACY_MODE:
         missing = ensure_binaries_present()
@@ -438,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
                 message=message,
             )
             ui.error(message)
-            return conclude(exit_code=2, submission_results=[], warnings=[])
+            return abort_preflight(2, ui, diagnostics, args.output_dir)
     elif args.grading_mode == AGENT_MODE:
         import shutil
         agent_binary = args.agent_type
@@ -454,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                 message=message,
             )
             ui.error(message)
-            return conclude(exit_code=2, submission_results=[], warnings=[])
+            return abort_preflight(2, ui, diagnostics, args.output_dir)
     else:
         if args.ocr_char_threshold != DEFAULT_OCR_CHAR_THRESHOLD:
             message = "--ocr-char-threshold is ignored in unified mode."
@@ -482,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
                 message=message,
             )
             ui.error(message)
-            return conclude(exit_code=2, submission_results=[], warnings=[])
+            return abort_preflight(2, ui, diagnostics, args.output_dir)
 
     for label, path in (
         ("Output directory", args.output_dir),
@@ -491,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     ):
         try:
             path.mkdir(parents=True, exist_ok=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             message = f"Failed to prepare {label.lower()} at {path}: {exc}"
             diagnostics.record(
                 severity="error",
@@ -501,11 +172,11 @@ def main(argv: list[str] | None = None) -> int:
                 exc=exc,
             )
             ui.error(message)
-            return conclude(exit_code=2, submission_results=[], warnings=[])
+            return abort_preflight(2, ui, diagnostics, args.output_dir)
 
     try:
         rubric = load_rubric(args.rubric_yaml)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         message = f"Failed to load rubric YAML {args.rubric_yaml}: {exc}"
         diagnostics.record(
             severity="error",
@@ -515,11 +186,11 @@ def main(argv: list[str] | None = None) -> int:
             exc=exc,
         )
         ui.error(message)
-        return conclude(exit_code=1, submission_results=[], warnings=[])
+        return abort_preflight(1, ui, diagnostics, args.output_dir)
 
     try:
         units = discover_submission_units(args.submissions_dir)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         message = f"Failed to discover submissions in {args.submissions_dir}: {exc}"
         diagnostics.record(
             severity="error",
@@ -529,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
             exc=exc,
         )
         ui.error(message)
-        return conclude(exit_code=2, submission_results=[], warnings=[])
+        return abort_preflight(2, ui, diagnostics, args.output_dir)
 
     if args.student_filter:
         try:
@@ -544,20 +215,20 @@ def main(argv: list[str] | None = None) -> int:
                 exc=exc,
             )
             ui.error(message)
-            return conclude(exit_code=2, submission_results=[], warnings=[])
+            return abort_preflight(2, ui, diagnostics, args.output_dir)
         units = [unit for unit in units if pattern.search(unit.folder_path.name)]
 
     if not units:
         ui.info("No submission folders with PDFs found.")
-        return conclude(exit_code=0, submission_results=[], warnings=[])
+        return abort_preflight(0, ui, diagnostics, args.output_dir)
 
     ui.info(f"Discovered {len(units)} submission folders.")
-
+    
+    # We still need to write the index audit CSV early
     try:
         audit_entries = parse_index_html(args.submissions_dir / "index.html")
-        artifacts["Index audit CSV"] = write_index_audit_csv(args.output_dir, audit_entries)
-    except Exception as exc:  # noqa: BLE001
-        message = f"Failed to write index audit CSV: {exc}"
+    except Exception as exc:
+        message = f"Failed to parse index html: {exc}"
         diagnostics.record(
             severity="error",
             code="report_write_failed",
@@ -566,40 +237,7 @@ def main(argv: list[str] | None = None) -> int:
             exc=exc,
         )
         ui.error(message)
-        return conclude(exit_code=1, submission_results=[], warnings=[])
-
-    solutions_text: str | None = None
-    if args.grading_mode == LEGACY_MODE:
-        try:
-            solutions_text = extract_pdf_text(
-                args.solutions_pdf,
-                temp_dir=args.temp_dir,
-                ocr_char_threshold=args.ocr_char_threshold,
-                gemini_api_key=api_key or None,
-                gemini_model=args.extraction_model,
-                rate_limiter=rate_limiter,
-            ).text
-        except DailyLimitExhausted as limit_exc:
-            ui.error(f"⚠ Daily API limit reached: {limit_exc}")
-            return 5
-        except Exception as exc:  # noqa: BLE001
-            message = f"Failed to extract text from solutions PDF {args.solutions_pdf}: {exc}"
-            diagnostics.record(
-                severity="error",
-                code="solution_extract_failed",
-                stage="solution_extract",
-                message=message,
-                exc=exc,
-            )
-            ui.error(message)
-            return conclude(exit_code=1, submission_results=[], warnings=[])
-
-    grade_points = {
-        "Check Plus": args.check_plus_points,
-        "Check": args.check_points,
-        "Check Minus": args.check_minus_points,
-        "REVIEW_REQUIRED": args.review_required_points,
-    }
+        return abort_preflight(1, ui, diagnostics, args.output_dir)
 
     api_key = os.getenv(args.api_key_env, "").strip()
     if not api_key and not args.dry_run:
@@ -611,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             message=message,
         )
         ui.error(message)
-        return conclude(exit_code=2, submission_results=[], warnings=[])
+        return abort_preflight(2, ui, diagnostics, args.output_dir)
 
     rate_limiter = None
     if getattr(args, "rate_limit", True) and not args.dry_run:
@@ -645,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
             if "rate_limiter" in sig.parameters:
                 kwargs["rate_limiter"] = rate_limiter
             grader = get_llm_provider(**kwargs)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             message = f"Failed to initialize LLM client: {exc}"
             diagnostics.record(
                 severity="error",
@@ -655,7 +293,40 @@ def main(argv: list[str] | None = None) -> int:
                 exc=exc,
             )
             ui.error(message)
-            return conclude(exit_code=1, submission_results=[], warnings=[])
+            return abort_preflight(1, ui, diagnostics, args.output_dir)
+
+    solutions_text: str | None = None
+    if args.grading_mode == LEGACY_MODE:
+        try:
+            solutions_text = extract_pdf_text(
+                args.solutions_pdf,
+                temp_dir=args.temp_dir,
+                ocr_char_threshold=args.ocr_char_threshold,
+                gemini_api_key=api_key or None,
+                gemini_model=args.extraction_model,
+                rate_limiter=rate_limiter,
+            ).text
+        except DailyLimitExhausted as limit_exc:
+            ui.error(f"⚠ Daily API limit reached: {limit_exc}")
+            return abort_preflight(5, ui, diagnostics, args.output_dir)
+        except Exception as exc:
+            message = f"Failed to extract text from solutions PDF {args.solutions_pdf}: {exc}"
+            diagnostics.record(
+                severity="error",
+                code="solution_extract_failed",
+                stage="solution_extract",
+                message=message,
+                exc=exc,
+            )
+            ui.error(message)
+            return abort_preflight(1, ui, diagnostics, args.output_dir)
+
+    grade_points = {
+        "Check Plus": args.check_plus_points,
+        "Check": args.check_points,
+        "Check Minus": args.check_minus_points,
+        "REVIEW_REQUIRED": args.review_required_points,
+    }
 
     config = GradingConfig(
         submissions_root=args.submissions_dir,
@@ -663,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
         temp_dir=args.temp_dir,
         ocr_char_threshold=args.ocr_char_threshold,
         rubric=rubric,
+        rubric_yaml=args.rubric_yaml,
         solutions_text=solutions_text,
         solutions_pdf_path=args.solutions_pdf,
         grade_points=grade_points,
@@ -680,352 +352,22 @@ def main(argv: list[str] | None = None) -> int:
         diagnostics=diagnostics,
         rate_limiter=rate_limiter,
         annotation_font_size=float(getattr(args, "annotation_font_size", DEFAULT_ANNOTATION_FONT_SIZE)),
-    )
-
-    run_config_hash = compute_run_config_hash(
-        rubric_path=args.rubric_yaml,
-        solutions_pdf=args.solutions_pdf,
+        grade_column=args.grade_column,
+        identifier_column=args.identifier_column,
+        comment_column=args.comment_column or None,
+        grades_template_csv=args.grades_template_csv,
         model=args.model,
-        grading_mode=args.grading_mode,
+        concurrency=args.concurrency,
+        json_output=getattr(args, "json_output", False),
+        quiet=getattr(args, "quiet", False)
     )
 
-    checkpoint_data = None
-    from .checkpoint import get_checkpoint_path
-    checkpoint_file = get_checkpoint_path(args.output_dir)
-    if checkpoint_file.exists():
-        checkpoint_data = load_checkpoint(args.output_dir, run_config_hash)
-        if checkpoint_data is not None:
-            ui.info(
-                f"Resuming from checkpoint: {len(checkpoint_data.results)}/{len(units)} "
-                f"submissions completed previously."
-            )
-        else:
-            ui.warning(f"A stale checkpoint file exists at {checkpoint_file} (rubric or model changed).")
-            is_interactive = sys.stdin.isatty() and not getattr(args, "quiet", False)
-            discard = True
-            if is_interactive:
-                try:
-                    res = input("Discard stale checkpoint and start fresh? [Y/n]: ").strip().lower()
-                    if res == "n":
-                        discard = False
-                except (KeyboardInterrupt, EOFError):
-                    pass
-            if discard:
-                clear_checkpoint(args.output_dir)
-                ui.info("Cleared stale checkpoint.")
-
-    if checkpoint_data:
-        submission_results = list(checkpoint_data.results)
-        rolling = checkpoint_data.rolling
-        completed_submissions = len(checkpoint_data.results)
-        completed_folders = checkpoint_data.completed_folders
-        remaining_units = [u for u in units if u.folder_token not in completed_folders]
-    else:
-        submission_results = []
-        rolling = None
-        completed_submissions = 0
-        remaining_units = list(units)
-
-    ui.section_heading("Grading")
-    ui.start_progress(len(units))
-    for _ in range(completed_submissions):
-        ui.advance_progress()
-
-    ui_lock = threading.Lock()
-    rolling_lock = threading.Lock()
-    completed_submissions = 0
-
-    def locked_status_update(prefix: str) -> Callable[[str], None]:
-        def update(message: str) -> None:
-            with ui_lock:
-                ui.status(f"{prefix} :: {message}")
-        return update
-
-    def process_student(index: int, unit) -> tuple[int, SubmissionResult, float]:
-        folder_name = unit.folder_path.name
-        sub_start = time.monotonic()
-        with ui_lock:
-            ui.submission_started(index=index, total=len(units), folder_name=folder_name)
-        status_prefix = f"[{index}/{len(units)}] {folder_name}"
-        if args.grading_mode == LEGACY_MODE:
-            with ui_lock:
-                ui.status(f"{status_prefix} :: preparing extraction")
-        else:
-            with ui_lock:
-                ui.status(f"{status_prefix} :: preparing unified grading")
-
-        status_update = locked_status_update(prefix=status_prefix)
-
-        # Set up per-submission grading progress (unified mode only).
-        submission_task_id: int | None = None
-        grading_progress: Callable[[int, int, str], None] | None = None
-        if args.grading_mode == UNIFIED_MODE:
-            total_questions = len(rubric.questions)
-            if total_questions > 0:
-                submission_task_id = ui.add_submission_task(folder_name=folder_name, total_questions=total_questions)
-
-                def grading_progress(current: int, total: int, question_id: str) -> None:
-                    # Ignore total; UI tracks its own configured total.
-                    ui.update_submission_task(submission_task_id or 0, current, question_id)
-
-        try:
-            result = grade_one_submission(
-                unit=unit,
-                config=config,
-                status_update=status_update,
-                progress_callback=grading_progress,
-            )
-        except DailyLimitExhausted:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            message = f"Unhandled submission failure: {exc}"
-            with rolling_lock:
-                diagnostics.record(
-                    severity="error",
-                    code="grading_unhandled_submission",
-                    stage="grading",
-                    message=message,
-                    submission_folder=folder_name,
-                    exc=exc,
-                )
-            result = build_failed_submission_result(
-                unit=unit,
-                rubric=rubric,
-                grade_points=grade_points,
-                error_message=message,
-            )
-        finally:
-            if submission_task_id is not None:
-                ui.remove_submission_task(submission_task_id)
-
-        sub_elapsed = time.monotonic() - sub_start
-        with ui_lock:
-            ui.clear_status()
-
-        return index, result, sub_elapsed
-
-    def annotate_and_finish(index: int, result: SubmissionResult, sub_elapsed: float) -> SubmissionResult:
-        nonlocal rolling, completed_submissions
-        folder_name = result.submission.folder_path.name
-        
-        try:
-            output_pdf_paths, updated_question_results = annotate_submission_pdfs(
-                submission=result.submission,
-                rubric=config.rubric,
-                question_results=result.question_results,
-                block_registry=result.block_registry or {},
-                output_dir=config.output_dir,
-                submissions_root=config.submissions_root,
-                final_band=result.grade_result.band,
-                dry_run=config.dry_run,
-                annotate_dry_run_marks=config.annotate_dry_run_marks,
-                annotation_font_size=config.annotation_font_size,
-            )
-            result.output_pdf_paths = output_pdf_paths
-            result.question_results = updated_question_results
-        except Exception as exc:  # noqa: BLE001
-            annotation_error = f"Annotation failed: {exc}"
-            with rolling_lock:
-                diagnostics.record(
-                    severity="error",
-                    code="annotation_failed",
-                    stage="annotation",
-                    message=annotation_error,
-                    submission_folder=folder_name,
-                    exc=exc,
-                )
-            result.error = append_error(result.error, annotation_error)
-
-        rationale = build_trust_rationale(
-            question_results=result.question_results,
-            percent=result.grade_result.percent,
-            band=result.grade_result.band,
-            rubric_bands=config.rubric.bands,
-            global_flags=result.global_flags,
-        )
-        
-        with rolling_lock:
-            completed_submissions += 1
-            remaining = len(units) - completed_submissions
-            rolling = update_rolling_snapshot(rolling, result, sub_elapsed, remaining)
-            current_rolling = rolling
-
-        with ui_lock:
-            ui.submission_finished(
-                index=index,
-                total=len(units),
-                folder_name=folder_name,
-                band=result.grade_result.band,
-                had_error=bool(result.error),
-                rationale=rationale,
-                elapsed_seconds=sub_elapsed,
-                snapshot=current_rolling,
-            )
-        return result
-
-    pending_api: set[Any] = set()
-    pending_annotation: set[Any] = set()
-    _forced_exit_code: int | None = None
-
-    def _shutdown_executors(
-        api_ex: ThreadPoolExecutor,
-        ann_ex: ThreadPoolExecutor,
-        *,
-        cancel_annotation: bool,
-    ) -> bool:
-        """Shut down both executors, waiting for in-flight work.
-
-        Returns True if shutdown completed gracefully, False if a second
-        Ctrl+C forced an immediate (non-waiting) stop.
-        """
-        in_flight = sum(1 for f in pending_api if not f.done())
-        if in_flight > 0:
-            ui.info(
-                f"Waiting for {in_flight} in-flight request(s) to finish…"
-                "  (Ctrl+C again to force quit)"
-            )
-        try:
-            api_ex.shutdown(wait=True, cancel_futures=True)
-            ann_ex.shutdown(wait=True, cancel_futures=cancel_annotation)
-            return True
-        except KeyboardInterrupt:
-            ui.info("Force stopping — some in-flight results may be lost.")
-            api_ex.shutdown(wait=False, cancel_futures=True)
-            ann_ex.shutdown(wait=False, cancel_futures=True)
-            # Unregister the atexit thread-join handler so the interpreter
-            # doesn't hang waiting for threads we've already abandoned.
-            try:
-                atexit.unregister(_cft._python_exit)
-            except Exception:
-                pass
-            return False
-
+    orchestrator = Orchestrator(config, ui)
+    # Orchestrator needs index audit CSV written early and tracked
     try:
-        with ThreadPoolExecutor(max_workers=args.concurrency) as api_executor:
-            with ThreadPoolExecutor(max_workers=max(1, args.concurrency // 2)) as annotation_executor:
-                for i, unit in enumerate(remaining_units, start=completed_submissions + 1):
-                    future = api_executor.submit(process_student, i, unit)
-                    pending_api.add(future)
-
-                while pending_api or pending_annotation:
-                    try:
-                        # Wait for any future (grading OR annotation) to finish.
-                        # This prevents slow grading stragglers from blocking collection
-                        # of annotation results that already completed.
-                        all_pending = pending_api | pending_annotation
-                        done, _ = futures_wait(all_pending, return_when=FIRST_COMPLETED)
-                        for future in done:
-                            if future in pending_api:
-                                pending_api.discard(future)
-                                try:
-                                    idx, result, elapsed = future.result()
-                                    ann_future = annotation_executor.submit(
-                                        annotate_and_finish,
-                                        idx,
-                                        result,
-                                        elapsed,
-                                    )
-                                    pending_annotation.add(ann_future)
-                                except DailyLimitExhausted as limit_exc:
-                                    ui.stop_progress()
-                                    ui.error(f"⚠ Daily API limit reached: {limit_exc}")
-                                    # Cancel all queued api tasks, wait for running ones
-                                    api_executor.shutdown(wait=True, cancel_futures=True)
-                                    # Wait for running annotation tasks to complete
-                                    annotation_executor.shutdown(wait=True, cancel_futures=False)
-                                    
-                                    # Harvest completed results
-                                    for api_fut in list(pending_api):
-                                        if api_fut.done():
-                                            try:
-                                                idx_h, result_h, elapsed_h = api_fut.result()
-                                                ann_res = annotate_and_finish(idx_h, result_h, elapsed_h)
-                                                submission_results.append(ann_res)
-                                            except Exception:
-                                                pass
-                                    for ann_fut in list(pending_annotation):
-                                        if ann_fut.done() and not ann_fut.cancelled():
-                                            try:
-                                                submission_results.append(ann_fut.result())
-                                            except Exception:
-                                                pass
-                                    
-                                    # Save checkpoint
-                                    checkpoint_path = save_checkpoint(
-                                        output_dir=args.output_dir,
-                                        results=submission_results,
-                                        rolling=rolling,
-                                        run_config_hash=run_config_hash,
-                                        stop_reason="rate_limit_exhausted",
-                                    )
-                                    ui.info(
-                                        f"✓ Checkpointed {len(submission_results)}/{len(units)} "
-                                        f"submissions to {checkpoint_path}"
-                                    )
-                                    _forced_exit_code = 5
-                                    return 5
-                            else:
-                                pending_annotation.discard(future)
-                                submission_results.append(future.result())
-
-                    except KeyboardInterrupt:
-                        ui.stop_progress()
-                        action = prompt_interrupt_action(ui)
-
-                        if action == "resume":
-                            ui.start_progress(len(units))
-                            continue
-
-                        if action == "stop_keep":
-                            ui.info("Stopping after current tasks finish; keeping completed results.")
-                            _shutdown_executors(api_executor, annotation_executor, cancel_annotation=False)
-                            for future in list(pending_annotation):
-                                if future.cancelled():
-                                    continue
-                                try:
-                                    submission_results.append(future.result())
-                                except Exception:
-                                    continue
-                            # Save checkpoint
-                            save_checkpoint(
-                                output_dir=args.output_dir,
-                                results=submission_results,
-                                rolling=rolling,
-                                run_config_hash=run_config_hash,
-                                stop_reason="user_interrupt",
-                            )
-                            pending_api.clear()
-                            pending_annotation.clear()
-                            break
-
-                        if action == "clear_all":
-                            _shutdown_executors(api_executor, annotation_executor, cancel_annotation=True)
-                            delete_session_artifacts(ui, artifacts, submission_results)
-                            ui.info("Aborted grading run. All outputs and checkpoints from this session have been removed.")
-                            _forced_exit_code = 130
-                            return 130
-    except KeyboardInterrupt:
-        # A Ctrl+C during executor __exit__ (which re-calls shutdown(wait=True))
-        # surfaces here.  The user already chose their action; just continue.
-        pass
-
-    if _forced_exit_code is not None:
-        return _forced_exit_code
-
-    warnings: list[str] = []
-    try:
-        artifacts["Grading audit CSV"] = write_grading_audit_csv(args.output_dir, submission_results)
-        artifacts["Review queue CSV"] = write_review_queue_csv(args.output_dir, submission_results)
-        artifacts["Brightspace import CSV"], warnings = write_brightspace_import_csv(
-            output_dir=args.output_dir,
-            template_csv_path=args.grades_template_csv,
-            submission_results=submission_results,
-            grade_column=args.grade_column,
-            identifier_column=args.identifier_column,
-            comment_column=args.comment_column or None,
-        )
-    except Exception as exc:  # noqa: BLE001
-        message = f"Failed to write report CSV outputs: {exc}"
+        orchestrator.artifacts["Index audit CSV"] = write_index_audit_csv(args.output_dir, audit_entries)
+    except Exception as exc:
+        message = f"Failed to write index audit CSV: {exc}"
         diagnostics.record(
             severity="error",
             code="report_write_failed",
@@ -1034,517 +376,9 @@ def main(argv: list[str] | None = None) -> int:
             exc=exc,
         )
         ui.error(message)
-        return conclude(exit_code=1, submission_results=submission_results, warnings=[])
+        return abort_preflight(1, ui, diagnostics, args.output_dir)
 
-    for warning in warnings:
-        diagnostics.record(
-            severity="warning",
-            code="report_mapping_warning",
-            stage="report_write",
-            message=warning,
-        )
-
-    return conclude(exit_code=0, submission_results=submission_results, warnings=warnings)
-
-
-def summarize_results(
-    submission_results: list[SubmissionResult],
-    warning_count: int,
-    snapshot: RollingSnapshot | None = None,
-) -> RunSummary:
-    submissions_processed = len(submission_results)
-    failed_with_error_count = sum(1 for result in submission_results if result.error)
-    review_required_count = sum(
-        1
-        for result in submission_results
-        if (not result.error) and result.grade_result.band == "REVIEW_REQUIRED"
-    )
-    success_count = submissions_processed - failed_with_error_count - review_required_count
-    return RunSummary(
-        submissions_processed=submissions_processed,
-        success_count=max(0, success_count),
-        review_required_count=review_required_count,
-        failed_with_error_count=failed_with_error_count,
-        warning_count=warning_count,
-        band_counts=dict(snapshot.band_counts) if snapshot else None,
-        mean_seconds=snapshot.mean_seconds if snapshot else None,
-        total_seconds=snapshot.total_seconds if snapshot else None,
-    )
-
-
-def build_failed_submission_result(
-    unit,
-    rubric,
-    grade_points: dict[str, str],
-    error_message: str,
-) -> SubmissionResult:
-    question_results = [
-        QuestionResult(
-            id=question.id,
-            verdict="needs_review",
-            confidence=0.0,
-            short_reason=error_message,
-            evidence_quote="",
-        )
-        for question in rubric.questions
-    ]
-    grade_result = score_submission(
-        rubric=rubric,
-        question_results=question_results,
-        grade_points=grade_points,
-    )
-    return SubmissionResult(
-        submission=unit,
-        question_results=question_results,
-        grade_result=grade_result,
-        output_pdf_paths=[],
-        extraction_sources={},
-        global_flags=["grading_error"],
-        error=error_message,
-    )
-
-
-def append_error(existing: str | None, new_error: str) -> str:
-    return f"{existing}; {new_error}" if existing else new_error
-
-
-def build_status_updater(ui, prefix: str) -> Callable[[str], None]:
-    def update(message: str) -> None:
-        ui.status(f"{prefix} :: {message}")
-
-    return update
-
-
-def dedupe_flags(flags: list[str]) -> list[str]:
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for flag in flags:
-        value = str(flag).strip()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        deduped.append(value)
-    return deduped
-
-
-def context_cache_flag_message(flag: str) -> str:
-    if flag == "context_cache_lookup_failed":
-        return "Context cache lookup failed; rebuilding or bypassing cache for this submission."
-    if flag == "context_cache_create_failed":
-        return "Context cache creation failed; continuing without cache."
-    if flag == "context_cache_bypassed":
-        return "Context cache bypassed for this submission."
-    return flag
-
-
-def grade_one_submission(
-    unit,
-    config: GradingConfig,
-    status_update: Callable[[str], None] | None = None,
-    progress_callback: Callable[[int, int, str], None] | None = None,
-) -> SubmissionResult:
-    submissions_root = config.submissions_root
-    output_dir = config.output_dir
-    temp_dir = config.temp_dir
-    ocr_char_threshold = config.ocr_char_threshold
-    rubric = config.rubric
-    solutions_text = config.solutions_text
-    solutions_pdf_path = config.solutions_pdf_path
-    grade_points = config.grade_points
-    grader = config.grader
-    grading_mode = config.grading_mode
-    agent_type = config.agent_type
-    context_cache = config.context_cache
-    context_cache_ttl_seconds = config.context_cache_ttl_seconds
-    dry_run = config.dry_run
-    locator_model = config.locator_model
-    annotate_dry_run_marks = config.annotate_dry_run_marks
-    extraction_model = config.extraction_model
-    gemini_api_key = config.gemini_api_key
-    extract_blocks = config.extract_blocks
-    diagnostics = config.diagnostics
-    rate_limiter = config.rate_limiter
-
-    extracted = []
-    extraction_sources: dict[str, str] = {}
-    accumulated_error: str | None = None
-    global_flags: list[str] = []
-    combined_text = ""
-    block_registry: dict[str, object] = {}
-
-    if grading_mode == LEGACY_MODE:
-        for pdf_path in unit.pdf_paths:
-            if status_update is not None:
-                status_update(f"extracting {pdf_path.name}")
-            try:
-                pdf_extract = extract_pdf_text(
-                    pdf_path=pdf_path,
-                    temp_dir=temp_dir,
-                    ocr_char_threshold=ocr_char_threshold,
-                    gemini_api_key=gemini_api_key,
-                    gemini_model=extraction_model,
-                    rate_limiter=rate_limiter,
-                )
-            except Exception as exc:  # noqa: BLE001
-                extraction_sources[pdf_path.name] = "error"
-                extraction_error = f"Text extraction failed for {pdf_path.name}: {exc}"
-                accumulated_error = append_error(accumulated_error, extraction_error)
-                if "extract_error" not in global_flags:
-                    global_flags.append("extract_error")
-                if diagnostics is not None:
-                    diagnostics.record(
-                        severity="error",
-                        code="grading_extract_failed",
-                        stage="grading",
-                        message=extraction_error,
-                        submission_folder=unit.folder_path.name,
-                        exc=exc,
-                    )
-                continue
-            extracted.append(pdf_extract)
-            extraction_sources[pdf_path.name] = pdf_extract.source
-
-        combined_text = "\n\n".join(
-            f"### FILE: {item.pdf_path.name}\n{item.text}" for item in extracted
-        )
-        block_registry = {b.id: b for item in extracted for b in item.blocks}
-    else:
-        # Unified/agent modes send PDFs directly to the model for grading. Optionally
-        # run extraction to build the block registry for spatial annotation placement.
-        # Disable with extract_blocks=False to skip OCR overhead when not needed.
-        extracted_for_precheck = []
-        for pdf_path in unit.pdf_paths:
-            extraction_sources[pdf_path.name] = "model_vision"
-            if extract_blocks:
-                try:
-                    pdf_extract = extract_pdf_text(
-                        pdf_path=pdf_path,
-                        temp_dir=temp_dir,
-                        ocr_char_threshold=ocr_char_threshold,
-                        gemini_api_key=gemini_api_key,
-                        gemini_model=extraction_model,
-                        rate_limiter=rate_limiter,
-                    )
-                    block_registry.update({b.id: b for b in pdf_extract.blocks})
-                    extracted_for_precheck.append(pdf_extract)
-                except Exception:
-                    pass
-
-        if extract_blocks:
-            combined_text = "\n\n".join(
-                f"### FILE: {item.pdf_path.name}\n{item.text}" for item in extracted_for_precheck
-            )
-
-    prechecked_results = regex_precheck(rubric, combined_text)
-
-    if dry_run:
-        if status_update is not None:
-            status_update("dry-run question statuses")
-        question_results = [
-            QuestionResult(
-                id=question.id,
-                verdict="needs_review",
-                confidence=0.0,
-                short_reason="Dry run mode.",
-                evidence_quote="",
-                grading_source="dry_run",
-            )
-            for question in rubric.questions
-        ]
-        global_flags.append("dry_run")
-    else:
-        try:
-            assert grader is not None
-            if grading_mode == LEGACY_MODE:
-                if status_update is not None:
-                    status_update(f"grading {len(rubric.questions)} questions")
-                question_results, model_flags = grader.grade_submission(
-                    submission_id=unit.folder_path.name,
-                    pdf_paths=unit.pdf_paths,
-                    combined_text=combined_text,
-                    rubric=rubric,
-                    solutions_text=solutions_text or "",
-                )
-                global_flags.extend(model_flags)
-            elif grading_mode == UNIFIED_MODE:
-                if status_update is not None:
-                    status_update("grading submission in unified mode (this may take up to ~30 seconds)")
-
-                extra_kwargs: dict[str, object] = {}
-                if progress_callback is not None:
-                    try:
-                        sig = inspect.signature(grader.grade_submission_unified)  # type: ignore[attr-defined]
-                        if "progress_callback" in sig.parameters:
-                            extra_kwargs["progress_callback"] = progress_callback
-                    except (ValueError, TypeError, AttributeError):
-                        # If we cannot introspect the grader (e.g., fake test grader),
-                        # fall back to calling without progress support.
-                        pass
-
-                question_results, model_flags = grader.grade_submission_unified(
-                    submission_id=unit.folder_path.name,
-                    pdf_paths=unit.pdf_paths,
-                    rubric=rubric,
-                    solutions_pdf_path=solutions_pdf_path,
-                    context_cache_enabled=context_cache,
-                    context_cache_ttl_seconds=context_cache_ttl_seconds,
-                    blocks=list(block_registry.values()) if block_registry else None,
-                    **extra_kwargs,
-                )
-                global_flags.extend(model_flags)
-                if diagnostics is not None:
-                    for flag in model_flags:
-                        if flag in {
-                            "context_cache_lookup_failed",
-                            "context_cache_create_failed",
-                            "context_cache_bypassed",
-                        }:
-                            diagnostics.record(
-                                severity="warning",
-                                code=flag,
-                                stage="context_cache",
-                                message=context_cache_flag_message(flag),
-                                submission_folder=unit.folder_path.name,
-                            )
-            elif grading_mode == AGENT_MODE:
-                if status_update is not None:
-                    status_update(f"agentic grading ({agent_type}) {len(rubric.questions)} questions")
-                question_results, model_flags = grader.grade_submission_agent(
-                    submission_id=unit.folder_path.name,
-                    pdf_paths=unit.pdf_paths,
-                    rubric=rubric,
-                    solutions_pdf_path=solutions_pdf_path,
-                    agent_type=agent_type,
-                )
-                global_flags.extend(model_flags)
-            else:
-                raise ValueError(f"Unsupported grading mode: {grading_mode}")
-        except ValueError as exc:
-            if grading_mode == UNIFIED_MODE:
-                grading_error = f"Unified Gemini schema validation failed: {exc}"
-                if diagnostics is not None:
-                    diagnostics.record(
-                        severity="error",
-                        code="unified_schema_invalid",
-                        stage="grading",
-                        message=grading_error,
-                        submission_folder=unit.folder_path.name,
-                        exc=exc,
-                    )
-            else:
-                grading_error = f"Gemini grading failed: {exc}"
-                if diagnostics is not None:
-                    diagnostics.record(
-                        severity="error",
-                        code="grading_failed",
-                        stage="grading",
-                        message=grading_error,
-                        submission_folder=unit.folder_path.name,
-                        exc=exc,
-                    )
-            question_results = [
-                QuestionResult(
-                    id=question.id,
-                    verdict="needs_review",
-                    confidence=0.0,
-                    logic_analysis="",
-                    short_reason=grading_error,
-                    evidence_quote="",
-                )
-                for question in rubric.questions
-            ]
-            global_flags.append("grading_error")
-            accumulated_error = append_error(accumulated_error, str(exc))
-        except Exception as exc:  # noqa: BLE001
-            if grading_mode == UNIFIED_MODE:
-                grading_error = f"Unified Gemini grading failed: {exc}"
-                code = "unified_grading_failed"
-            else:
-                grading_error = f"Gemini grading failed: {exc}"
-                code = "grading_failed"
-            if diagnostics is not None:
-                diagnostics.record(
-                    severity="error",
-                    code=code,
-                    stage="grading",
-                    message=grading_error,
-                    submission_folder=unit.folder_path.name,
-                    exc=exc,
-                )
-            question_results = [
-                QuestionResult(
-                    id=question.id,
-                    verdict="needs_review",
-                    confidence=0.0,
-                    logic_analysis="",
-                    short_reason=grading_error,
-                    evidence_quote="",
-                )
-                for question in rubric.questions
-            ]
-            global_flags.append("grading_error")
-            accumulated_error = append_error(accumulated_error, str(exc))
-
-    for i, result in enumerate(question_results):
-        if result.id in prechecked_results:
-            question_results[i] = prechecked_results[result.id]
-
-    needs_locator = any(result.coords is None for result in question_results)
-    if (not dry_run) and locator_model and grader is not None and needs_locator:
-        if status_update is not None:
-            status_update("locating answer anchors")
-        locator_errors: list[str] = []
-        try:
-            with locator_semaphore:
-                candidates = collect_locator_candidates(
-                    grader=grader,
-                    pdf_paths=unit.pdf_paths,
-                    rubric=rubric,
-                    locator_model=locator_model,
-                    errors_out=locator_errors,
-                    diagnostics=diagnostics,
-                    submission_folder=unit.folder_path.name,
-                )
-        except Exception as exc:  # noqa: BLE001
-            locator_errors.append(f"Locator invocation failed: {exc}")
-            candidates = {}
-
-        question_results = apply_locator_candidates(
-            question_results=question_results,
-            candidates=candidates,
-            pdf_paths=unit.pdf_paths,
-        )
-        if locator_errors:
-            if "locator_error" not in global_flags:
-                global_flags.append("locator_error")
-            locator_error_text = "; ".join(locator_errors)
-            accumulated_error = append_error(accumulated_error, locator_error_text)
-
-    grade_result = score_submission(
-        rubric=rubric,
-        question_results=question_results,
-        grade_points=grade_points,
-    )
-
-    return SubmissionResult(
-        submission=unit,
-        question_results=question_results,
-        grade_result=grade_result,
-        output_pdf_paths=[],
-        extraction_sources=extraction_sources,
-        global_flags=dedupe_flags(global_flags),
-        block_registry=block_registry,
-        error=accumulated_error,
-    )
-
-
-def build_annotation_progress_callback(
-    status_update: Callable[[str], None] | None,
-    total_questions: int,
-) -> Callable[[int, int, str], None] | None:
-    if status_update is None:
-        return None
-
-    def update(current: int, _: int, question_id: str) -> None:
-        status_update(f"annotating question {question_id} ({current}/{total_questions})")
-
-    return update
-
-
-def build_grading_progress_callback(
-    status_update: Callable[[str], None] | None,
-    total_questions: int,
-) -> Callable[[int, int, str], None] | None:
-    """Return a simple callback that formats grading question progress.
-
-    The returned callback matches the same signature used elsewhere: (current, total, question_id).
-    If status_update is None, returns None.
-    """
-    if status_update is None:
-        return None
-
-    def update(current: int, _: int, question_id: str) -> None:
-        status_update(f"grading question {question_id} ({current}/{total_questions})")
-
-    return update
-
-
-def collect_locator_candidates(
-    grader: Any,
-    pdf_paths: list[Path],
-    rubric,
-    locator_model: str,
-    errors_out: list[str],
-    diagnostics: DiagnosticsCollector | None = None,
-    submission_folder: str | None = None,
-) -> dict[str, list[dict]]:
-    candidates: dict[str, list[dict]] = {}
-    for pdf_path in pdf_paths:
-        try:
-            per_pdf = grader.locate_answers_for_pdf(
-                pdf_path=pdf_path,
-                rubric=rubric,
-                locator_model=locator_model,
-            )
-        except Exception as exc:  # noqa: BLE001
-            message = f"Locator failed for {pdf_path.name}: {exc}"
-            errors_out.append(message)
-            if diagnostics is not None:
-                diagnostics.record(
-                    severity="error",
-                    code="locator_failed",
-                    stage="locator",
-                    message=message,
-                    submission_folder=submission_folder,
-                    exc=exc,
-                )
-            continue
-        for item in per_pdf:
-            qid = str(item.get("id", "")).strip().lower()
-            if not qid:
-                continue
-            candidates.setdefault(qid, []).append(item)
-    return candidates
-
-
-def apply_locator_candidates(
-    question_results: list[QuestionResult],
-    candidates: dict[str, list[dict]],
-    pdf_paths: list[Path],
-) -> list[QuestionResult]:
-    if not candidates:
-        return question_results
-
-    file_rank = {path.name: idx for idx, path in enumerate(pdf_paths)}
-    result_map = {result.id: result for result in question_results}
-
-    for question_id, options in candidates.items():
-        if question_id not in result_map or not options:
-            continue
-        # Only fill in coordinates for questions that are currently missing them.
-        if result_map[question_id].coords is not None:
-            continue
-        ordered = sorted(
-            options,
-            key=lambda item: (
-                -float(item.get("confidence", 0.0)),
-                file_rank.get(str(item.get("source_file", "")), 10**9),
-            ),
-        )
-        best = ordered[0]
-        coords = best.get("coords")
-        if not isinstance(coords, tuple) or len(coords) != 2:
-            continue
-        result_map[question_id] = replace(
-            result_map[question_id],
-            coords=coords,
-            page_number=best.get("page_number"),
-            source_file=str(best.get("source_file", "")).strip() or None,
-            placement_source="locator_coords",
-        )
-
-    return [result_map[result.id] for result in question_results]
-
+    return orchestrator.run(units)
 
 if __name__ == "__main__":
     raise SystemExit(main())

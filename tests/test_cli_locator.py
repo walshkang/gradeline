@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from grader.cli import apply_locator_candidates
+from grader.orchestrator import apply_locator_candidates
 from grader.types import QuestionResult
 
 

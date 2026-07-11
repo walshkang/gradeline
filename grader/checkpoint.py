@@ -147,7 +147,7 @@ def deserialize_rolling(data: dict[str, Any] | None) -> Any | None:
     """Deserialize the RollingSnapshot dataclass."""
     if data is None:
         return None
-    from .cli import RollingSnapshot
+    from .orchestrator import RollingSnapshot
     return RollingSnapshot(
         band_counts=data["band_counts"],
         failure_count=data["failure_count"],
