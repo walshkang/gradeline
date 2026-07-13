@@ -26,6 +26,10 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, self.api.get_run())
             return
 
+        if path == "/api/matrix":
+            self._send_json(HTTPStatus.OK, self.api.get_matrix())
+            return
+
         if path == "/api/submissions":
             status = first_query_value(query, "status")
             text_query = first_query_value(query, "q")

@@ -15,6 +15,7 @@
         <div class="tab-group">
           <button id="tabReviewBtn" type="button" class="tab-btn active">Review</button>
           <button id="tabConfigBtn" type="button" class="tab-btn">Config</button>
+          <button id="tabMatrixBtn" type="button" class="tab-btn">Matrix</button>
         </div>
         <button id="exportBtn" type="button" class="btn-primary">Export</button>
       </div>
@@ -145,6 +146,30 @@
             Submission Note
             <textarea id="noteInput" rows="2"></textarea>
           </label>
+        </div>
+      </aside>
+    </main>
+
+    <main id="matrixPanel" class="matrix-layout hidden">
+      <div id="matrixToolbar" class="matrix-toolbar">
+        <label>
+          Sort by
+          <select id="matrixSortSelect">
+            <option value="name">Name</option>
+            <option value="percent">Percent</option>
+            <option value="band">Band</option>
+          </select>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="matrixFilterToggle" />
+          Show anomalies only
+        </label>
+      </div>
+      <div id="matrixGrid" class="matrix-grid"></div>
+      <aside id="matrixDetail" class="matrix-detail">
+        <div class="empty-state">
+          <div class="empty-state-icon">🖱️</div>
+          <div class="empty-state-text">Click a cell to view details</div>
         </div>
       </aside>
     </main>

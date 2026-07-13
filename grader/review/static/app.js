@@ -13,13 +13,16 @@
     pendingPatchTimer: null,
     pendingNoteTimer: null,
     dragActive: false,
+    matrixData: null,
   };
 
   const ui = {
     tabReviewBtn: document.getElementById("tabReviewBtn"),
     tabConfigBtn: document.getElementById("tabConfigBtn"),
+    tabMatrixBtn: document.getElementById("tabMatrixBtn"),
     reviewPanel: document.getElementById("reviewPanel"),
     configPanel: document.getElementById("configPanel"),
+    matrixPanel: document.getElementById("matrixPanel"),
     queueList: document.getElementById("queueList"),
     searchInput: document.getElementById("searchInput"),
     refreshBtn: document.getElementById("refreshBtn"),
@@ -65,6 +68,10 @@
     toastContainer: document.getElementById("toastContainer"),
     debugOverlayToggle: document.getElementById("debugOverlayToggle"),
     debugOverlayPanel: document.getElementById("debugOverlayPanel"),
+    matrixSortSelect: document.getElementById("matrixSortSelect"),
+    matrixFilterToggle: document.getElementById("matrixFilterToggle"),
+    matrixGrid: document.getElementById("matrixGrid"),
+    matrixDetail: document.getElementById("matrixDetail"),
   };
 
   // --- Toast notifications ---
@@ -127,10 +134,20 @@
   function setTab(tab) {
     state.currentTab = tab;
     const reviewActive = tab === "review";
+    const configActive = tab === "config";
+    const matrixActive = tab === "matrix";
+    
     ui.tabReviewBtn.classList.toggle("active", reviewActive);
-    ui.tabConfigBtn.classList.toggle("active", !reviewActive);
+    ui.tabConfigBtn.classList.toggle("active", configActive);
+    if (ui.tabMatrixBtn) ui.tabMatrixBtn.classList.toggle("active", matrixActive);
+    
     ui.reviewPanel.classList.toggle("hidden", !reviewActive);
-    ui.configPanel.classList.toggle("hidden", reviewActive);
+    ui.configPanel.classList.toggle("hidden", !configActive);
+    if (ui.matrixPanel) ui.matrixPanel.classList.toggle("hidden", !matrixActive);
+    
+    if (matrixActive) {
+      loadMatrix().catch(e => showToast(e.message, "error"));
+    }
   }
 
   // --- Badge helper ---
@@ -676,6 +693,173 @@
     setConfigStatus(`Saved. Recomputed ${response.recomputed_submissions} submissions.`);
   }
 
+  // --- Matrix helpers ---
+
+  async function loadMatrix() {
+    state.matrixData = await apiGet("/api/matrix");
+    renderMatrix();
+  }
+
+  function renderMatrix() {
+    if (!state.matrixData || !ui.matrixGrid) return;
+    
+    const { question_ids, students, hotspots } = state.matrixData;
+    
+    // sorting
+    const sortBy = ui.matrixSortSelect ? ui.matrixSortSelect.value : "name";
+    let sortedStudents = [...students];
+    if (sortBy === "percent") {
+      sortedStudents.sort((a, b) => b.percent - a.percent);
+    } else if (sortBy === "band") {
+      // simple alpha sort for band
+      sortedStudents.sort((a, b) => String(a.band).localeCompare(String(b.band)));
+    } else {
+      sortedStudents.sort((a, b) => String(a.student_name).localeCompare(String(b.student_name)));
+    }
+    
+    // filtering
+    const anomaliesOnly = ui.matrixFilterToggle && ui.matrixFilterToggle.checked;
+    
+    // prepare hotspots sets
+    const lowPassQuestions = new Set();
+    const inconsistencies = new Set();
+    const borderlineFolders = new Set();
+    
+    if (hotspots) {
+      (hotspots.question_stats || []).forEach(qs => {
+        if (qs.pass_rate < 0.3) lowPassQuestions.add(qs.question_id);
+      });
+      (hotspots.inconsistencies || []).forEach(inc => {
+        inconsistencies.add(`${inc.student_a}|${inc.question_id}`);
+        inconsistencies.add(`${inc.student_b}|${inc.question_id}`);
+      });
+      (hotspots.borderline_students || []).forEach(bs => {
+        borderlineFolders.add(bs.folder);
+      });
+    }
+
+    if (anomaliesOnly) {
+      sortedStudents = sortedStudents.filter(s => {
+        if (borderlineFolders.has(s.folder)) return true;
+        for (const qId of question_ids) {
+          if (inconsistencies.has(`${s.student_name}|${qId}`)) return true;
+          if (lowPassQuestions.has(qId) && s.cells[qId]?.verdict !== "correct") return true;
+          if (s.cells[qId]?.verdict === "needs_review") return true;
+        }
+        return false;
+      });
+    }
+
+    ui.matrixGrid.innerHTML = "";
+    ui.matrixGrid.style.gridTemplateColumns = `max-content repeat(${question_ids.length}, minmax(40px, 1fr))`;
+    
+    // Header row
+    const corner = document.createElement("div");
+    corner.className = "matrix-header-cell matrix-corner";
+    ui.matrixGrid.appendChild(corner);
+    
+    question_ids.forEach(qId => {
+      const th = document.createElement("div");
+      th.className = "matrix-header-cell";
+      th.textContent = qId;
+      if (lowPassQuestions.has(qId)) {
+        th.classList.add("hotspot-fail");
+      }
+      ui.matrixGrid.appendChild(th);
+    });
+
+    // Student rows
+    sortedStudents.forEach(student => {
+      const rowHeader = document.createElement("div");
+      rowHeader.className = "matrix-row-header";
+      rowHeader.textContent = student.student_name || student.folder;
+      
+      const bandClass = bandBadgeClass(student.band);
+      rowHeader.classList.add(bandClass.replace("badge", "").trim() || "badge-default");
+      
+      if (borderlineFolders.has(student.folder)) {
+        rowHeader.classList.add("hotspot-borderline");
+      }
+      ui.matrixGrid.appendChild(rowHeader);
+      
+      question_ids.forEach(qId => {
+        const cellData = student.cells[qId] || {};
+        const cell = document.createElement("div");
+        cell.className = "matrix-cell";
+        
+        let verdictSym = "⟳";
+        let vClass = "cell-needs-review";
+        if (cellData.verdict === "correct") { verdictSym = "✓"; vClass = "cell-correct"; }
+        else if (cellData.verdict === "rounding_error") { verdictSym = "≈"; vClass = "cell-rounding"; }
+        else if (cellData.verdict === "partial") { verdictSym = "◐"; vClass = "cell-partial"; }
+        else if (cellData.verdict === "incorrect") { verdictSym = "✗"; vClass = "cell-incorrect"; }
+        
+        cell.classList.add(vClass);
+        const conf = cellData.confidence !== undefined ? cellData.confidence : 1.0;
+        cell.style.opacity = Math.max(0.2, 0.4 + (conf * 0.6));
+        
+        if (inconsistencies.has(`${student.student_name}|${qId}`)) {
+          cell.classList.add("hotspot-inconsistency");
+        }
+        
+        cell.textContent = verdictSym;
+        if (cellData.grading_source === "regex") {
+          const icon = document.createElement("span");
+          icon.className = "matrix-regex-icon";
+          icon.textContent = "🧪";
+          cell.appendChild(icon);
+        }
+        
+        cell.addEventListener("click", () => showMatrixDetail(student, qId, cellData));
+        ui.matrixGrid.appendChild(cell);
+      });
+    });
+  }
+
+  function showMatrixDetail(student, qId, cellData) {
+    if (!ui.matrixDetail) return;
+    
+    const confPercent = Math.round((cellData.confidence || 0) * 100);
+    const sourceIcon = cellData.grading_source === "regex" ? "🧪 Regex" : "🤖 LLM";
+    
+    let verdictLabel = "Needs Review";
+    if (cellData.verdict === "correct") verdictLabel = "Correct";
+    else if (cellData.verdict === "rounding_error") verdictLabel = "Rounding Error";
+    else if (cellData.verdict === "partial") verdictLabel = "Partial";
+    else if (cellData.verdict === "incorrect") verdictLabel = "Incorrect";
+    
+    ui.matrixDetail.innerHTML = \`
+      <div class="mdetail-header">
+        <h3>\${student.student_name || student.folder}</h3>
+        <div class="mdetail-meta">\${bandLabel(student.band)} · \${student.percent}%</div>
+      </div>
+      <div class="mdetail-section">
+        <h4>Question \${qId}</h4>
+        <div class="mdetail-verdict \${cellData.verdict}">\${verdictLabel} <span class="mdetail-conf">(\${confPercent}% conf, \${sourceIcon})</span></div>
+      </div>
+      <div class="mdetail-section">
+        <h4>Evidence Quote</h4>
+        <div class="mdetail-quote">\${cellData.evidence_quote || "<em>None</em>"}</div>
+      </div>
+      <div class="mdetail-section">
+        <h4>Logic Analysis</h4>
+        <div class="mdetail-logic">\${cellData.logic_analysis || "<em>None</em>"}</div>
+      </div>
+      <div class="mdetail-actions">
+        <button id="mdetailJumpBtn" type="button" class="btn-primary">Jump to Review</button>
+      </div>
+    \`;
+    
+    document.getElementById("mdetailJumpBtn").addEventListener("click", () => {
+      setTab("review");
+      selectSubmission(student.submission_id).then(() => {
+        state.currentQuestionId = qId;
+        renderSubmission();
+        buildQuestionSelect();
+      });
+    });
+  }
+
   // --- Navigation helpers ---
 
   function navigateSubmission(delta) {
@@ -703,6 +887,10 @@
   function bindEvents() {
     ui.tabReviewBtn.addEventListener("click", () => setTab("review"));
     ui.tabConfigBtn.addEventListener("click", () => setTab("config"));
+    if (ui.tabMatrixBtn) ui.tabMatrixBtn.addEventListener("click", () => setTab("matrix"));
+
+    if (ui.matrixSortSelect) ui.matrixSortSelect.addEventListener("change", renderMatrix);
+    if (ui.matrixFilterToggle) ui.matrixFilterToggle.addEventListener("change", renderMatrix);
 
     ui.refreshBtn.addEventListener("click", () => {
       refreshQueue().catch((error) => showToast(error.message, "error"));

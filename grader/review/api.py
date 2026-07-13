@@ -5,9 +5,11 @@ import json
 import re
 import threading
 from copy import deepcopy
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from ..audit import analyze_grading_audit
 from ..score import score_submission
 from .exporter import export_review_outputs
 from .raster import RasterImageCache
@@ -139,6 +141,64 @@ class ReviewApi:
 
         items.sort(key=lambda item: str(item["student_name"]).lower())
         return items
+
+    def get_matrix(self) -> dict[str, Any]:
+        rubric = self._resolve_rubric()
+        question_ids = [q.id for q in rubric.questions]
+
+        submissions_data = self._state.get("submissions", {})
+        if not isinstance(submissions_data, dict):
+            submissions_data = {}
+
+        students = []
+        for submission_id, submission in submissions_data.items():
+            if not isinstance(submission, dict):
+                continue
+            
+            identity = submission.get("identity", {})
+            if not isinstance(identity, dict):
+                identity = {}
+                
+            final_summary = submission.get("final_summary", {})
+            if not isinstance(final_summary, dict):
+                final_summary = {}
+
+            questions = submission.get("questions", {})
+            if not isinstance(questions, dict):
+                questions = {}
+
+            cells = {}
+            for q_id in question_ids:
+                q_payload = questions.get(q_id, {})
+                final_payload = q_payload.get("final", {})
+                cells[q_id] = {
+                    "verdict": final_payload.get("verdict", "needs_review"),
+                    "confidence": final_payload.get("confidence", 0.0),
+                    "grading_source": final_payload.get("grading_source", ""),
+                    "evidence_quote": final_payload.get("evidence_quote", ""),
+                    "logic_analysis": final_payload.get("logic_analysis", ""),
+                }
+
+            students.append({
+                "submission_id": submission_id,
+                "student_name": identity.get("student_name", ""),
+                "folder": identity.get("folder_relpath", ""),
+                "band": final_summary.get("band", ""),
+                "percent": final_summary.get("percent", 0.0),
+                "cells": cells,
+            })
+
+        students.sort(key=lambda s: str(s["student_name"]).lower())
+
+        audit_path = self.output_dir / "grading_audit.csv"
+        report = analyze_grading_audit(audit_path, rubric=rubric)
+        hotspots = asdict(report)
+
+        return {
+            "question_ids": question_ids,
+            "students": students,
+            "hotspots": hotspots,
+        }
 
     def get_submission(self, submission_id: str, document_source: str | None = None) -> dict[str, Any]:
         submission = self._get_submission(submission_id)
