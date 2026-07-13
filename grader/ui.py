@@ -6,7 +6,10 @@ import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .audit import AuditReport
 
 try:  # pragma: no cover - exercised through create_console_ui tests.
     from rich.console import Console
@@ -515,3 +518,170 @@ def args_to_subtitle(args: Any) -> str:
     cache_enabled = bool(getattr(args, "context_cache", True))
     cache_text = "on" if cache_enabled else "off"
     return f"mode={mode} | grading={grading_mode} | model={model} | cache={cache_text}"
+
+
+def print_audit_report(report: AuditReport, output_dir: Path) -> None:
+    """Print a structured summary of the grading run anomalies and pass rates."""
+    import os
+    import sys
+
+    # 1. Resolve console mode
+    force_plain = os.environ.get("GRADELINE_PLAIN", "").lower() in {"1", "true", "yes"}
+    quiet = os.environ.get("GRADELINE_QUIET", "").lower() in {"1", "true", "yes"}
+    if quiet:
+        return
+
+    is_tty = sys.stdout.isatty()
+    use_rich = _RICH_AVAILABLE and not force_plain and is_tty
+
+    # 2. Setup Console/Heading
+    if use_rich:
+        from rich.console import Console
+        from rich.rule import Rule
+        console = Console()
+        console.print()
+        console.print(Rule("[bold bright_cyan]Audit Report[/bold bright_cyan]", style="bright_cyan"))
+    else:
+        print()
+        print("--- Audit Report ---")
+
+    # 3. Per-question stats bars
+    max_q_len = max((len(stats.question_id) for stats in report.question_stats), default=5)
+    pad_len = max(5, max_q_len)
+
+    for stats in report.question_stats:
+        q_id_padded = f"{stats.question_id:<{pad_len}}"
+
+        filled = round(stats.pass_rate * 40)
+        empty = 40 - filled
+        filled_chars = "█" * filled
+        empty_chars = "░" * empty
+
+        pct_val = int(round(stats.pass_rate * 100))
+        pct_padded = f"{pct_val:>3}%"
+
+        split_str = f"(regex: {stats.regex_count}, llm: {stats.llm_count})"
+
+        if use_rich:
+            if stats.pass_rate >= 0.70:
+                color = "green"
+            elif stats.pass_rate >= 0.40:
+                color = "yellow"
+            else:
+                color = "red"
+            console.print(f"{q_id_padded} [{color}]{filled_chars}[/{color}][dim]{empty_chars}[/dim] {pct_padded}  {split_str}")
+        else:
+            print(f"{q_id_padded} {filled_chars}{empty_chars} {pct_padded}  {split_str}")
+
+    # 4. Human Review Checklist (Hotspots)
+    has_hotspots = False
+    checklist_lines = []
+
+    # High failure column (pass_rate < 30%)
+    for stats in report.question_stats:
+        if stats.pass_rate < 0.30:
+            has_hotspots = True
+            pct_val = int(round(stats.pass_rate * 100))
+            failed_count = stats.total - stats.correct
+            checklist_lines.append(
+                f"⚠  {stats.question_id}: {pct_val}% pass rate ({failed_count}/{stats.total} failed) — rubric may be too strict"
+            )
+
+    # Inconsistencies
+    if report.inconsistencies:
+        has_hotspots = True
+        count = len(report.inconsistencies)
+        q_ids = sorted(list({inc.question_id for inc in report.inconsistencies}))
+        q_list = ", ".join(q_ids)
+        word = "inconsistency" if count == 1 else "inconsistencies"
+        verb = "has" if len(q_ids) == 1 else "have"
+        checklist_lines.append(
+            f"⚠  {count} {word}: {q_list} {verb} similar answers graded differently"
+        )
+
+    # REVIEW_REQUIRED students
+    if report.error_students:
+        has_hotspots = True
+        count = len(report.error_students)
+        word = "student" if count == 1 else "students"
+        checklist_lines.append(
+            f"🔍 {count} {word} flagged REVIEW_REQUIRED (OCR/PDF failures)"
+        )
+
+    # Borderline students
+    if report.borderline_students:
+        has_hotspots = True
+        count = len(report.borderline_students)
+        word = "student" if count == 1 else "students"
+        checklist_lines.append(
+            f"📊 {count} {word} within 5% of next grade band"
+        )
+
+    # Regex optimization candidates
+    for cand in report.regex_candidates:
+        has_hotspots = True
+        samples_str = ", ".join(f'"{s}"' for s in cand.sample_answers)
+        checklist_lines.append(
+            f"💡 {cand.question_id}: {cand.llm_correct_count} LLM-correct answers could be regex-matched\n"
+            f"   Sample: {samples_str}"
+        )
+
+    # Print Checklist
+    if use_rich:
+        console.print()
+        console.print("[bold]Human Review Checklist:[/bold]")
+        if has_hotspots:
+            for line in checklist_lines:
+                console.print(line)
+        else:
+            console.print("✅ No anomalies detected.")
+    else:
+        print()
+        print("Human Review Checklist:")
+        if has_hotspots:
+            for line in checklist_lines:
+                print(line)
+        else:
+            print("✅ No anomalies detected.")
+
+    # 5. Band distribution line
+    order = ["CHECK_PLUS", "CHECK", "CHECK_MINUS"]
+    def key_fn(b: str) -> tuple[int, int, str]:
+        normalized = b.upper().replace(" ", "_")
+        if normalized == "REVIEW_REQUIRED":
+            return (2, 0, b)
+        if normalized in order:
+            return (0, order.index(normalized), b)
+        return (1, 0, b)
+
+    sorted_bands = sorted(report.band_counts.keys(), key=key_fn)
+
+    def get_compact_band_display(band: str) -> str:
+        bk = band.upper().replace(" ", "_")
+        if bk == "CHECK_PLUS":
+            return "Check+"
+        if bk == "CHECK":
+            return "Check"
+        if bk == "CHECK_MINUS":
+            return "Check-"
+        if bk == "REVIEW_REQUIRED":
+            return "Review"
+        return band
+
+    parts = []
+    for b in sorted_bands:
+        compact_name = get_compact_band_display(b)
+        count = report.band_counts[b]
+        parts.append(f"{compact_name} ({count})")
+
+    bands_str = "Bands: " + " | ".join(parts)
+
+    if use_rich:
+        console.print()
+        console.print(bands_str)
+        console.print()
+    else:
+        print()
+        print(bands_str)
+        print()
+

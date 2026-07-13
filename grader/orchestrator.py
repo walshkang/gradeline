@@ -1126,6 +1126,19 @@ class Orchestrator:
         artifact_payload = dict(self.artifacts)
         self.ui.emit_artifacts(artifact_payload)
 
+        # Generate and display the visual audit CLI summary for non-dry runs
+        if not is_dry_run:
+            try:
+                from .audit import analyze_grading_audit
+                from .ui import print_audit_report
+                audit_csv = self.config.output_dir / "grading_audit.csv"
+                if audit_csv.exists():
+                    report = analyze_grading_audit(audit_csv, rubric=self.config.rubric)
+                    print_audit_report(report, self.config.output_dir)
+            except Exception as exc:
+                self.ui.warning(f"Failed to generate audit report: {exc}")
+
+
         # JSON output support
         if getattr(self.config, "json_output", False):
             import json as _json

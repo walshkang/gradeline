@@ -299,3 +299,95 @@ questions:
             self.assertEqual(len(report.borderline_students), 1)
             self.assertEqual(report.borderline_students[0].next_band, "Pass")
             self.assertAlmostEqual(report.borderline_students[0].gap, 2.0)
+
+    def test_print_audit_report(self) -> None:
+        import io
+        from contextlib import redirect_stdout
+        from grader.audit import AuditReport, QuestionStats, Inconsistency, BorderlineStudent, RegexCandidate
+        from grader.ui import print_audit_report
+
+        # Construct an AuditReport with various hotspots
+        report = AuditReport(
+            question_stats=[
+                QuestionStats(
+                    question_id="q1",
+                    total=10,
+                    correct=10,
+                    incorrect=0,
+                    partial=0,
+                    needs_review=0,
+                    pass_rate=1.0,
+                    regex_count=10,
+                    llm_count=0
+                ),
+                QuestionStats(
+                    question_id="q2",
+                    total=10,
+                    correct=1,
+                    incorrect=9,
+                    partial=0,
+                    needs_review=0,
+                    pass_rate=0.1,
+                    regex_count=0,
+                    llm_count=10
+                ),
+            ],
+            inconsistencies=[
+                Inconsistency(
+                    question_id="q1",
+                    evidence_a="answer A",
+                    verdict_a="correct",
+                    student_a="Student A",
+                    evidence_b="answer A",
+                    verdict_b="incorrect",
+                    student_b="Student B"
+                )
+            ],
+            borderline_students=[
+                BorderlineStudent(
+                    student_name="Student C",
+                    folder="s3",
+                    percent=89.0,
+                    band="Check",
+                    next_band="Check Plus",
+                    gap=1.0
+                )
+            ],
+            regex_candidates=[
+                RegexCandidate(
+                    question_id="q1",
+                    llm_correct_count=5,
+                    sample_answers=["42", "forty-two"]
+                )
+            ],
+            total_students=10,
+            total_questions=2,
+            band_counts={"Check Plus": 1, "Check": 8, "REVIEW_REQUIRED": 1},
+            error_students=["s4"],
+        )
+
+        f = io.StringIO()
+        with redirect_stdout(f):
+            print_audit_report(report, Path("dummy_path"))
+        output = f.getvalue()
+
+        # Assertions on key output components:
+        # 1. Title or headers
+        self.assertIn("Audit Report", output)
+        # 2. Bar visualizations
+        self.assertIn("████████████████████████████████████████", output)  # q1: 100% (40 blocks)
+        self.assertIn("████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░", output)  # q2: 10% (4 filled, 36 empty)
+        # 3. High failure rate alert (q2)
+        self.assertIn("⚠  q2: 10% pass rate (9/10 failed) — rubric may be too strict", output)
+        # 4. Inconsistency alert
+        self.assertIn("⚠  1 inconsistency: q1 has similar answers graded differently", output)
+        # 5. REVIEW_REQUIRED alert
+        self.assertIn("🔍 1 student flagged REVIEW_REQUIRED (OCR/PDF failures)", output)
+        # 6. Borderline alert
+        self.assertIn("📊 1 student within 5% of next grade band", output)
+        # 7. Regex candidate alert
+        self.assertIn("💡 q1: 5 LLM-correct answers could be regex-matched", output)
+        self.assertIn('Sample: "42", "forty-two"', output)
+        # 8. Band distribution output
+        self.assertIn("Bands: Check+ (1) | Check (8) | Review (1)", output)
+
