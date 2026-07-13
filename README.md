@@ -178,6 +178,9 @@ Behavior:
 # Full regrade — clears all cache, outputs, and review state
 ./gradeline regrade --profile a2
 
+# Surgical per-question regrade (re-grades only q2 across all students)
+./gradeline regrade --profile a2 --question q2
+
 # Regrade specific students only
 ./gradeline regrade --profile a2 --student-filter "Kevin Swift|Shelly Marc"
 ```

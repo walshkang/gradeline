@@ -64,6 +64,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--no-rate-limit", dest="rate_limit", action="store_false")
     parser.set_defaults(rate_limit=DEFAULT_RATE_LIMIT_ENABLED)
     parser.add_argument("--resume", action="store_true", default=False, help="Check for and resume from an interrupted run checkpoint.")
+    parser.add_argument("--regrade-question", type=str, default=None, help="Question ID for surgical regrade.")
     parser.add_argument("--json", dest="json_output", action="store_true", default=False, help="Emit a JSON summary to stdout on completion (agent-friendly).")
     parser.add_argument("--quiet", action="store_true", default=False, help="Suppress all non-error output. Implies --plain. Errors still go to stderr.")
     parser.add_argument("--plain", action="store_true")
@@ -378,6 +379,8 @@ def main(argv: list[str] | None = None) -> int:
         ui.error(message)
         return abort_preflight(1, ui, diagnostics, args.output_dir)
 
+    if getattr(args, "regrade_question", None):
+        return orchestrator.regrade_question(args.regrade_question, units)
     return orchestrator.run(units)
 
 if __name__ == "__main__":

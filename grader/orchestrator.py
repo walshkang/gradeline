@@ -24,6 +24,12 @@ from .report import (
     write_index_audit_csv,
     write_review_queue_csv,
 )
+from .gemini_client import (
+    compute_grade_cache_key,
+    compute_unified_grade_cache_key,
+    compute_context_cache_key,
+    compute_agent_grade_cache_key,
+)
 from .score import score_submission
 from .types import QuestionResult, SubmissionResult
 from .ui import RunSummary
@@ -1160,7 +1166,264 @@ class Orchestrator:
 
         return exit_code
 
-    def delete_session_artifacts(self) -> None:
+
+    def compute_cache_key_for_submission(self, unit: Any, rubric: Any) -> str:
+        pdf_paths = [str(f) for f in unit.get_pdfs()]
+        if self.config.grading_mode == UNIFIED_MODE:
+            context_key = compute_context_cache_key(
+                model=self.config.grader.model,
+                rubric=rubric,
+                solutions_pdf_path=self.config.solutions_pdf_path,
+            )
+            return compute_unified_grade_cache_key(
+                submission_id=unit.folder_token,
+                pdf_paths=pdf_paths,
+                rubric=rubric,
+                model=self.config.grader.model,
+                context_key=context_key,
+            )
+        elif self.config.grading_mode == AGENT_MODE:
+            return compute_agent_grade_cache_key(
+                submission_id=unit.folder_token,
+                pdf_paths=pdf_paths,
+                rubric=rubric,
+                model=self.config.model,
+                agent_type=self.config.agent_type,
+            )
+        else:
+            return compute_grade_cache_key(
+                submission_id=unit.folder_token,
+                rubric=rubric,
+                solutions_text=self.config.solutions_text,
+            )
+
+    def regrade_question(self, question_id: str, units: list[Any]) -> int:
+        import dataclasses
+        self.units = units
+        
+        run_config_hash = compute_run_config_hash(
+            rubric_path=self.config.rubric_yaml,
+            solutions_pdf=self.config.solutions_pdf_path,
+            model=self.config.grader.model if hasattr(self.config.grader, 'model') else "unknown",
+            grading_mode=self.config.grading_mode,
+        )
+
+        checkpoint_file = self.config.output_dir / "checkpoint.json"
+        checkpoint_data = None
+        if checkpoint_file.exists():
+            import json as _json
+            from .checkpoint import CheckpointData, result_from_dict
+            try:
+                # Bypass expected hash check to load old checkpoint
+                raw = _json.loads(checkpoint_file.read_text(encoding="utf-8"))
+                results = [result_from_dict(r) for r in raw.get("results", [])]
+                checkpoint_data = CheckpointData(
+                    run_config_hash=raw.get("run_config_hash", ""),
+                    results=results,
+                    rolling=raw.get("rolling"),
+                    completed_folders=set(raw.get("completed_folders", []))
+                )
+            except Exception as exc:
+                self.ui.warning(f"Failed to load old checkpoint for regrade: {exc}")
+
+        old_results_by_token = {}
+        if checkpoint_data:
+            for r in checkpoint_data.results:
+                old_results_by_token[r.folder_token] = r
+
+        target_rubric = None
+        for q in self.config.rubric.questions:
+            if q.id == question_id:
+                target_rubric = q
+                break
+        
+        if not target_rubric:
+            self.ui.error(f"Question '{question_id}' not found in the current rubric.")
+            return 1
+
+        mini_rubric = dataclasses.replace(
+            self.config.rubric,
+            questions=[target_rubric]
+        )
+
+        self.ui.section_heading(f"Regrading Question: {question_id}")
+        self.ui.start_progress(len(self.units))
+        
+        start_time = time.time()
+        success_count = 0
+        error_count = 0
+        
+        updated_results = []
+        
+        for unit in self.units:
+            try:
+                # 1. Get old results for this submission
+                existing_res = old_results_by_token.get(unit.folder_token)
+                old_question_results = []
+                if existing_res:
+                    old_question_results = [q for q in existing_res.question_results if q.id != question_id]
+                
+                # 2. Extract text for regex precheck
+                pdf_paths = unit.get_pdfs()
+                if not pdf_paths:
+                    raise Exception("No PDFs found")
+                    
+                combined_text = ""
+                for pdf in pdf_paths:
+                    combined_text += extract_pdf_text(
+                        pdf,
+                        temp_dir=self.config.temp_dir,
+                        ocr_char_threshold=self.config.ocr_char_threshold,
+                        gemini_api_key=self.config.gemini_api_key,
+                        gemini_model=self.config.extraction_model,
+                        rate_limiter=self.config.rate_limiter,
+                    ).text + "\n"
+                    
+                # 3. Try regex precheck
+                q_result = regex_precheck(target_rubric, combined_text)
+                
+                # 4. Fallback to LLM if no regex match
+                if not q_result:
+                    if self.config.grading_mode == UNIFIED_MODE:
+                        llm_results, _ = self.config.grader.grade_submission_unified(
+                            submission_id=unit.folder_token,
+                            pdf_paths=pdf_paths,
+                            rubric=mini_rubric,
+                            solutions_pdf_path=self.config.solutions_pdf_path,
+                        )
+                    elif self.config.grading_mode == AGENT_MODE:
+                        llm_results, _ = self.config.grader.grade_submission_agent(
+                            submission_id=unit.folder_token,
+                            pdf_paths=pdf_paths,
+                            rubric=mini_rubric,
+                        )
+                    else:
+                        llm_results, _ = self.config.grader.grade_submission(
+                            submission_id=unit.folder_token,
+                            combined_text=combined_text,
+                            rubric=mini_rubric,
+                            solutions_text=self.config.solutions_text or "",
+                        )
+                    if llm_results:
+                        q_result = llm_results[0]
+                
+                if not q_result:
+                    raise Exception(f"Failed to generate result for question {question_id}")
+                    
+                # 5. Merge and score
+                merged_q_results = old_question_results + [q_result]
+                grade_result = score_submission(
+                    merged_q_results,
+                    self.config.rubric,
+                    self.config.grade_points,
+                    self.config.diagnostics,
+                )
+                
+                new_submission_result = SubmissionResult(
+                    folder_path=unit.folder_path,
+                    student_name=unit.student_name,
+                    folder_token=unit.folder_token,
+                    question_results=merged_q_results,
+                    grade_result=grade_result,
+                    status="graded",
+                    output_pdf_paths=[],
+                )
+                
+                # 6. Re-annotate
+                out_pdfs = annotate_submission_pdfs(
+                    unit,
+                    new_submission_result,
+                    self.config.output_dir,
+                    self.config.rubric,
+                    self.config.grade_points,
+                    font_size=self.config.annotation_font_size,
+                    dry_run_marks=self.config.annotate_dry_run_marks,
+                )
+                new_submission_result.output_pdf_paths = [str(p) for p in out_pdfs]
+                
+                # 7. Write to cache with new rubric hash
+                new_cache_key = self.compute_cache_key_for_submission(unit, self.config.rubric)
+                payload = [
+                    {
+                        "verdict": qr.verdict,
+                        "confidence": qr.confidence,
+                        "logic_analysis": qr.logic_analysis,
+                        "short_reason": qr.short_reason,
+                        "detail_reason": qr.detail_reason,
+                        "evidence_quote": qr.evidence_quote,
+                        "coords": list(qr.coords) if qr.coords else None,
+                        "page_number": qr.page_number,
+                        "source_file": qr.source_file,
+                        "placement_source": qr.placement_source,
+                        "grading_source": qr.grading_source,
+                    }
+                    for qr in merged_q_results
+                ]
+                self.config.grader._set_cache(new_cache_key, payload)
+                
+                updated_results.append(new_submission_result)
+                success_count += 1
+                
+            except Exception as exc:
+                error_count += 1
+                self.ui.warning(f"Error regrading {unit.folder_path.name}: {exc}")
+                # Maintain old result if it exists so we don't drop the student entirely
+                if existing_res:
+                    updated_results.append(existing_res)
+                    
+            self.ui.advance_progress()
+            
+        # Update checkpoint and orchestrator state
+        self.submission_results = updated_results
+        self.completed_submissions = len(updated_results)
+        
+        save_checkpoint(self.config.output_dir, updated_results, None, run_config_hash)
+        
+        # Write CSV artifacts
+        from .report import write_brightspace_import_csv, write_grading_audit_csv, write_review_queue_csv
+        self.artifacts["Brightspace grades CSV"] = write_brightspace_import_csv(
+            self.config.output_dir,
+            updated_results,
+            self.config.identifier_column,
+            self.config.grade_column,
+            self.config.comment_column,
+            self.config.grades_template_csv,
+        )
+        self.artifacts["Grading audit CSV"] = write_grading_audit_csv(self.config.output_dir, updated_results, self.config.rubric)
+        self.artifacts["Review queue CSV"] = write_review_queue_csv(self.config.output_dir, updated_results)
+
+        elapsed = time.time() - start_time
+        summary = RunSummary(
+            submissions_processed=len(self.units),
+            success_count=success_count,
+            failed_with_error_count=error_count,
+            review_required_count=sum(1 for r in updated_results if r.grade_result.verdict == "REVIEW_REQUIRED"),
+            warning_count=0,
+            band_counts={},
+            mean_seconds=(elapsed / max(1, len(self.units))),
+        )
+        
+        # We need band counts for the report
+        for r in updated_results:
+            summary.band_counts[r.grade_result.verdict] = summary.band_counts.get(r.grade_result.verdict, 0) + 1
+
+        self.ui.emit_summary(summary)
+        artifact_payload = dict(self.artifacts)
+        self.ui.emit_artifacts(artifact_payload)
+        
+        if not getattr(self.config, "dry_run", False):
+            try:
+                from .audit import analyze_grading_audit
+                from .ui import print_audit_report
+                audit_csv = self.config.output_dir / "grading_audit.csv"
+                if audit_csv.exists():
+                    report = analyze_grading_audit(audit_csv, rubric=self.config.rubric)
+                    print_audit_report(report, self.config.output_dir)
+            except Exception as exc:
+                self.ui.warning(f"Failed to generate audit report: {exc}")
+                
+        return 0 if error_count == 0 else 1
+\n    def delete_session_artifacts(self) -> None:
         output_root = self.config.output_dir.resolve()
         dangerous_roots = {
             Path("/").resolve(),

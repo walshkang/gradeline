@@ -254,6 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Clear cached results and annotated outputs, then re-run grading from scratch.",
     )
     regrade_parser.add_argument("--profile", required=True)
+    regrade_parser.add_argument("--question", type=str, default=None, help="Regrade a specific question only.")
     regrade_parser.add_argument("--student-filter", default="", help="Regex to regrade specific students only.")
     regrade_parser.add_argument("--host", default=None)
     regrade_parser.add_argument("--port", type=int, default=None)
@@ -606,6 +607,7 @@ def main(argv: list[str] | None = None) -> int:
                     return 0
                 exit_code = regrade_from_profile(
                     profile_spec=profile,
+                    question=getattr(args, "question", None),
                     student_filter=getattr(args, "student_filter", ""),
                     host_override=getattr(args, "host", None),
                     port_override=getattr(args, "port", None),
@@ -666,6 +668,7 @@ def run_from_profile(*, profile_spec: str, host_override: str | None, port_overr
 def regrade_from_profile(
     *,
     profile_spec: str,
+    question: str | None = None,
     student_filter: str = "",
     host_override: str | None,
     port_override: int | None,
@@ -685,49 +688,56 @@ def regrade_from_profile(
     styled_section_heading("Regrade")
 
     # --- Clear local results cache ---
-    cache_file = cache_dir / "cache.db"
-    if cache_file.exists():
+    if question is None:
+        cache_file = cache_dir / "cache.db"
+        if cache_file.exists():
+            if pattern is None:
+                cache_file.unlink()
+                styled_info("Cleared entire results cache.")
+            else:
+                _purge_cache_entries(cache_file, pattern)
+
+        # --- Remove annotated output folders ---
+        removed = 0
+        if output_dir.is_dir():
+            for child in sorted(output_dir.iterdir()):
+                if not child.is_dir():
+                    continue
+                if pattern is not None and not pattern.search(child.name):
+                    continue
+                shutil.rmtree(child)
+                removed += 1
+        styled_info(f"Removed {removed} output folder(s).")
+
+        # --- Remove report artifacts (only on full regrade) ---
         if pattern is None:
-            cache_file.unlink()
-            styled_info("Cleared entire results cache.")
-        else:
-            _purge_cache_entries(cache_file, pattern)
+            for artifact in (
+                "grading_audit.csv",
+                "review_queue.csv",
+                "brightspace_grades_import.csv",
+                "grading_diagnostics.json",
+                "index_audit.csv",
+            ):
+                artifact_path = output_dir / artifact
+                if artifact_path.exists():
+                    artifact_path.unlink()
+            review_dir = output_dir / "review"
+            if review_dir.is_dir():
+                shutil.rmtree(review_dir)
+            styled_info("Cleared report artifacts and review state.")
+    else:
+        styled_info(f"Performing per-question regrade for question: {question}")
 
-    # --- Remove annotated output folders ---
-    removed = 0
-    if output_dir.is_dir():
-        for child in sorted(output_dir.iterdir()):
-            if not child.is_dir():
-                continue
-            if pattern is not None and not pattern.search(child.name):
-                continue
-            shutil.rmtree(child)
-            removed += 1
-    styled_info(f"Removed {removed} output folder(s).")
-
-    # --- Remove report artifacts (only on full regrade) ---
-    if pattern is None:
-        for artifact in (
-            "grading_audit.csv",
-            "review_queue.csv",
-            "brightspace_grades_import.csv",
-            "grading_diagnostics.json",
-            "index_audit.csv",
-        ):
-            artifact_path = output_dir / artifact
-            if artifact_path.exists():
-                artifact_path.unlink()
-        review_dir = output_dir / "review"
-        if review_dir.is_dir():
-            shutil.rmtree(review_dir)
-        styled_info("Cleared report artifacts and review state.")
 
     # --- Re-run grading ---
     grading_argv = build_grading_argv(profile.grade)
     if student_filter.strip():
         grading_argv.extend(["--student-filter", student_filter])
+    if question is not None:
+        grading_argv.extend(["--regrade-question", question])
 
     exit_code = invoke_grading_main(grading_argv)
+
     if exit_code in (1, 2):
         return exit_code
 

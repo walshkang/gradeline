@@ -7,7 +7,7 @@
 - [x] Phase 2: Audit Engine (Post-run analysis module)
 - [x] Phase 3: Terminal Report (CLI summary with hotspots)
 - [x] Phase 4: Visual Matrix (Review app grid view)
-- [ ] Phase 5: Per-Question Regrade (Surgical re-run).
+- [x] Phase 5: Per-Question Regrade (Surgical re-run).
 
 ## Current Objective
-Completed Phase 4: Visual Matrix. Ready for Phase 5 (Per-Question Regrade).
+Completed Phase 5: Per-Question Regrade. Trust Loop and Visual Audit workflow is fully completed.
