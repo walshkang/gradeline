@@ -2,6 +2,6 @@
 .grader_cache/
 .manual_runs/
 .DS_Store
-data/
+data/*
 !data/README.md
 outputs/

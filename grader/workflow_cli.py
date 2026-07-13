@@ -1246,7 +1246,9 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
             if is_interactive_terminal() and prompt_yes_no("Convert solution key into rubric using AI?", default=True):
                 try:
                     generated = maybe_generate_rubric_with_ai(solutions_pdf=solutions_pdf, rubric_yaml=rubric_path, profile_name=profile_path.stem)
-                except Exception:  # noqa: BLE001
+                except Exception as exc:  # noqa: BLE001
+                    if isinstance(exc, (TypeError, NameError, AttributeError)):
+                        raise
                     generated = False
         if not generated:
             # Offer sample template, starter rubric, or skip
@@ -1917,6 +1919,8 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
         )
         return False
     except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, (TypeError, NameError, AttributeError)):
+            raise
         styled_error(f"Failed to initialize Gemini client: {exc}")
         return False
 
@@ -1961,6 +1965,8 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                     assignment_id=profile_name,
                 )
         except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, (TypeError, NameError, AttributeError)):
+                raise
             styled_error(f"AI rubric generation failed: {exc}")
             if not prompt_yes_no("Retry converting solution key into rubric?", default=False):
                 styled_warning("Skipping rubric conversion.")
@@ -1971,6 +1977,122 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
         rubric_yaml.parent.mkdir(parents=True, exist_ok=True)
         yaml_text = yaml.safe_dump(rubric_payload, sort_keys=False, allow_unicode=True)
         _print_yaml_preview(yaml_text)
+
+        # --- Regex Pre-check Candidates --------------------------------------
+        styled_section_heading("Regex Pre-check Candidates")
+        questions = rubric_payload.get("questions", [])
+        has_regex = False
+        for q in questions:
+            q_id = q.get("id", "?")
+            expected_answers = q.get("expected_answers", [])
+            if expected_answers:
+                styled_info(f"Q{q_id}: expected_answers = {expected_answers}  → deterministic ✓")
+                has_regex = True
+            else:
+                styled_info(f"Q{q_id}: expected_answers = []                → LLM grading")
+        
+        if not has_regex:
+            styled_info("No regex candidates inferred. All questions will use LLM grading.")
+
+        # --- 2-Submission Dry-Run Proof --------------------------------------
+        from .discovery import discover_submission_units
+        profile_dir = rubric_yaml.parent
+        submissions_dir = profile_dir / "submissions"
+        if submissions_dir.exists() and submissions_dir.is_dir():
+            try:
+                units = discover_submission_units(submissions_dir)
+                if units:
+                    def unit_size(u):
+                        return sum(p.stat().st_size for p in u.pdf_paths if p.exists())
+                    
+                    units_sorted = sorted(units, key=unit_size, reverse=True)
+                    if len(units_sorted) > 1:
+                        test_units = [units_sorted[0], units_sorted[-1]]
+                    else:
+                        test_units = [units_sorted[0]]
+                    
+                    styled_section_heading("Dry-Run Proof")
+                    styled_info(f"Running proof on {len(test_units)} submission(s)...")
+                    
+
+                    from .orchestrator import GradingConfig, Orchestrator
+                    from .ui import create_console_ui
+                    
+                    # Need to write a temp rubric file to load_rubric
+                    project_root = profile_dir.parent.parent
+                    temp_out_dir = project_root / ".grader_tmp" / "rubric_proof"
+                    temp_rubric_yaml = temp_out_dir / "temp_rubric.yaml"
+                    
+                    try:
+                        temp_out_dir.mkdir(parents=True, exist_ok=True)
+                        temp_rubric_yaml.write_text(yaml_text, encoding="utf-8")
+                        temp_rubric = load_rubric(temp_rubric_yaml)
+                        
+                        grader_instance = grader
+                        proof_config = GradingConfig(
+                            submissions_root=submissions_dir,
+                            output_dir=temp_out_dir,
+                            temp_dir=project_root / ".grader_tmp",
+                            ocr_char_threshold=200,
+                            rubric=temp_rubric,
+                            rubric_yaml=temp_rubric_yaml,
+                            solutions_text="",
+                            solutions_pdf_path=solutions_pdf,
+                            grade_points={"Check Plus": "1.0", "Check": "0.8", "Check Minus": "0.5", "REVIEW_REQUIRED": "0.0"},
+                            grader=grader_instance,
+                            grading_mode="unified",
+                            agent_type="gemini",
+                            context_cache=False,
+                            context_cache_ttl_seconds=3600,
+                            dry_run=False,
+                            locator_model="",
+                            annotate_dry_run_marks=False,
+                            extraction_model="gemini-1.5-flash",
+                            gemini_api_key=api_key or None,
+                            extract_blocks=False,
+                            diagnostics=None,
+                            rate_limiter=None,
+                            annotation_font_size=24.0,
+                            model=DEFAULT_MODEL,
+                            quiet=True,
+                        )
+                        
+                        quiet_ui = create_console_ui(quiet=True)
+                        orchestrator = Orchestrator(proof_config, quiet_ui)
+                        
+                        results = []
+                        for idx, unit in enumerate(test_units):
+                            _, res, _ = orchestrator.process_student(idx, unit)
+                            results.append(res)
+                            
+                        for res in results:
+                            print(f"\n  ── Dry-Run Proof: {res.submission.folder_path.name} ──")
+                            for q_res in res.question_results:
+                                v_icon = "✓" if q_res.verdict == "correct" else ("≈" if q_res.verdict == "rounding_error" else "✗")
+                                print(f"  Q{q_res.id}: {v_icon} {q_res.verdict}  ({q_res.grading_source}, confidence: {q_res.confidence:.2f})")
+                                if q_res.evidence_quote:
+                                    print(f"      Answer: \"{q_res.evidence_quote[:60]}\"")
+                                if q_res.grading_source == "regex":
+                                    q_draft = next((q for q in questions if str(q.get("id")) == str(q_res.id)), {})
+                                    expected = q_draft.get("expected_answers", [])
+                                    print(f"      Expected: regex {expected}")
+                                else:
+                                    if q_res.short_reason:
+                                        print(f"      Reason: \"{q_res.short_reason}\"")
+                        print()
+                        
+                    except Exception as exc:
+                        if isinstance(exc, (TypeError, NameError, AttributeError)):
+                            raise
+                        styled_warning(f"Dry-run proof failed: {exc}")
+                    finally:
+                        if temp_out_dir.exists():
+                            import shutil
+                            shutil.rmtree(temp_out_dir, ignore_errors=True)
+            except Exception as exc:
+                if isinstance(exc, (TypeError, NameError, AttributeError)):
+                    raise
+                styled_warning(f"Could not discover submissions for dry-run proof: {exc}")
 
         # --- Interactive choices: Accept / Edit / Retry / Skip ---------------
         choices = [
@@ -2159,6 +2281,7 @@ def write_starter_rubric(path: Path, *, assignment_id: str, question_ids: list[s
                 '    scoring_rules: "Define expected answer criteria."',
                 '    short_note_pass: "Correct."',
                 '    short_note_fail: "Needs revision."',
+                '    expected_answers: [] # (Optional) Regex pattern(s) for auto-check (e.g., ["493.*557"])',
                 "    weight: 1.0",
                 "",
             ]

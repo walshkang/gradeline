@@ -17,6 +17,7 @@ questions:
       causes a minor difference. Partial credit cases: describe what earns 0.5.
     short_note_pass: "Correct."
     short_note_fail: "Needs revision."
+    expected_answers: [] # (Optional) Regex patterns to auto-approve correct answers (e.g., ["493.*557"])
     weight: 1.0
   - id: "b"
     label_patterns: ["b)", "b.", "(b)"]
@@ -29,4 +30,5 @@ questions:
       causes a minor difference. Partial credit cases: describe what earns 0.5.
     short_note_pass: "Correct."
     short_note_fail: "Needs revision."
+    expected_answers: [] # (Optional) Regex patterns to auto-approve correct answers (e.g., ["493.*557"])
     weight: 1.0

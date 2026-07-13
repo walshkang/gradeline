@@ -835,6 +835,131 @@ questions:
 
 
 
+    def test_maybe_generate_rubric_with_ai_prints_regex_and_runs_proof(self) -> None:
+        from grader.workflow_cli import maybe_generate_rubric_with_ai
+        from grader.types import SubmissionUnit, SubmissionResult
+        
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_dir = root / "data" / "a2" / "submissions"
+            submissions_dir.mkdir(parents=True, exist_ok=True)
+            (submissions_dir / "123 - Bob").mkdir(parents=True, exist_ok=True)
+            (submissions_dir / "123 - Bob" / "test.pdf").write_bytes(b"%PDF-1.4")
+            
+            solutions_pdf = root / "data" / "a2" / "solutions.pdf"
+            solutions_pdf.parent.mkdir(parents=True, exist_ok=True)
+            solutions_pdf.write_bytes(b"%PDF-1.4")
+            
+            rubric_yaml = root / "data" / "a2" / "rubric.yaml"
+            
+            class DummyGeminiGrader:
+                def __init__(self, api_key: str, model: str, cache_dir: Path) -> None:
+                    self.api_key = api_key
+                    self.model = model
+                    self.cache_dir = cache_dir
+
+                def generate_rubric_draft(self, *, solutions_pdf: Path, assignment_id: str):
+                    return {
+                        "assignment_id": assignment_id,
+                        "bands": {"check_plus_min": 0.9, "check_min": 0.7},
+                        "scoring_mode": "equal_weights",
+                        "partial_credit": 0.5,
+                        "questions": [
+                            {
+                                "id": "q1",
+                                "label_patterns": ["q1"],
+                                "anchor_tokens": ["q1"],
+                                "expected_answers": ["493.*557"],
+                                "scoring_rules": "rules",
+                                "short_note_pass": "OK",
+                                "short_note_fail": "Fail",
+                                "weight": 1.0,
+                            },
+                            {
+                                "id": "q2",
+                                "label_patterns": ["q2"],
+                                "anchor_tokens": ["q2"],
+                                "scoring_rules": "rules",
+                                "short_note_pass": "OK",
+                                "short_note_fail": "Fail",
+                                "weight": 1.0,
+                            }
+                        ],
+                    }
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.GeminiGrader", DummyGeminiGrader),
+                patch("sys.stdout", stdout),
+                patch("sys.stderr", stderr),
+                patch("sys.stdout.isatty", return_value=True),
+                patch("sys.stdin.isatty", return_value=True),
+                patch("grader.workflow_cli.prompt_select", return_value=0),  # Accept
+                patch("grader.orchestrator.Orchestrator") as orch_mock,
+                patch("grader.workflow_cli.styled_error") as error_mock,
+                patch("grader.workflow_cli.styled_warning") as warn_mock,
+                patch("grader.workflow_cli.prompt_yes_no", side_effect=[True, False]),
+            ):
+                from grader.types import GradeResult, QuestionResult
+                grade_res = GradeResult(
+                    percent=1.0,
+                    band="A",
+                    points="1.0",
+                    has_needs_review=False,
+                    per_question_scores={}
+                )
+                q_res = QuestionResult(
+                    id="q1",
+                    verdict="correct",
+                    confidence=1.0,
+                    short_reason="Matches expected regex.",
+                    evidence_quote="493 557",
+                    grading_source="regex"
+                )
+                res = SubmissionResult(
+                    submission=SubmissionUnit(
+                        folder_path=submissions_dir / "123 - Bob",
+                        folder_relpath=Path("123 - Bob"),
+                        folder_token="123",
+                        student_name="Bob",
+                        pdf_paths=[submissions_dir / "123 - Bob" / "test.pdf"]
+                    ),
+                    question_results=[q_res],
+                    grade_result=grade_res,
+                    output_pdf_paths=[],
+                    extraction_sources={},
+                    global_flags=[]
+                )
+                orch_instance = orch_mock.return_value
+                orch_instance.process_student.return_value = (0, res, 0.5)
+                
+                os.environ["GEMINI_API_KEY"] = "fake-key"
+                try:
+                    result = maybe_generate_rubric_with_ai(solutions_pdf=solutions_pdf, rubric_yaml=rubric_yaml, profile_name="a2")
+                finally:
+                    os.environ.pop("GEMINI_API_KEY", None)
+                
+            rendered = stdout.getvalue() + stderr.getvalue()
+            import re
+            clean_rendered = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', rendered)
+
+            if warn_mock.call_args_list:
+                raise AssertionError(f"Unexpected warnings: {warn_mock.call_args_list}")
+            if error_mock.call_args_list:
+                raise AssertionError(f"Unexpected errors: {error_mock.call_args_list}")
+
+            self.assertTrue(result, rendered)
+            
+            self.assertIn("Regex Pre-check Candidates", clean_rendered)
+            self.assertIn("Qq1: expected_answers = ['493.*557']  → deterministic", clean_rendered)
+            self.assertIn("Qq2: expected_answers = []                → LLM grading", clean_rendered)
+            
+            self.assertIn("Dry-Run Proof", clean_rendered)
+            self.assertIn("Running proof on", clean_rendered)
+            self.assertIn("Dry-Run Proof: 123 - Bob", clean_rendered)
+
 class WorkflowDetectDataTests(unittest.TestCase):
     def test_detect_defaults_prefers_data_directory_over_downloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
