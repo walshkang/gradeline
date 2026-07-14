@@ -15,7 +15,7 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 1", "P1", "1)", "1."]
     anchor_tokens: ["observe the upper faces", "toss two coins"]
-    expected_answers: ['1/2|0\.5', '1\.0|\b1\b']
+    # Removed expected_answers for Q1 because matching '1' or '1.0' has a very high risk of matching question labels/page numbers.
     scoring_rules: |
       Correct answers:
       1. What is the probability that both A and B occur? P(A and B) = 1/2 or 0.5.
@@ -29,7 +29,7 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 2", "P2", "2)", "2."]
     anchor_tokens: ["class of 62 students", "European", "Asian"]
-    expected_answers: ['8/62|0\.129', '3/62|0\.048', '49/62|0\.790', '3/22|0\.136', '35/54|0\.648']
+    expected_answers: ['\b(8/62|0\.129)\b', '\b(3/62|0\.048)\b', '\b(49/62|0\.790)\b', '\b(3/22|0\.136)\b', '\b(35/54|0\.648)\b']
     scoring_rules: |
       Correct answers (fractions preferred, but accept decimal equivalents):
       1. P(European) = 8/62 ≈ 0.129
@@ -44,7 +44,7 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 3", "P3", "3)", "3."]
     anchor_tokens: ["Jar A contains 7 red", "Jar B contains 15 red"]
-    expected_answers: ['7/10|0\.7', '15/45|1/3|0\.333', '7/20|0\.35', '1/6|0\.167', '31/60|0\.516']
+    expected_answers: ['\b(7/10|0\.7)\b', '\b(15/45|1/3|0\.333)\b', '\b(7/20|0\.35)\b', '\b(1/6|0\.167)\b', '\b(31/60|0\.516)\b']
     scoring_rules: |
       Correct answers:
       1. P(red | heads) = 7/10 or 0.7
@@ -59,7 +59,7 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 4", "P4", "4)", "4."]
     anchor_tokens: ["Var(X) = 25", "correlation between X and Y"]
-    expected_answers: ['-10', '-60', '21', '124']
+    expected_answers: ['-\b10\b', '-\b60\b', '\b21\b', '\b124\b']
     scoring_rules: |
       Correct answers:
       a) Cov(X, Y) = -10
@@ -73,7 +73,7 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 5", "P5", "5)", "5."]
     anchor_tokens: ["Motel has 40 bedrooms", "expected value of the compensation"]
-    expected_answers: ['167\.78|167\.80|168']
+    expected_answers: ['\b(167\.78|167\.80|168)\b']
     scoring_rules: |
       Expected value of compensation: $167.78 (allow rounding to $167.80 or $168).
       Must show setup summing Payout * P(X=x) for people showing up from 41 to 50.
@@ -84,7 +84,7 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 6", "P6", "6)", "6."]
     anchor_tokens: ["own (just) two stocks", "expected return of $.12"]
-    expected_answers: ['0\.162|16\.2%', '0\.15[678]|15\.[678]%']
+    expected_answers: ['\b0\.162\b|\b16\.2%', '\b0\.15[678]\b|\b15\.[678]%']
     scoring_rules: |
       Correct portfolio values:
       Expected return = 0.162 (or 16.2%)
@@ -96,7 +96,7 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 7", "P7", "7)", "7."]
     anchor_tokens: ["orders 200 bolts", "12 bolts"]
-    expected_answers: ['0\.258', '0\.473']
+    expected_answers: ['\b0\.258\b', '\b0\.473\b']
     scoring_rules: |
       Correct hypergeometric probabilities (formulas, combinations, or decimal values accepted):
       A) P(none defective when 20 in population) = combin(180, 12) / combin(200, 12) ≈ 0.258
@@ -108,7 +108,7 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 8", "P8", "8)", "8."]
     anchor_tokens: ["ATM machine", "Poisson Distribution"]
-    expected_answers: ['0\.114', '0\.323']
+    expected_answers: ['\b0\.114[4]?\b', '\b0\.323[3]?\b']
     scoring_rules: |
       Correct Poisson probabilities:
       A) P(exactly 11 in an hour) = e^(-12) * 12^11 / 11! ≈ 0.1144

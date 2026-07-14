@@ -113,3 +113,66 @@ def test_regex_precheck_multiple_matches_all_success():
     assert results["q5"].verdict == "correct"
     assert "hello" in results["q5"].evidence_quote
     assert "world" in results["q5"].evidence_quote
+
+
+def test_validate_expected_answers():
+    import pytest
+    import warnings
+    from grader.config import validate_expected_answers
+
+    # 1. Test warning when expected answer matches simulated headers/labels
+    rubric_bad_label = RubricConfig(
+        assignment_id="hw1",
+        bands={},
+        questions=[
+            QuestionRubric(
+                id="1",
+                label_patterns=["Problem 1"],
+                scoring_rules="",
+                short_note_pass="",
+                short_note_fail="Check",
+                expected_answers=["1"],  # Raw '1' will match simulated label 'Problem 1' or '1.'
+            )
+        ],
+    )
+    with pytest.warns(UserWarning, match="matches simulated label/header"):
+        validate_expected_answers(rubric_bad_label)
+
+    # 2. Test warning when expected answer matches simulated incorrect values (lacks boundaries)
+    rubric_no_boundary = RubricConfig(
+        assignment_id="hw1",
+        bands={},
+        questions=[
+            QuestionRubric(
+                id="q1",
+                label_patterns=[],
+                scoring_rules="",
+                short_note_pass="",
+                short_note_fail="Check",
+                expected_answers=["124"],  # Lacks boundaries, matches '1240' or '1124'
+            )
+        ],
+    )
+    with pytest.warns(UserWarning, match="lacks appropriate word boundaries"):
+        validate_expected_answers(rubric_no_boundary)
+
+    # 3. Test NO warning when expected answers have correct boundaries
+    rubric_good = RubricConfig(
+        assignment_id="hw1",
+        bands={},
+        questions=[
+            QuestionRubric(
+                id="q1",
+                label_patterns=[],
+                scoring_rules="",
+                short_note_pass="",
+                short_note_fail="Check",
+                expected_answers=[r"\b124\b", r"\b-10\b", r"\b0\.114[4]?\b"],
+            )
+        ],
+    )
+    # Should not raise warnings for headers or missing boundaries
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        validate_expected_answers(rubric_good)
+

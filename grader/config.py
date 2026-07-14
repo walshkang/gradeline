@@ -48,10 +48,78 @@ def load_rubric(path: Path) -> RubricConfig:
 
     bands = {str(k).strip(): float(v) for k, v in bands_raw.items()}
 
-    return RubricConfig(
+    rubric = RubricConfig(
         assignment_id=str(payload.get("assignment_id", "assignment")).strip(),
         bands=bands,
         questions=questions,
         scoring_mode=str(payload.get("scoring_mode", "equal_weights")).strip(),
         partial_credit=float(payload.get("partial_credit", 0.5)),
     )
+    validate_expected_answers(rubric)
+    return rubric
+
+
+def validate_expected_answers(rubric: RubricConfig) -> None:
+    import re
+    import warnings
+
+    for question in rubric.questions:
+        if not question.expected_answers:
+            continue
+
+        # 1. Question label matching check (headers/numbers)
+        test_headers = [
+            f"Problem {question.id}",
+            f"Question {question.id}",
+            f"P{question.id}",
+            f"Q{question.id}",
+            f"{question.id}.",
+            f"{question.id})"
+        ]
+        for pattern in question.label_patterns:
+            test_headers.append(pattern)
+            test_headers.append(f"{pattern} {question.id}")
+
+        for pat in question.expected_answers:
+            for header in test_headers:
+                try:
+                    if re.search(pat, header, flags=re.IGNORECASE | re.DOTALL):
+                        warnings.warn(
+                            f"Question '{question.id}' expected_answers regex '{pat}' matches simulated label/header '{header}'. "
+                            "This will cause false positive matches on student submissions. Remove this regex or add strict boundaries.",
+                            UserWarning,
+                        )
+                        break
+                except re.error as e:
+                    warnings.warn(
+                        f"Question '{question.id}' expected_answers regex '{pat}' is invalid: {e}",
+                        UserWarning,
+                    )
+                    break
+
+            # 2. Missing word boundaries check (substring/suffix matches)
+            alts = pat.split('|')
+            for alt in alts:
+                clean_alt = alt.replace('\\b', '').replace('\\.', '.').replace('\\', '')
+                if re.match(r'^-?\d+(?:\.\d+)?$', clean_alt):
+                    test_cases = []
+                    if clean_alt.startswith('-'):
+                        test_cases.append(clean_alt + '0')
+                    else:
+                        test_cases.append(clean_alt + '0')
+                        test_cases.append('1' + clean_alt)
+                    if '.' in clean_alt:
+                        test_cases.append(clean_alt + '9')
+
+                    for wrong_val in test_cases:
+                        try:
+                            if re.search(pat, wrong_val, flags=re.IGNORECASE | re.DOTALL):
+                                warnings.warn(
+                                    f"Question '{question.id}' expected_answers regex '{pat}' matches simulated incorrect value '{wrong_val}'. "
+                                    "This suggests the regex lacks appropriate word boundaries (e.g. use '\\b' or double backslashes in YAML).",
+                                    UserWarning,
+                                )
+                                break
+                        except re.error:
+                            pass
+
