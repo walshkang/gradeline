@@ -12,8 +12,8 @@ def dummy_config(tmp_path):
     
     class DummyRubric:
         questions = [
-            QuestionRubric(id="q1", expected_answers=["q1 ans"]),
-            QuestionRubric(id="q2", expected_answers=["q2 ans"]),
+            QuestionRubric(id="q1", expected_answers=["q1 ans"], label_patterns=[], scoring_rules="", short_note_pass="", short_note_fail=""),
+            QuestionRubric(id="q2", expected_answers=["q2 ans"], label_patterns=[], scoring_rules="", short_note_pass="", short_note_fail=""),
         ]
         
     class DummyGrader:

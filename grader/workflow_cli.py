@@ -2065,6 +2065,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                             annotation_font_size=24.0,
                             model=DEFAULT_MODEL,
                             quiet=True,
+                            cache_dir=project_root / ".grader_cache",
                         )
                         
                         quiet_ui = create_console_ui(quiet=True)

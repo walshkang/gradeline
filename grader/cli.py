@@ -360,7 +360,8 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         concurrency=args.concurrency,
         json_output=getattr(args, "json_output", False),
-        quiet=getattr(args, "quiet", False)
+        quiet=getattr(args, "quiet", False),
+        cache_dir=args.cache_dir,
     )
 
     orchestrator = Orchestrator(config, ui)

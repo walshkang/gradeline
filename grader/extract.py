@@ -312,3 +312,60 @@ def ensure_binaries_present() -> list[str]:
         if shutil.which(command) is None:
             missing.append(command)
     return missing
+
+
+EXTRACTION_VERSION = "v1"
+
+
+def serialize_extracted_pdf(item: ExtractedPdf) -> dict[str, Any]:
+    """Serialize an ExtractedPdf dataclass to a JSON-compatible dictionary."""
+    return {
+        "pdf_path": str(item.pdf_path),
+        "text": item.text,
+        "source": item.source,
+        "native_char_count": item.native_char_count,
+        "ocr_char_count": item.ocr_char_count,
+        "blocks": [
+            {
+                "id": b.id,
+                "text": b.text,
+                "page": b.page,
+                "left": b.left,
+                "top": b.top,
+                "width": b.width,
+                "height": b.height,
+                "source": b.source,
+                "confidence": b.confidence,
+            }
+            for b in item.blocks
+        ],
+    }
+
+
+def deserialize_extracted_pdf(data: dict[str, Any]) -> ExtractedPdf:
+    """Deserialize a dictionary back to an ExtractedPdf dataclass."""
+    from .types import ExtractedPdf, TextBlock
+
+    blocks = [
+        TextBlock(
+            id=b["id"],
+            text=b["text"],
+            page=b["page"],
+            left=b["left"],
+            top=b["top"],
+            width=b["width"],
+            height=b["height"],
+            source=b["source"],
+            confidence=b.get("confidence", -1.0),
+        )
+        for b in data.get("blocks", [])
+    ]
+    return ExtractedPdf(
+        pdf_path=Path(data["pdf_path"]),
+        blocks=blocks,
+        text=data["text"],
+        source=data["source"],
+        native_char_count=data["native_char_count"],
+        ocr_char_count=data["ocr_char_count"],
+    )
+

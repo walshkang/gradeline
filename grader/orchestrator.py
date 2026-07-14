@@ -14,9 +14,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .annotate import annotate_submission_pdfs
+import queue
 from .checkpoint import compute_run_config_hash, save_checkpoint, load_checkpoint, clear_checkpoint
 from .diagnostics import DiagnosticsCollector
-from .extract import extract_pdf_text
+from .extract import (
+    extract_pdf_text,
+    serialize_extracted_pdf,
+    deserialize_extracted_pdf,
+    EXTRACTION_VERSION,
+)
 from .precheck import regex_precheck
 from .report import (
     write_brightspace_import_csv,
@@ -31,7 +37,7 @@ from .gemini_client import (
     compute_agent_grade_cache_key,
 )
 from .score import score_submission
-from .types import QuestionResult, SubmissionResult
+from .types import QuestionResult, SubmissionResult, ExtractedPdf
 from .ui import RunSummary
 from .rate_limit import RateLimiterRegistry, DailyLimitExhausted
 
@@ -78,6 +84,8 @@ class GradingConfig:
     concurrency: int = 1
     json_output: bool = False
     quiet: bool = False
+    cache_dir: Path = Path(".grader_cache")
+
 
 def prompt_interrupt_action(ui) -> str:
     """Prompt the user for how to handle a Ctrl+C interrupt.
@@ -315,6 +323,7 @@ def grade_one_submission(
     config: GradingConfig,
     status_update: Callable[[str], None] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
+    pre_extracted: list[ExtractedPdf] | None = None,
 ) -> SubmissionResult:
     submissions_root = config.submissions_root
     output_dir = config.output_dir
@@ -346,36 +355,41 @@ def grade_one_submission(
     block_registry: dict[str, object] = {}
 
     if grading_mode == LEGACY_MODE:
-        for pdf_path in unit.pdf_paths:
-            if status_update is not None:
-                status_update(f"extracting {pdf_path.name}")
-            try:
-                pdf_extract = extract_pdf_text(
-                    pdf_path=pdf_path,
-                    temp_dir=temp_dir,
-                    ocr_char_threshold=ocr_char_threshold,
-                    gemini_api_key=gemini_api_key,
-                    gemini_model=extraction_model,
-                    rate_limiter=rate_limiter,
-                )
-            except Exception as exc:  # noqa: BLE001
-                extraction_sources[pdf_path.name] = "error"
-                extraction_error = f"Text extraction failed for {pdf_path.name}: {exc}"
-                accumulated_error = append_error(accumulated_error, extraction_error)
-                if "extract_error" not in global_flags:
-                    global_flags.append("extract_error")
-                if diagnostics is not None:
-                    diagnostics.record(
-                        severity="error",
-                        code="grading_extract_failed",
-                        stage="grading",
-                        message=extraction_error,
-                        submission_folder=unit.folder_path.name,
-                        exc=exc,
+        if pre_extracted is not None:
+            extracted = pre_extracted
+            for item in extracted:
+                extraction_sources[item.pdf_path.name] = item.source
+        else:
+            for pdf_path in unit.pdf_paths:
+                if status_update is not None:
+                    status_update(f"extracting {pdf_path.name}")
+                try:
+                    pdf_extract = extract_pdf_text(
+                        pdf_path=pdf_path,
+                        temp_dir=temp_dir,
+                        ocr_char_threshold=ocr_char_threshold,
+                        gemini_api_key=gemini_api_key,
+                        gemini_model=extraction_model,
+                        rate_limiter=rate_limiter,
                     )
-                continue
-            extracted.append(pdf_extract)
-            extraction_sources[pdf_path.name] = pdf_extract.source
+                except Exception as exc:  # noqa: BLE001
+                    extraction_sources[pdf_path.name] = "error"
+                    extraction_error = f"Text extraction failed for {pdf_path.name}: {exc}"
+                    accumulated_error = append_error(accumulated_error, extraction_error)
+                    if "extract_error" not in global_flags:
+                        global_flags.append("extract_error")
+                    if diagnostics is not None:
+                        diagnostics.record(
+                            severity="error",
+                            code="grading_extract_failed",
+                            stage="grading",
+                            message=extraction_error,
+                            submission_folder=unit.folder_path.name,
+                            exc=exc,
+                        )
+                    continue
+                extracted.append(pdf_extract)
+                extraction_sources[pdf_path.name] = pdf_extract.source
 
         combined_text = "\n\n".join(
             f"### FILE: {item.pdf_path.name}\n{item.text}" for item in extracted
@@ -388,20 +402,27 @@ def grade_one_submission(
         extracted_for_precheck = []
         for pdf_path in unit.pdf_paths:
             extraction_sources[pdf_path.name] = "model_vision"
-            if extract_blocks:
-                try:
-                    pdf_extract = extract_pdf_text(
-                        pdf_path=pdf_path,
-                        temp_dir=temp_dir,
-                        ocr_char_threshold=ocr_char_threshold,
-                        gemini_api_key=gemini_api_key,
-                        gemini_model=extraction_model,
-                        rate_limiter=rate_limiter,
-                    )
-                    block_registry.update({b.id: b for b in pdf_extract.blocks})
-                    extracted_for_precheck.append(pdf_extract)
-                except Exception:
-                    pass
+
+        if extract_blocks:
+            if pre_extracted is not None:
+                extracted_for_precheck = pre_extracted
+                for item in extracted_for_precheck:
+                    block_registry.update({b.id: b for b in item.blocks})
+            else:
+                for pdf_path in unit.pdf_paths:
+                    try:
+                        pdf_extract = extract_pdf_text(
+                            pdf_path=pdf_path,
+                            temp_dir=temp_dir,
+                            ocr_char_threshold=ocr_char_threshold,
+                            gemini_api_key=gemini_api_key,
+                            gemini_model=extraction_model,
+                            rate_limiter=rate_limiter,
+                        )
+                        block_registry.update({b.id: b for b in pdf_extract.blocks})
+                        extracted_for_precheck.append(pdf_extract)
+                    except Exception:
+                        pass
 
         if extract_blocks:
             combined_text = "\n\n".join(
@@ -742,7 +763,13 @@ class Orchestrator:
                 self.ui.status(f"{prefix} :: {message}")
         return update
 
-    def process_student(self, index: int, unit) -> tuple[int, SubmissionResult, float]:
+    def process_student(
+        self,
+        index: int,
+        unit,
+        pre_extracted: list[ExtractedPdf] | None = None,
+        error: Exception | None = None,
+    ) -> tuple[int, SubmissionResult, float]:
         folder_name = unit.folder_path.name
         sub_start = time.monotonic()
         with self.ui_lock:
@@ -769,11 +796,14 @@ class Orchestrator:
                 grading_progress = grading_progress_cb
 
         try:
+            if error is not None:
+                raise error
             result = grade_one_submission(
                 unit=unit,
                 config=self.config,
                 status_update=status_update,
                 progress_callback=grading_progress,
+                pre_extracted=pre_extracted,
             )
         except DailyLimitExhausted:
             raise
@@ -937,7 +967,6 @@ class Orchestrator:
             self.rolling = None
             self.completed_submissions = 0
             remaining_units = list(self.units)
-
         self.ui.section_heading("Grading")
         self.ui.start_progress(len(self.units))
         for _ in range(self.completed_submissions):
@@ -945,109 +974,153 @@ class Orchestrator:
 
         # Thread pools
         concurrency = getattr(self.config, "concurrency", 1)
+        grading_queue = queue.Queue()
+
+        def preprocess_task(idx: int, unit: Any):
+            try:
+                extracted = self.get_or_compute_preprocessing(unit)
+                grading_queue.put((idx, unit, extracted, None))
+            except Exception as exc:
+                grading_queue.put((idx, unit, None, exc))
+
         try:
-            with ThreadPoolExecutor(max_workers=concurrency) as api_executor:
-                with ThreadPoolExecutor(max_workers=max(1, concurrency // 2)) as annotation_executor:
-                    for i, unit in enumerate(remaining_units, start=self.completed_submissions + 1):
-                        future = api_executor.submit(self.process_student, i, unit)
-                        self.pending_api.add(future)
+            prep_concurrency = max(1, min(concurrency, os.cpu_count() or 1, 4))
+            with ThreadPoolExecutor(max_workers=prep_concurrency) as prep_executor:
+                for idx, unit in enumerate(remaining_units, start=self.completed_submissions + 1):
+                    prep_executor.submit(preprocess_task, idx, unit)
 
-                    while self.pending_api or self.pending_annotation:
-                        try:
-                            all_pending = self.pending_api | self.pending_annotation
-                            done, _ = futures_wait(all_pending, return_when=FIRST_COMPLETED)
-                            for future in done:
-                                if future in self.pending_api:
-                                    self.pending_api.discard(future)
-                                    try:
-                                        idx, result, elapsed = future.result()
-                                        ann_future = annotation_executor.submit(
-                                            self.annotate_and_finish,
-                                            idx,
-                                            result,
-                                            elapsed,
-                                        )
-                                        self.pending_annotation.add(ann_future)
-                                    except DailyLimitExhausted as limit_exc:
-                                        self.ui.stop_progress()
-                                        self.ui.error(f"⚠ Daily API limit reached: {limit_exc}")
-                                        api_executor.shutdown(wait=True, cancel_futures=True)
-                                        annotation_executor.shutdown(wait=True, cancel_futures=False)
-                                        
-                                        for api_fut in list(self.pending_api):
-                                            if api_fut.done():
-                                                try:
-                                                    idx_h, result_h, elapsed_h = api_fut.result()
-                                                    ann_res = self.annotate_and_finish(idx_h, result_h, elapsed_h)
-                                                    self.submission_results.append(ann_res)
-                                                except Exception:
-                                                    pass
-                                        for ann_fut in list(self.pending_annotation):
-                                            if ann_fut.done() and not ann_fut.cancelled():
-                                                try:
-                                                    self.submission_results.append(ann_fut.result())
-                                                except Exception:
-                                                    pass
-                                        
-                                        checkpoint_path = save_checkpoint(
-                                            output_dir=self.config.output_dir,
-                                            results=self.submission_results,
-                                            rolling=self.rolling,
-                                            run_config_hash=run_config_hash,
-                                            stop_reason="rate_limit_exhausted",
-                                        )
-                                        self.ui.info(
-                                            f"✓ Checkpointed {len(self.submission_results)}/{len(self.units)} "
-                                            f"submissions to {checkpoint_path}"
-                                        )
-                                        self._forced_exit_code = 5
-                                        return self._conclude(5, [])
-                                else:
-                                    self.pending_annotation.discard(future)
-                                    self.submission_results.append(future.result())
+                remaining_units_to_submit = len(remaining_units)
 
-                        except KeyboardInterrupt:
-                            self.ui.stop_progress()
-                            action = prompt_interrupt_action(self.ui)
+                with ThreadPoolExecutor(max_workers=concurrency) as api_executor:
+                    with ThreadPoolExecutor(max_workers=max(1, concurrency // 2)) as annotation_executor:
+                        while remaining_units_to_submit > 0 or self.pending_api or self.pending_annotation:
+                            while True:
+                                try:
+                                    item = grading_queue.get_nowait()
+                                    idx, unit, extracted, err = item
+                                    future = api_executor.submit(
+                                        self.process_student,
+                                        idx,
+                                        unit,
+                                        pre_extracted=extracted,
+                                        error=err,
+                                    )
+                                    self.pending_api.add(future)
+                                    remaining_units_to_submit -= 1
+                                except queue.Empty:
+                                    break
 
-                            if action == "resume":
-                                self.ui.start_progress(len(self.units))
+                            if not self.pending_api and not self.pending_annotation and remaining_units_to_submit > 0:
+                                try:
+                                    item = grading_queue.get(timeout=0.5)
+                                    idx, unit, extracted, err = item
+                                    future = api_executor.submit(
+                                        self.process_student,
+                                        idx,
+                                        unit,
+                                        pre_extracted=extracted,
+                                        error=err,
+                                    )
+                                    self.pending_api.add(future)
+                                    remaining_units_to_submit -= 1
+                                except queue.Empty:
+                                    pass
                                 continue
 
-                            if action == "stop_keep":
-                                self.ui.info("Stopping after current tasks finish; keeping completed results.")
-                                self._shutdown_executors(api_executor, annotation_executor, cancel_annotation=False)
-                                for future in list(self.pending_annotation):
-                                    if future.cancelled():
-                                        continue
-                                    try:
-                                        self.submission_results.append(future.result())
-                                    except Exception:
-                                        continue
-                                        
-                                    save_checkpoint(
-                                        output_dir=self.config.output_dir,
-                                        results=self.submission_results,
-                                        rolling=self.rolling,
-                                        run_config_hash=run_config_hash,
-                                        stop_reason="user_interrupt",
-                                    )
-                                self.pending_api.clear()
-                                self.pending_annotation.clear()
-                                break
+                            if self.pending_api or self.pending_annotation:
+                                try:
+                                    all_pending = self.pending_api | self.pending_annotation
+                                    done, _ = futures_wait(all_pending, timeout=0.05, return_when=FIRST_COMPLETED)
+                                    for future in done:
+                                        if future in self.pending_api:
+                                            self.pending_api.discard(future)
+                                            try:
+                                                idx, result, elapsed = future.result()
+                                                ann_future = annotation_executor.submit(
+                                                    self.annotate_and_finish,
+                                                    idx,
+                                                    result,
+                                                    elapsed,
+                                                )
+                                                self.pending_annotation.add(ann_future)
+                                            except DailyLimitExhausted as limit_exc:
+                                                self.ui.stop_progress()
+                                                self.ui.error(f"⚠ Daily API limit reached: {limit_exc}")
+                                                api_executor.shutdown(wait=True, cancel_futures=True)
+                                                annotation_executor.shutdown(wait=True, cancel_futures=False)
+                                                
+                                                for api_fut in list(self.pending_api):
+                                                    if api_fut.done():
+                                                        try:
+                                                            idx_h, result_h, elapsed_h = api_fut.result()
+                                                            ann_res = self.annotate_and_finish(idx_h, result_h, elapsed_h)
+                                                            self.submission_results.append(ann_res)
+                                                        except Exception:
+                                                            pass
+                                                for ann_fut in list(self.pending_annotation):
+                                                    if ann_fut.done() and not ann_fut.cancelled():
+                                                        try:
+                                                            self.submission_results.append(ann_fut.result())
+                                                        except Exception:
+                                                            pass
+                                                
+                                                checkpoint_path = save_checkpoint(
+                                                    output_dir=self.config.output_dir,
+                                                    results=self.submission_results,
+                                                    rolling=self.rolling,
+                                                    run_config_hash=run_config_hash,
+                                                    stop_reason="rate_limit_exhausted",
+                                                )
+                                                self.ui.info(
+                                                    f"✓ Checkpointed {len(self.submission_results)}/{len(self.units)} "
+                                                    f"submissions to {checkpoint_path}"
+                                                )
+                                                self._forced_exit_code = 5
+                                                return self._conclude(5, [])
+                                        else:
+                                            self.pending_annotation.discard(future)
+                                            self.submission_results.append(future.result())
+                                except KeyboardInterrupt:
+                                    self.ui.stop_progress()
+                                    action = prompt_interrupt_action(self.ui)
 
-                            if action == "clear_all":
-                                self._shutdown_executors(api_executor, annotation_executor, cancel_annotation=True)
-                                self.delete_session_artifacts()
-                                self.ui.info("Aborted grading run. All outputs and checkpoints from this session have been removed.")
-                                self._forced_exit_code = 130
-                                return 130
+                                    if action == "resume":
+                                        self.ui.start_progress(len(self.units))
+                                        continue
+
+                                    if action == "stop_keep":
+                                        self.ui.info("Stopping after current tasks finish; keeping completed results.")
+                                        self._shutdown_executors(api_executor, annotation_executor, cancel_annotation=False)
+                                        for future in list(self.pending_annotation):
+                                            if future.cancelled():
+                                                continue
+                                            try:
+                                                self.submission_results.append(future.result())
+                                            except Exception:
+                                                continue
+                                                
+                                            save_checkpoint(
+                                                output_dir=self.config.output_dir,
+                                                results=self.submission_results,
+                                                rolling=self.rolling,
+                                                run_config_hash=run_config_hash,
+                                                stop_reason="user_interrupt",
+                                            )
+                                        self.pending_api.clear()
+                                        self.pending_annotation.clear()
+                                        break
+
+                                    if action == "clear_all":
+                                        self._shutdown_executors(api_executor, annotation_executor, cancel_annotation=True)
+                                        self.delete_session_artifacts()
+                                        self.ui.info("Aborted grading run. All outputs and checkpoints from this session have been removed.")
+                                        self._forced_exit_code = 130
+                                        return 130
         except KeyboardInterrupt:
             pass
 
         if self._forced_exit_code is not None:
             return self._forced_exit_code
-
         warnings: list[str] = []
         try:
             self.artifacts["Grading audit CSV"] = write_grading_audit_csv(self.config.output_dir, self.submission_results)
@@ -1167,6 +1240,87 @@ class Orchestrator:
         return exit_code
 
 
+    def compute_submission_pdf_hash(self, pdf_paths: list[Path]) -> str:
+        """Compute a combined SHA-256 hash of all PDF files in a submission."""
+        import hashlib
+        hasher = hashlib.sha256()
+        # Sort paths by name for deterministic ordering
+        for path in sorted(pdf_paths, key=lambda p: p.name):
+            if path.exists():
+                with path.open("rb") as handle:
+                    while True:
+                        block = handle.read(65536)
+                        if not block:
+                            break
+                        hasher.update(block)
+        return hasher.hexdigest()
+
+    def get_or_compute_preprocessing(self, unit: Any) -> list[ExtractedPdf]:
+        """Load preprocessed PDF text/blocks from cache or compute and save them."""
+        if self.config.grading_mode != LEGACY_MODE and not self.config.extract_blocks:
+            return []
+
+        import json as _json
+        
+        pdf_paths = unit.pdf_paths
+        pdf_hash = self.compute_submission_pdf_hash(pdf_paths)
+        composite_key = f"{pdf_hash}_{EXTRACTION_VERSION}"
+        
+        cache_dir = getattr(self.config, "cache_dir", Path(".grader_cache"))
+        prep_cache_dir = cache_dir / "preprocessing"
+        cache_file = prep_cache_dir / f"{composite_key}.json"
+        
+        if cache_file.exists():
+            try:
+                raw_data = _json.loads(cache_file.read_text(encoding="utf-8"))
+                return [deserialize_extracted_pdf(item) for item in raw_data]
+            except Exception:
+                # If cache is corrupt, fallback to computing it
+                pass
+                
+        # Compute and cache
+        extracted_pdfs = []
+        for pdf_path in pdf_paths:
+            try:
+                pdf_extract = extract_pdf_text(
+                    pdf_path=pdf_path,
+                    temp_dir=self.config.temp_dir,
+                    ocr_char_threshold=self.config.ocr_char_threshold,
+                    gemini_api_key=self.config.gemini_api_key,
+                    gemini_model=self.config.extraction_model,
+                    rate_limiter=self.config.rate_limiter,
+                )
+            except Exception as exc:
+                pdf_extract = ExtractedPdf(
+                    pdf_path=pdf_path,
+                    blocks=[],
+                    text="",
+                    source="error",
+                    native_char_count=0,
+                    ocr_char_count=0,
+                )
+                # Re-record to diagnostics if configured
+                if self.diagnostics is not None:
+                    self.diagnostics.record(
+                        severity="error",
+                        code="grading_extract_failed",
+                        stage="grading",
+                        message=f"Text extraction failed for {pdf_path.name}: {exc}",
+                        submission_folder=unit.folder_path.name,
+                        exc=exc,
+                    )
+            extracted_pdfs.append(pdf_extract)
+            
+        try:
+            prep_cache_dir.mkdir(parents=True, exist_ok=True)
+            serialized = [serialize_extracted_pdf(item) for item in extracted_pdfs]
+            cache_file.write_text(_json.dumps(serialized, indent=2), encoding="utf-8")
+        except Exception:
+            # Saving cache failure shouldn't crash the run
+            pass
+            
+        return extracted_pdfs
+
     def compute_cache_key_for_submission(self, unit: Any, rubric: Any) -> str:
         pdf_paths = [str(f) for f in unit.get_pdfs()]
         if self.config.grading_mode == UNIFIED_MODE:
@@ -1268,16 +1422,10 @@ class Orchestrator:
                 if not pdf_paths:
                     raise Exception("No PDFs found")
                     
+                pre_extracted = self.get_or_compute_preprocessing(unit)
                 combined_text = ""
-                for pdf in pdf_paths:
-                    combined_text += extract_pdf_text(
-                        pdf,
-                        temp_dir=self.config.temp_dir,
-                        ocr_char_threshold=self.config.ocr_char_threshold,
-                        gemini_api_key=self.config.gemini_api_key,
-                        gemini_model=self.config.extraction_model,
-                        rate_limiter=self.config.rate_limiter,
-                    ).text + "\n"
+                for item in pre_extracted:
+                    combined_text += item.text + "\n"
                     
                 # 3. Try regex precheck
                 q_result = regex_precheck(target_rubric, combined_text)
@@ -1423,7 +1571,7 @@ class Orchestrator:
                 self.ui.warning(f"Failed to generate audit report: {exc}")
                 
         return 0 if error_count == 0 else 1
-\n    def delete_session_artifacts(self) -> None:
+    def delete_session_artifacts(self) -> None:
         output_root = self.config.output_dir.resolve()
         dangerous_roots = {
             Path("/").resolve(),
