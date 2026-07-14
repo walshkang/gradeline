@@ -105,15 +105,16 @@ def _to_text_blocks(
         if not text:
             continue
         block_num = item.get("block_num", len(blocks) + 1)
+        scale = 72.0 / dpi
         blocks.append(
             TextBlock(
                 id=f"p{page}_b{block_num}",
                 text=text,
                 page=page,
-                left=float(item.get("left", 0)),
-                top=float(item.get("top", 0)),
-                width=float(item.get("width", 0)),
-                height=float(item.get("height", 0)),
+                left=float(item.get("left", 0)) * scale,
+                top=float(item.get("top", 0)) * scale,
+                width=float(item.get("width", 0)) * scale,
+                height=float(item.get("height", 0)) * scale,
                 source="gemini_flash",
                 confidence=-1.0,
             )

@@ -1,0 +1,117 @@
+assignment_id: "hw2_probability_and_variables"
+scoring_mode: "equal_weights"
+partial_credit: 0.5
+
+# Grading scale out of 10 points based on percentage of correct questions
+bands:
+  "10": 0.85 # 85%+ (Lenient check plus/A)
+  "9": 0.70  # 70%+
+  "8": 0.55  # 55%+
+  "7": 0.40  # 40%+
+  "5": 0.00  # Default minimum score
+
+questions:
+  - id: "1"
+    weight: 1.0
+    label_patterns: ["Problem 1", "P1", "1)", "1."]
+    anchor_tokens: ["observe the upper faces", "toss two coins"]
+    expected_answers: ['1/2|0\.5', '1\.0|\b1\b']
+    scoring_rules: |
+      Correct answers:
+      1. What is the probability that both A and B occur? P(A and B) = 1/2 or 0.5.
+      2. What is the probability that A or B or both occur? P(A union B) = 1.
+      
+      Allow fractional forms (1/2, 1) or decimals (0.5, 1.0).
+    short_note_pass: "Problem 1 is correct."
+    short_note_fail: "Check probability calculations for both A and B occurring vs A or B union."
+
+  - id: "2"
+    weight: 1.0
+    label_patterns: ["Problem 2", "P2", "2)", "2."]
+    anchor_tokens: ["class of 62 students", "European", "Asian"]
+    expected_answers: ['8/62|0\.129', '3/62|0\.048', '49/62|0\.790', '3/22|0\.136', '35/54|0\.648']
+    scoring_rules: |
+      Correct answers (fractions preferred, but accept decimal equivalents):
+      1. P(European) = 8/62 ≈ 0.129
+      2. P(European and Female) = 3/62 ≈ 0.0484
+      3. P(Male or non-USA) = 49/62 ≈ 0.7903 (derived from (40/62) + (27/62) - (18/62))
+      4. P(Asian | Female) = 3/22 ≈ 0.1364
+      5. P(Male | not European) = 35/54 ≈ 0.6481
+    short_note_pass: "Problem 2 is correct."
+    short_note_fail: "One or more of the table probabilities are incorrect. Review numerator and denominator setup."
+
+  - id: "3"
+    weight: 1.0
+    label_patterns: ["Problem 3", "P3", "3)", "3."]
+    anchor_tokens: ["Jar A contains 7 red", "Jar B contains 15 red"]
+    expected_answers: ['7/10|0\.7', '15/45|1/3|0\.333', '7/20|0\.35', '1/6|0\.167', '31/60|0\.516']
+    scoring_rules: |
+      Correct answers:
+      1. P(red | heads) = 7/10 or 0.7
+      2. P(red | tails) = 15/45 = 1/3 ≈ 0.333
+      3. P(red and heads) = 7/20 or 0.35
+      4. P(red and tails) = 1/6 ≈ 0.167
+      5. P(red) = 31/60 ≈ 0.5167 (derived from 7/20 + 1/6)
+    short_note_pass: "Problem 3 is correct."
+    short_note_fail: "Check conditional and joint probability calculations for Jar A and Jar B selection."
+
+  - id: "4"
+    weight: 1.0
+    label_patterns: ["Problem 4", "P4", "4)", "4."]
+    anchor_tokens: ["Var(X) = 25", "correlation between X and Y"]
+    expected_answers: ['-10', '-60', '21', '124']
+    scoring_rules: |
+      Correct answers:
+      a) Cov(X, Y) = -10
+      b) Cov(2X, 3Y) = -60
+      c) Var(X+Y) = 21
+      d) Var(2X + 3Y) = 124
+    short_note_pass: "Problem 4 covariance and variance calculations are correct."
+    short_note_fail: "Review formulas for covariance scale Cov(aX,bY) = ab*Cov(X,Y) and Var(aX+bY)."
+
+  - id: "5"
+    weight: 1.0
+    label_patterns: ["Problem 5", "P5", "5)", "5."]
+    anchor_tokens: ["Motel has 40 bedrooms", "expected value of the compensation"]
+    expected_answers: ['167\.78|167\.80|168']
+    scoring_rules: |
+      Expected value of compensation: $167.78 (allow rounding to $167.80 or $168).
+      Must show setup summing Payout * P(X=x) for people showing up from 41 to 50.
+    short_note_pass: "Expected value of compensation is correct."
+    short_note_fail: "Calculation for expected compensation is incorrect or missing setup."
+
+  - id: "6"
+    weight: 1.0
+    label_patterns: ["Problem 6", "P6", "6)", "6."]
+    anchor_tokens: ["own (just) two stocks", "expected return of $.12"]
+    expected_answers: ['0\.162|16\.2%', '0\.15[678]|15\.[678]%']
+    scoring_rules: |
+      Correct portfolio values:
+      Expected return = 0.162 (or 16.2%)
+      Standard deviation = 0.1571 (or 15.71%, allow range 0.156 to 0.158)
+    short_note_pass: "Portfolio expected return and standard deviation are correct."
+    short_note_fail: "Check portfolio return weighted average or portfolio variance standard deviation formula."
+
+  - id: "7"
+    weight: 1.0
+    label_patterns: ["Problem 7", "P7", "7)", "7."]
+    anchor_tokens: ["orders 200 bolts", "12 bolts"]
+    expected_answers: ['0\.258', '0\.473']
+    scoring_rules: |
+      Correct hypergeometric probabilities (formulas, combinations, or decimal values accepted):
+      A) P(none defective when 20 in population) = combin(180, 12) / combin(200, 12) ≈ 0.258
+      B) P(send back shipment when 10 in population) = 1 - P(none defective) = 1 - [combin(190, 12) / combin(200, 12)] ≈ 0.473
+    short_note_pass: "Hypergeometric probabilities for shipment acceptance are correct."
+    short_note_fail: "Review hypergeometric formula or probability of complement for part B."
+
+  - id: "8"
+    weight: 1.0
+    label_patterns: ["Problem 8", "P8", "8)", "8."]
+    anchor_tokens: ["ATM machine", "Poisson Distribution"]
+    expected_answers: ['0\.114', '0\.323']
+    scoring_rules: |
+      Correct Poisson probabilities:
+      A) P(exactly 11 in an hour) = e^(-12) * 12^11 / 11! ≈ 0.1144
+      B) P(at least 3 in 10 minutes) = 1 - e^(-2) - 2e^(-2) - (4e^(-2))/2 = 1 - 5e^(-2) ≈ 0.3233 (derived using average rate of 2 per 10 minutes)
+    short_note_pass: "Poisson probabilities for ATM arrivals are correct."
+    short_note_fail: "Check Poisson rate scaling for 10-minute interval or sum of cumulative probability."

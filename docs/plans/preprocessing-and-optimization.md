@@ -47,6 +47,7 @@ In `grader/extract.py`, PDF pages are rendered using `pdftoppm`.
   - Since $1\text{ point} = 1/72\text{ inch}$, the pixel size at a given DPI is $\text{pixels} = (\text{points} / 72) \times \text{DPI}$.
   - If the page width or height in points is large, calculate the DPI that would result in the longest side being exactly `target_max_dim` pixels.
   - Return the calculated DPI, clamped to a maximum of `default_dpi` (e.g., 150 or 200 DPI) to prevent unnecessary upscaling of small documents.
+- **CRITICAL**: If the DPI is scaled down, Tesseract will return bounding boxes in the scaled coordinate space. You MUST scale these coordinates back to the original 72 DPI PDF point space before returning the `ExtractedPdf` object, or the visual audit annotations will be misaligned.
 
 **2. Update `_run_gemini_fallback` to use dynamic DPI**
 - In `_run_gemini_fallback`, instead of hardcoding `dpi = 216.0`, call `compute_optimal_dpi(pdf_path, target_max_dim=2048.0, default_dpi=150.0)`.
@@ -98,19 +99,20 @@ We want to extract content in a separate step and cache the results.
 
 ### Instructions
 
-**1. Create a decoupled preprocessor worker pool**
-- Create a function in `grader/discovery.py` or `grader/orchestrator.py` called `preprocess_submissions(submissions: list[SubmissionUnit], output_dir: Path, concurrency: int)`:
-  - It utilizes a thread or process pool (`ProcessPoolExecutor`) to extract text and image blocks from all submissions in parallel before grading starts.
-  - For each submission, compute a SHA-256 hash of its PDF files.
-  - Run the extraction pipeline: native text parsing, and if necessary, OCR/Gemini fallbacks.
+**1. Create an async producer-consumer pipeline**
+- We must avoid bottlenecking "time-to-first-result" by waiting for *all* PDFs to extract before grading.
+- Modify `grader/orchestrator.py` to use a producer-consumer model (e.g., `asyncio.Queue` or a threading queue).
+- Extraction workers (Producers) should run in parallel, extracting text/images and pushing `ExtractedPdf` objects to the queue.
+- Grading workers (Consumers) should pull from this queue, allowing grading to start the moment the first PDF is extracted.
+- For each submission, compute a SHA-256 hash of its PDF files to check the cache before extracting.
 
-**2. Cache preprocessed results**
-- Store preprocessed outputs (`ExtractedPdf` objects, including extracted text and spatial coordinates) in the `.grader_cache/` directory or a cache DB, keyed by the SHA-256 hash of the submission PDF.
-- If a hash matches an existing cache entry, skip the extraction phase entirely for that file.
+**2. Cache preprocessed results with versioning**
+- Store preprocessed outputs (`ExtractedPdf` objects, including extracted text and spatial coordinates) in the `.grader_cache/` directory or a cache DB.
+- **CRITICAL**: The cache key MUST be a composite hash: `hash(pdf_content) + EXTRACTION_VERSION` (where `EXTRACTION_VERSION` is a hardcoded constant in the code). This ensures the cache is properly invalidated if the OCR logic or Tesseract version changes.
+- If a composite hash matches an existing cache entry, skip the extraction phase entirely for that file and yield it directly to the grading queue.
 
-**3. Update grading pipeline to read from cache**
-- Modify `grader/orchestrator.py` to load the pre-extracted content from the cache.
-- The main grading execution should run at maximum speed without invoking subprocesses like `pdftoppm` or `tesseract` directly.
+**3. Update grading pipeline to read from queue**
+- The main grading execution should pull `ExtractedPdf` objects from the queue and run at maximum speed without invoking subprocesses like `pdftoppm` or `tesseract` directly.
 
 **4. Add tests**
 - In `tests/test_orchestrator.py`, mock a slow extraction process. Verify that calling the preprocessor runs it in parallel and saves cache entries.
@@ -139,15 +141,17 @@ You are a coding agent implementing incremental progress checkpointing and clean
 
 ### Instructions
 
-**1. Implement incremental checkpointing**
+**1. Implement incremental checkpointing & Zero-Trust error handling**
 - Open `grader/orchestrator.py`. Find the main loop where submissions are graded.
-- Update the loop so that every time a submission is successfully processed and appended to the results:
-  - Call `save_checkpoint()` with the current state of completed results.
-  - Ensure checkpoint writing is fast and does not block the grading pipeline.
+- **CRITICAL**: To satisfy the Zero-Trust State Management guardrail, wrap the grading execution of *each* submission in a broad `try...except Exception` block.
+- If an unhandled exception occurs (e.g., corrupted PDF, failed OCR), catch it, flag the submission as `REVIEW_REQUIRED` with a score of `0`, and gracefully proceed.
+- Whether successful or failed, call `save_checkpoint()` with the current state of completed results.
+- Ensure checkpoint writing is fast and does not block the grading pipeline.
 
 **2. Suppress noisy third-party stderr**
 - In `grader/extract.py`, find the `subprocess.run` calls for `pdftoppm`, `pdftotext`, `pdfinfo`, and other tools.
-- Intercept and suppress/redirect their stderr output:
+- Intercept and suppress/redirect their stderr output to prevent terminal pollution.
+- **CRITICAL**: Use `capture_output=True` in `subprocess.run` (which manages memory buffers safely) or redirect `stderr` directly to a file handle (e.g., `stderr=open('.grader_tmp/diagnostics.log', 'a')`). Do NOT just use `stderr=subprocess.PIPE` without reading it, as this can deadlock the subprocess if the OS pipe buffer fills up with warnings.
   - If a command succeeds, discard its stderr output.
   - If a command fails (raises `CalledProcessError`), append the stderr output to the raised exception or log it to a diagnostics file (`.grader_tmp/diagnostics.log`) so the user can debug if necessary, but keep it out of the main console stdout/stderr.
 

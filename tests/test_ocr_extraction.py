@@ -42,10 +42,11 @@ class ParseTsvBlocksTests(unittest.TestCase):
     def test_bounding_box_spans_all_words(self) -> None:
         blocks = parse_tsv_blocks(SAMPLE_TSV, page=1, dpi=300.0)
         b = blocks[0]
-        self.assertEqual(b.left, 100.0)
-        self.assertEqual(b.top, 200.0)
-        self.assertAlmostEqual(b.width, 115.0)   # max(100+50, 155+60) - 100 = 215 - 100
-        self.assertAlmostEqual(b.height, 20.0)
+        scale = 72.0 / 300.0
+        self.assertAlmostEqual(b.left, 100.0 * scale)
+        self.assertAlmostEqual(b.top, 200.0 * scale)
+        self.assertAlmostEqual(b.width, 115.0 * scale)   # max(100+50, 155+60) - 100 = 215 - 100
+        self.assertAlmostEqual(b.height, 20.0 * scale)
 
     def test_mean_confidence(self) -> None:
         blocks = parse_tsv_blocks(SAMPLE_TSV, page=1, dpi=300.0)

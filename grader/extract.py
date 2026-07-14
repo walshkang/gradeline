@@ -10,6 +10,35 @@ from typing import Any
 from .types import ExtractedPdf, TextBlock
 
 
+def compute_optimal_dpi(pdf_path: Path, target_max_dim: float = 2048.0, default_dpi: float = 150.0) -> float:
+    """Dynamically compute an optimal DPI to avoid rendering massive images for scanned PDFs."""
+    try:
+        result = subprocess.run(
+            ["pdfinfo", str(pdf_path)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        for line in result.stdout.splitlines():
+            if line.lower().startswith("page size:"):
+                # e.g. "Page size:      612 x 792 pts (letter)"
+                parts = line.split(":", 1)[1].strip().split()
+                if len(parts) >= 3 and parts[1] == "x":
+                    try:
+                        width = float(parts[0])
+                        height = float(parts[2])
+                        max_dim_pts = max(width, height)
+                        if max_dim_pts > 0:
+                            computed_dpi = target_max_dim * 72.0 / max_dim_pts
+                            return min(computed_dpi, default_dpi)
+                    except ValueError:
+                        pass
+                break
+    except Exception:
+        pass
+    return default_dpi
+
+
 def parse_tsv_blocks(tsv_text: str, page: int, dpi: float) -> list[TextBlock]:
     lines = tsv_text.splitlines()
     if not lines:
@@ -33,10 +62,11 @@ def parse_tsv_blocks(tsv_text: str, page: int, dpi: float) -> list[TextBlock]:
             continue
         try:
             block_num = int(parts[2])
-            left = float(parts[6])
-            top = float(parts[7])
-            width = float(parts[8])
-            height = float(parts[9])
+            scale = 72.0 / dpi
+            left = float(parts[6]) * scale
+            top = float(parts[7]) * scale
+            width = float(parts[8]) * scale
+            height = float(parts[9]) * scale
             conf = float(parts[10])
         except ValueError:
             continue
@@ -143,10 +173,13 @@ def _run_gemini_fallback(
     temp_dir: Path,
     api_key: str,
     model: str,
-    dpi: float = 216.0,
+    dpi: float | None = None,
     rate_limiter: Any | None = None,
 ) -> list[TextBlock]:
     from .ocr_gemini import extract_blocks_gemini
+
+    if dpi is None:
+        dpi = compute_optimal_dpi(pdf_path, target_max_dim=2048.0, default_dpi=150.0)
 
     temp_dir.mkdir(parents=True, exist_ok=True)
     page_count = get_pdf_page_count(pdf_path)
@@ -197,7 +230,9 @@ def run_pdftotext(pdf_path: Path) -> str:
     return result.stdout or ""
 
 
-def run_ocr_all_pages(pdf_path: Path, temp_dir: Path, dpi: float = 300.0) -> list[TextBlock]:
+def run_ocr_all_pages(pdf_path: Path, temp_dir: Path, dpi: float | None = None) -> list[TextBlock]:
+    if dpi is None:
+        dpi = compute_optimal_dpi(pdf_path, target_max_dim=2048.0, default_dpi=150.0)
     temp_dir.mkdir(parents=True, exist_ok=True)
     page_count = get_pdf_page_count(pdf_path)
     all_blocks: list[TextBlock] = []
@@ -214,6 +249,8 @@ def run_ocr_all_pages(pdf_path: Path, temp_dir: Path, dpi: float = 300.0) -> lis
                 "-l",
                 str(page_num),
                 "-singlefile",
+                "-r",
+                str(int(dpi)),
                 "-png",
                 str(pdf_path),
                 str(out_prefix),
