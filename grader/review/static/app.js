@@ -828,27 +828,27 @@
     else if (cellData.verdict === "partial") verdictLabel = "Partial";
     else if (cellData.verdict === "incorrect") verdictLabel = "Incorrect";
     
-    ui.matrixDetail.innerHTML = \`
+    ui.matrixDetail.innerHTML = `
       <div class="mdetail-header">
-        <h3>\${student.student_name || student.folder}</h3>
-        <div class="mdetail-meta">\${bandLabel(student.band)} · \${student.percent}%</div>
+        <h3>${student.student_name || student.folder}</h3>
+        <div class="mdetail-meta">${bandLabel(student.band)} · ${student.percent}%</div>
       </div>
       <div class="mdetail-section">
-        <h4>Question \${qId}</h4>
-        <div class="mdetail-verdict \${cellData.verdict}">\${verdictLabel} <span class="mdetail-conf">(\${confPercent}% conf, \${sourceIcon})</span></div>
+        <h4>Question ${qId}</h4>
+        <div class="mdetail-verdict ${cellData.verdict}">${verdictLabel} <span class="mdetail-conf">(${confPercent}% conf, ${sourceIcon})</span></div>
       </div>
       <div class="mdetail-section">
         <h4>Evidence Quote</h4>
-        <div class="mdetail-quote">\${cellData.evidence_quote || "<em>None</em>"}</div>
+        <div class="mdetail-quote">${cellData.evidence_quote || "<em>None</em>"}</div>
       </div>
       <div class="mdetail-section">
         <h4>Logic Analysis</h4>
-        <div class="mdetail-logic">\${cellData.logic_analysis || "<em>None</em>"}</div>
+        <div class="mdetail-logic">${cellData.logic_analysis || "<em>None</em>"}</div>
       </div>
       <div class="mdetail-actions">
         <button id="mdetailJumpBtn" type="button" class="btn-primary">Jump to Review</button>
       </div>
-    \`;
+    `;
     
     document.getElementById("mdetailJumpBtn").addEventListener("click", () => {
       setTab("review");

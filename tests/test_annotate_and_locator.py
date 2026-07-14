@@ -42,7 +42,7 @@ class DummyDoc:
         return self._pages[idx]
 
 
-def test_find_anchor_in_doc_prefers_latest_page_and_lowest_on_page():
+def test_find_anchor_in_doc_prefers_earliest_page_and_lowest_on_page():
     token = "a)"
     # Page 0: one match near top-left.
     page0 = DummyPage(
@@ -74,9 +74,44 @@ def test_find_anchor_in_doc_prefers_latest_page_and_lowest_on_page():
         explicit_tokens=[token],
     )
 
-    # Should choose the latest page (index 1) and the lowest match on that page (y0 = 400).
+    # Should choose the earliest page (index 0) and the lowest match on that page (y0 = 50).
+    assert page_idx == 0
+    assert point.y > 50
+
+
+def test_find_anchor_in_doc_prefers_page_with_higher_priority_match():
+    # Page 0: matches generic fallback "a)" (Priority 1)
+    page0 = DummyPage(
+        width=600,
+        height=800,
+        rects_by_token={
+            "a)": [
+                DummyRect(10, 100, 40, 120),
+            ]
+        },
+    )
+    # Page 1: matches explicit token "Question A" (Priority 3)
+    page1 = DummyPage(
+        width=600,
+        height=800,
+        rects_by_token={
+            "Question A": [
+                DummyRect(10, 200, 40, 220),
+            ]
+        },
+    )
+    doc = DummyDoc([page0, page1])
+
+    page_idx, point = find_anchor_in_doc(
+        doc=doc,
+        question_id="a",
+        label_patterns=["a)"],
+        explicit_tokens=["Question A"],
+    )
+
+    # Should choose page 1 because "Question A" has priority 3 (explicit) while "a)" has priority 1 (generic fallback)
     assert page_idx == 1
-    assert point.y > 400
+    assert point.y > 200
 
 
 def test_offset_mark_point_uses_layout_aware_offsets():

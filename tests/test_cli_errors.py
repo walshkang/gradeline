@@ -242,6 +242,10 @@ class CliErrorTests(unittest.TestCase):
             print('STDERR:', stderr.getvalue())
             print('STDOUT:', stdout.getvalue())
             print('STDERR:', stderr.getvalue())
+            print('STDOUT:', stdout.getvalue())
+            print('STDERR:', stderr.getvalue())
+            print('STDOUT:', stdout.getvalue())
+            print('STDERR:', stderr.getvalue())
             self.assertEqual(exit_code, 4)
             results = review_writer.call_args.args[1]
             self.assertTrue(any(result.error for result in results))
@@ -313,6 +317,10 @@ class CliErrorTests(unittest.TestCase):
                     + ["--locator-model", "gemini-3-flash-preview"]
                 )
 
+            print('STDOUT:', stdout.getvalue())
+            print('STDERR:', stderr.getvalue())
+            print('STDOUT:', stdout.getvalue())
+            print('STDERR:', stderr.getvalue())
             print('STDOUT:', stdout.getvalue())
             print('STDERR:', stderr.getvalue())
             print('STDOUT:', stdout.getvalue())
@@ -451,6 +459,10 @@ class CliErrorTests(unittest.TestCase):
                     + ["--grading-mode", "unified", "--no-extract-blocks"]
                 )
 
+            print('STDOUT:', stdout.getvalue())
+            print('STDERR:', stderr.getvalue())
+            print('STDOUT:', stdout.getvalue())
+            print('STDERR:', stderr.getvalue())
             print('STDOUT:', stdout.getvalue())
             print('STDERR:', stderr.getvalue())
             print('STDOUT:', stdout.getvalue())

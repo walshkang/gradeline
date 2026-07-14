@@ -313,36 +313,78 @@ def find_anchor_in_doc(
     import fitz
 
     tokens = build_anchor_tokens(question_id, label_patterns, explicit_tokens)
-    candidates_by_page: dict[int, list["fitz.Rect"]] = {}
+    
+    explicit_set = set(explicit_tokens)
+    
+    def get_token_priority(tok: str) -> int:
+        if tok in explicit_set:
+            return 3
+        
+        # Determine if the token is a generic fallback: e.g. "1.", "1)", "(1)", "[1]", "1:"
+        clean = tok.strip().lower()
+        qid = question_id.strip().lower()
+        generic_patterns = {qid, f"{qid}.", f"{qid})", f"({qid})", f"[{qid}]", f"{qid}:"}
+        
+        qid_up = qid.upper()
+        generic_patterns.update({qid_up, f"{qid_up}.", f"{qid_up})", f"({qid_up})", f"[{qid_up}]", f"{qid_up}:"})
+        
+        if clean in generic_patterns:
+            return 1
+        return 2
+
+    # Map page_idx -> (highest_priority_on_page, list_of_rects_for_that_priority)
+    page_matches: dict[int, tuple[int, list["fitz.Rect"]]] = {}
+    max_priority_found = 0
 
     for page_idx in range(len(doc)):
         page = doc[page_idx]
-        raw_rects: list["fitz.Rect"] = []
-        for token in tokens:
-            rects = page.search_for(token)
-            if rects:
-                raw_rects.extend(rects)
-        if not raw_rects:
-            continue
-
         left_limit = page.rect.width * ANCHOR_LEFT_MARGIN_RATIO
         top_limit = page.rect.height * ANCHOR_TOP_MARGIN_RATIO
         bottom_limit = page.rect.height * (1.0 - ANCHOR_BOTTOM_MARGIN_RATIO)
 
-        filtered = [
-            rect
-            for rect in raw_rects
-            if rect.x0 < left_limit and rect.y0 >= top_limit and rect.y1 <= bottom_limit
-        ]
-        use_rects = filtered or raw_rects
-        candidates_by_page[page_idx] = use_rects
+        page_rects_by_priority: dict[int, list["fitz.Rect"]] = {3: [], 2: [], 1: []}
 
-    if not candidates_by_page:
+        for token in tokens:
+            rects = page.search_for(token)
+            if not rects:
+                continue
+
+            prio = get_token_priority(token)
+            filtered = [
+                rect
+                for rect in rects
+                if rect.x0 < left_limit and rect.y0 >= top_limit and rect.y1 <= bottom_limit
+            ]
+            use_rects = filtered or rects
+            page_rects_by_priority[prio].extend(use_rects)
+
+        # Find the highest priority category that has matches on this page
+        page_highest_priority = 0
+        for prio in (3, 2, 1):
+            if page_rects_by_priority[prio]:
+                page_highest_priority = prio
+                break
+
+        if page_highest_priority > 0:
+            page_matches[page_idx] = (page_highest_priority, page_rects_by_priority[page_highest_priority])
+            if page_highest_priority > max_priority_found:
+                max_priority_found = page_highest_priority
+
+    if max_priority_found == 0:
         return None
 
-    # Prefer the latest page in the document that has candidates, then the lowest match on that page.
-    best_page_idx = max(candidates_by_page.keys())
-    page_rects = candidates_by_page[best_page_idx]
+    # Filter to pages that match at the highest priority level found in the document
+    candidate_pages = [
+        page_idx
+        for page_idx, (prio, _) in page_matches.items()
+        if prio == max_priority_found
+    ]
+
+    # Prefer the earliest page in the document that has matches at the highest priority level
+    best_page_idx = min(candidate_pages)
+    _, page_rects = page_matches[best_page_idx]
+    
+    # On that page, prefer the lowest match (largest y0)
     best_rect = max(page_rects, key=lambda r: r.y0)
 
     page = doc[best_page_idx]
