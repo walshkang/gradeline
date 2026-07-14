@@ -37,8 +37,12 @@ def annotate_submission_pdfs(
     annotation_font_size: float = DEFAULT_ANNOTATION_FONT_SIZE,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[Path], list[QuestionResult]]:
-    # Single-PDF submissions: skip source_file matching (no ambiguity about which file).
     import fitz  # Lazy import for testability without dependency.
+    try:
+        fitz.TOOLS.mupdf_display_errors(False)
+    except AttributeError:
+        pass
+
 
     result_map = {item.id: item for item in question_results}
     rendered: set[str] = set()

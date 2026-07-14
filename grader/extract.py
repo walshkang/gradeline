@@ -10,14 +10,40 @@ from typing import Any
 from .types import ExtractedPdf, TextBlock
 
 
+def run_subprocess_suppressed(
+    args: list[str],
+    check: bool = True,
+    **kwargs: Any,
+) -> subprocess.CompletedProcess:
+    """Run a subprocess, capturing and suppressing its stderr.
+    If check is True and the command fails, raises CalledProcessError with the captured stderr.
+    Also logs any stderr from failed commands to .grader_tmp/diagnostics.log.
+    """
+    kwargs["capture_output"] = True
+    kwargs["text"] = True
+    try:
+        return subprocess.run(args, check=check, **kwargs)
+    except subprocess.CalledProcessError as err:
+        stderr_content = err.stderr or ""
+        if stderr_content:
+            log_dir = Path(".grader_tmp")
+            try:
+                log_dir.mkdir(parents=True, exist_ok=True)
+                with open(log_dir / "diagnostics.log", "a", encoding="utf-8") as f:
+                    f.write(f"--- Command Failed: {' '.join(args)} ---\n")
+                    f.write(f"Exit code: {err.returncode}\n")
+                    f.write(f"Stderr:\n{stderr_content}\n\n")
+            except Exception:
+                pass
+        raise err
+
+
 def compute_optimal_dpi(pdf_path: Path, target_max_dim: float = 2048.0, default_dpi: float = 150.0) -> float:
     """Dynamically compute an optimal DPI to avoid rendering massive images for scanned PDFs."""
     try:
-        result = subprocess.run(
+        result = run_subprocess_suppressed(
             ["pdfinfo", str(pdf_path)],
             check=True,
-            capture_output=True,
-            text=True,
         )
         for line in result.stdout.splitlines():
             if line.lower().startswith("page size:"):
@@ -37,6 +63,7 @@ def compute_optimal_dpi(pdf_path: Path, target_max_dim: float = 2048.0, default_
     except Exception:
         pass
     return default_dpi
+
 
 
 def parse_tsv_blocks(tsv_text: str, page: int, dpi: float) -> list[TextBlock]:
@@ -189,7 +216,7 @@ def _run_gemini_fallback(
         unique = f"{safe_stem}_{page_num}_{uuid.uuid4().hex[:8]}"
         out_prefix = temp_dir / unique
         png_path = png_output_path(out_prefix)
-        subprocess.run(
+        run_subprocess_suppressed(
             [
                 "pdftoppm",
                 "-f", str(page_num),
@@ -201,8 +228,6 @@ def _run_gemini_fallback(
                 str(out_prefix),
             ],
             check=True,
-            capture_output=True,
-            text=True,
         )
         try:
             page_blocks = extract_blocks_gemini(
@@ -220,11 +245,9 @@ def _run_gemini_fallback(
 
 
 def run_pdftotext(pdf_path: Path) -> str:
-    result = subprocess.run(
+    result = run_subprocess_suppressed(
         ["pdftotext", str(pdf_path), "-"],
         check=False,
-        capture_output=True,
-        text=True,
     )
     # pdftotext may emit syntax warnings on stderr but still return useful text.
     return result.stdout or ""
@@ -241,7 +264,7 @@ def run_ocr_all_pages(pdf_path: Path, temp_dir: Path, dpi: float | None = None) 
         unique = f"{safe_stem}_{page_num}_{uuid.uuid4().hex[:8]}"
         out_prefix = temp_dir / unique
         png_path = png_output_path(out_prefix)
-        subprocess.run(
+        run_subprocess_suppressed(
             [
                 "pdftoppm",
                 "-f",
@@ -256,15 +279,11 @@ def run_ocr_all_pages(pdf_path: Path, temp_dir: Path, dpi: float | None = None) 
                 str(out_prefix),
             ],
             check=True,
-            capture_output=True,
-            text=True,
         )
         try:
-            ocr = subprocess.run(
+            ocr = run_subprocess_suppressed(
                 ["tesseract", str(png_path), "stdout", "tsv", "--dpi", str(int(dpi))],
                 check=True,
-                capture_output=True,
-                text=True,
             )
             page_blocks = parse_tsv_blocks(ocr.stdout or "", page=page_num, dpi=dpi)
             all_blocks.extend(page_blocks)
@@ -274,11 +293,9 @@ def run_ocr_all_pages(pdf_path: Path, temp_dir: Path, dpi: float | None = None) 
 
 
 def get_pdf_page_count(pdf_path: Path) -> int:
-    result = subprocess.run(
+    result = run_subprocess_suppressed(
         ["pdfinfo", str(pdf_path)],
         check=True,
-        capture_output=True,
-        text=True,
     )
     for line in result.stdout.splitlines():
         if line.lower().startswith("pages:"):

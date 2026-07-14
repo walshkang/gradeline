@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 from .annotate import annotate_submission_pdfs
 import queue
-from .checkpoint import compute_run_config_hash, save_checkpoint, load_checkpoint, clear_checkpoint
+from .checkpoint import compute_run_config_hash, save_checkpoint, load_checkpoint, clear_checkpoint, get_checkpoint_path, deserialize_result
 from .diagnostics import DiagnosticsCollector
 from .extract import (
     extract_pdf_text,
@@ -808,6 +808,10 @@ class Orchestrator:
         except DailyLimitExhausted:
             raise
         except Exception as exc:
+            msg_lower = str(exc).lower()
+            if "429" in msg_lower or "resource_exhausted" in msg_lower or "quota" in msg_lower:
+                model_name = self.config.grader.model if hasattr(self.config.grader, 'model') else "unknown"
+                raise DailyLimitExhausted(model_name, 0, 0) from exc
             message = f"Unhandled submission failure: {exc}"
             with self.rolling_lock:
                 if self.diagnostics:
@@ -933,7 +937,7 @@ class Orchestrator:
         )
 
         checkpoint_data = None
-        checkpoint_file = self.config.output_dir / "checkpoint.json"
+        checkpoint_file = get_checkpoint_path(self.config.output_dir)
         if checkpoint_file.exists():
             checkpoint_data = load_checkpoint(self.config.output_dir, run_config_hash)
             if checkpoint_data is not None:
@@ -990,6 +994,7 @@ class Orchestrator:
                     prep_executor.submit(preprocess_task, idx, unit)
 
                 remaining_units_to_submit = len(remaining_units)
+                future_to_info: dict[Any, tuple[int, Any]] = {}
 
                 with ThreadPoolExecutor(max_workers=concurrency) as api_executor:
                     with ThreadPoolExecutor(max_workers=max(1, concurrency // 2)) as annotation_executor:
@@ -1006,6 +1011,7 @@ class Orchestrator:
                                         error=err,
                                     )
                                     self.pending_api.add(future)
+                                    future_to_info[future] = (idx, unit)
                                     remaining_units_to_submit -= 1
                                 except queue.Empty:
                                     break
@@ -1022,6 +1028,7 @@ class Orchestrator:
                                         error=err,
                                     )
                                     self.pending_api.add(future)
+                                    future_to_info[future] = (idx, unit)
                                     remaining_units_to_submit -= 1
                                 except queue.Empty:
                                     pass
@@ -1034,15 +1041,18 @@ class Orchestrator:
                                     for future in done:
                                         if future in self.pending_api:
                                             self.pending_api.discard(future)
+                                            idx, unit = future_to_info.pop(future, (None, None))
                                             try:
-                                                idx, result, elapsed = future.result()
+                                                idx_res, result, elapsed = future.result()
                                                 ann_future = annotation_executor.submit(
                                                     self.annotate_and_finish,
-                                                    idx,
+                                                    idx_res,
                                                     result,
                                                     elapsed,
                                                 )
                                                 self.pending_annotation.add(ann_future)
+                                                if unit:
+                                                    future_to_info[ann_future] = (idx_res, unit)
                                             except DailyLimitExhausted as limit_exc:
                                                 self.ui.stop_progress()
                                                 self.ui.error(f"⚠ Daily API limit reached: {limit_exc}")
@@ -1058,28 +1068,115 @@ class Orchestrator:
                                                         except Exception:
                                                             pass
                                                 for ann_fut in list(self.pending_annotation):
-                                                    if ann_fut.done() and not ann_fut.cancelled():
-                                                        try:
-                                                            self.submission_results.append(ann_fut.result())
-                                                        except Exception:
-                                                            pass
-                                                
+                                                     if ann_fut.done() and not ann_fut.cancelled():
+                                                         try:
+                                                             self.submission_results.append(ann_fut.result())
+                                                         except Exception:
+                                                             pass
+                                                 
                                                 checkpoint_path = save_checkpoint(
-                                                    output_dir=self.config.output_dir,
-                                                    results=self.submission_results,
-                                                    rolling=self.rolling,
-                                                    run_config_hash=run_config_hash,
-                                                    stop_reason="rate_limit_exhausted",
+                                                     output_dir=self.config.output_dir,
+                                                     results=self.submission_results,
+                                                     rolling=self.rolling,
+                                                     run_config_hash=run_config_hash,
+                                                     stop_reason="rate_limit_exhausted",
                                                 )
                                                 self.ui.info(
-                                                    f"✓ Checkpointed {len(self.submission_results)}/{len(self.units)} "
-                                                    f"submissions to {checkpoint_path}"
+                                                     f"✓ Checkpointed {len(self.submission_results)}/{len(self.units)} "
+                                                     f"submissions to {checkpoint_path}"
                                                 )
                                                 self._forced_exit_code = 5
                                                 return self._conclude(5, [])
+                                            except Exception as exc:
+                                                message = f"Unhandled processing failure: {exc}"
+                                                if self.diagnostics:
+                                                    self.diagnostics.record(
+                                                        severity="error",
+                                                        code="grading_unhandled_submission_zero_trust",
+                                                        stage="grading",
+                                                        message=message,
+                                                        submission_folder=unit.folder_path.name if unit else "unknown",
+                                                        exc=exc,
+                                                    )
+                                                if unit:
+                                                    err_res = SubmissionResult.from_error(
+                                                        unit=unit,
+                                                        rubric=self.config.rubric,
+                                                        grade_points=self.config.grade_points,
+                                                        error_message=message,
+                                                    )
+                                                    self.submission_results.append(err_res)
+                                                    with self.rolling_lock:
+                                                        self.completed_submissions += 1
+                                                        remaining = len(self.units) - self.completed_submissions
+                                                        self.rolling = update_rolling_snapshot(self.rolling, err_res, 0.0, remaining)
+                                                        current_rolling = self.rolling
+                                                    with self.ui_lock:
+                                                        self.ui.submission_finished(
+                                                            index=idx,
+                                                            total=len(self.units),
+                                                            folder_name=unit.folder_path.name,
+                                                            band=err_res.grade_result.band,
+                                                            had_error=True,
+                                                            rationale=f"Zero-Trust Error: {message}",
+                                                            elapsed_seconds=0.0,
+                                                            snapshot=current_rolling,
+                                                        )
+                                                    save_checkpoint(
+                                                        output_dir=self.config.output_dir,
+                                                        results=self.submission_results,
+                                                        rolling=self.rolling,
+                                                        run_config_hash=run_config_hash,
+                                                        stop_reason="incremental",
+                                                    )
                                         else:
                                             self.pending_annotation.discard(future)
-                                            self.submission_results.append(future.result())
+                                            idx, unit = future_to_info.pop(future, (None, None))
+                                            try:
+                                                res = future.result()
+                                                self.submission_results.append(res)
+                                            except Exception as exc:
+                                                message = f"Unhandled annotation failure: {exc}"
+                                                if self.diagnostics:
+                                                    self.diagnostics.record(
+                                                        severity="error",
+                                                        code="annotation_unhandled_submission_zero_trust",
+                                                        stage="annotation",
+                                                        message=message,
+                                                        submission_folder=unit.folder_path.name if unit else "unknown",
+                                                        exc=exc,
+                                                    )
+                                                if unit:
+                                                    err_res = SubmissionResult.from_error(
+                                                        unit=unit,
+                                                        rubric=self.config.rubric,
+                                                        grade_points=self.config.grade_points,
+                                                        error_message=message,
+                                                    )
+                                                    self.submission_results.append(err_res)
+                                                    with self.rolling_lock:
+                                                        self.completed_submissions += 1
+                                                        remaining = len(self.units) - self.completed_submissions
+                                                        self.rolling = update_rolling_snapshot(self.rolling, err_res, 0.0, remaining)
+                                                        current_rolling = self.rolling
+                                                    with self.ui_lock:
+                                                        self.ui.submission_finished(
+                                                            index=idx,
+                                                            total=len(self.units),
+                                                            folder_name=unit.folder_path.name,
+                                                            band=err_res.grade_result.band,
+                                                            had_error=True,
+                                                            rationale=f"Zero-Trust Error: {message}",
+                                                            elapsed_seconds=0.0,
+                                                            snapshot=current_rolling,
+                                                        )
+                                            save_checkpoint(
+                                                output_dir=self.config.output_dir,
+                                                results=self.submission_results,
+                                                rolling=self.rolling,
+                                                run_config_hash=run_config_hash,
+                                                stop_reason="incremental",
+                                            )
                                 except KeyboardInterrupt:
                                     self.ui.stop_progress()
                                     action = prompt_interrupt_action(self.ui)
@@ -1362,15 +1459,15 @@ class Orchestrator:
             grading_mode=self.config.grading_mode,
         )
 
-        checkpoint_file = self.config.output_dir / "checkpoint.json"
+        checkpoint_file = get_checkpoint_path(self.config.output_dir)
         checkpoint_data = None
         if checkpoint_file.exists():
             import json as _json
-            from .checkpoint import CheckpointData, result_from_dict
+            from .checkpoint import CheckpointData
             try:
                 # Bypass expected hash check to load old checkpoint
                 raw = _json.loads(checkpoint_file.read_text(encoding="utf-8"))
-                results = [result_from_dict(r) for r in raw.get("results", [])]
+                results = [deserialize_result(r) for r in raw.get("results", [])]
                 checkpoint_data = CheckpointData(
                     run_config_hash=raw.get("run_config_hash", ""),
                     results=results,

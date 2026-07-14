@@ -105,6 +105,10 @@ def fingerprint_path(pdf_path: Path) -> str:
 
 def render_page_png(*, pdf_path: Path, page_idx: int, scale: float) -> RasterImage:
     import fitz  # Lazy import for testability.
+    try:
+        fitz.TOOLS.mupdf_display_errors(False)
+    except AttributeError:
+        pass
 
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
