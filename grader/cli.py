@@ -15,7 +15,7 @@ from .env import load_dotenv_if_present
 from .extract import ensure_binaries_present, extract_pdf_text
 from .report import write_index_audit_csv
 from .ui import args_to_subtitle, create_console_ui
-from .defaults import DEFAULT_CONCURRENCY, DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL, DEFAULT_RATE_LIMIT_ENABLED
+from .defaults import DEFAULT_CONCURRENCY, DEFAULT_MODEL, DEFAULT_EXTRACTION_MODEL, DEFAULT_RATE_LIMIT_ENABLED, resolve_model
 from .rate_limit import RateLimiterRegistry, DailyLimitExhausted
 
 LEGACY_MODE = "legacy"
@@ -86,6 +86,10 @@ def abort_preflight(exit_code: int, ui, diagnostics, output_dir: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     load_dotenv_if_present()
     args = parse_args(argv if argv is not None else sys.argv[1:])
+    args.model = resolve_model("grading", args.model)
+    args.extraction_model = resolve_model("extraction", args.extraction_model)
+    if getattr(args, "locator_model", None):
+        args.locator_model = resolve_model("locator", args.locator_model)
     if os.environ.get("GRADELINE_PLAIN", "").lower() in {"1", "true", "yes"}:
         args.plain = True
     if os.environ.get("GRADELINE_JSON"):

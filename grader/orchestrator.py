@@ -96,6 +96,7 @@ def prompt_interrupt_action(ui) -> str:
 
     try:
         from InquirerPy import inquirer  # type: ignore[import-not-found]
+        from InquirerPy.base import Choice
     except Exception:
         # Fallback to a simple numbered input prompt.
         options: list[tuple[str, str]] = [
@@ -117,9 +118,9 @@ def prompt_interrupt_action(ui) -> str:
             ui.warning("Invalid choice. Please enter 1, 2, or 3.")
 
     options_for_inquirer = [
-        ("Resume grading", "resume"),
-        ("Stop now and keep completed results", "stop_keep"),
-        ("Clear this run's outputs and abort", "clear_all"),
+        Choice("resume", name="Resume grading"),
+        Choice("stop_keep", name="Stop now and keep completed results"),
+        Choice("clear_all", name="Clear this run's outputs and abort"),
     ]
     try:
         choice = inquirer.select(

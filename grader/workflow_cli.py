@@ -35,7 +35,7 @@ from .prompts import (
     styled_warning,
 )
 from .config import load_rubric
-from .defaults import set_default_model
+from .defaults import resolve_model, set_default_model
 from .workflow_detect import (
     DetectedConfig,
     default_question_ids,
@@ -1934,7 +1934,8 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
     cache_dir = project_root / ".grader_cache"
 
     try:
-        grader = GeminiGrader(api_key=api_key, model=DEFAULT_MODEL, cache_dir=cache_dir)
+        resolved_model = resolve_model("rubric", DEFAULT_MODEL)
+        grader = GeminiGrader(api_key=api_key, model=resolved_model, cache_dir=cache_dir)
     except ImportError:
         styled_warning(
             "Gemini client dependencies are missing. Install the 'google-genai' package "
@@ -2076,7 +2077,7 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                             diagnostics=None,
                             rate_limiter=None,
                             annotation_font_size=24.0,
-                            model=DEFAULT_MODEL,
+                            model=resolve_model("grading", DEFAULT_MODEL),
                             quiet=True,
                             cache_dir=project_root / ".grader_cache",
                         )
@@ -2286,6 +2287,19 @@ def parse_question_ids(raw: str) -> list[str]:
 def write_starter_rubric(path: Path, *, assignment_id: str, question_ids: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
+        "# ==============================================================================",
+        "# GRADELINE RUBRIC CONFIGURATION TEMPLATE",
+        "# ==============================================================================",
+        "# Guidelines for expected_answers (Regex Precheck):",
+        "# 1. Decimals: Use '\\b0?\\.123\\d*\\b' instead of strict '\\b0\\.123\\b' to allow",
+        "#    optional trailing digits of higher precision.",
+        "# 2. Fractions/Percentages: Include alternatives using '|' and omit trailing \\b",
+        "#    for patterns ending in non-word characters (e.g. '%').",
+        "#    Example: '\\b0?\\.162\\d*\\b|\\b16\\.2\\d*\\s*%'",
+        "# 3. Single digits: Avoid expected_answers for single-digit or binary answers",
+        "#    (e.g., '1', '0') due to high risk of page/label number collisions.",
+        "# ==============================================================================",
+        "",
         f'assignment_id: "{assignment_id.strip()}"',
         'scoring_mode: "equal_weights"',
         "partial_credit: 0.5",

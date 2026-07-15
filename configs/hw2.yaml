@@ -29,7 +29,12 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 2", "P2", "2)", "2."]
     anchor_tokens: ["class of 62 students", "European", "Asian"]
-    expected_answers: ['\b(8/62|0\.129)\b', '\b(3/62|0\.048)\b', '\b(49/62|0\.790)\b', '\b(3/22|0\.136)\b', '\b(35/54|0\.648)\b']
+    expected_answers:
+      - '\b(8\s*/\s*62|4\s*/\s*31)\b|\b0?\.129\d*\b'
+      - '\b(3\s*/\s*62)\b|\b0?\.048\d*\b'
+      - '\b(49\s*/\s*62)\b|\b0?\.79\d*\b'
+      - '\b(3\s*/\s*22)\b|\b0?\.136\d*\b'
+      - '\b(35\s*/\s*54)\b|\b0?\.648\d*\b'
     scoring_rules: |
       Correct answers (fractions preferred, but accept decimal equivalents):
       1. P(European) = 8/62 ≈ 0.129
@@ -44,7 +49,12 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 3", "P3", "3)", "3."]
     anchor_tokens: ["Jar A contains 7 red", "Jar B contains 15 red"]
-    expected_answers: ['\b(7/10|0\.7)\b', '\b(15/45|1/3|0\.333)\b', '\b(7/20|0\.35)\b', '\b(1/6|0\.167)\b', '\b(31/60|0\.516)\b']
+    expected_answers:
+      - '\b(7\s*/\s*10)\b|\b0?\.7\d*\b'
+      - '\b(15\s*/\s*45|1\s*/\s*3)\b|\b0?\.33\d*\b'
+      - '\b(7\s*/\s*20)\b|\b0?\.35\d*\b'
+      - '\b(1\s*/\s*6)\b|\b0?\.16[67]\d*\b'
+      - '\b(31\s*/\s*60)\b|\b0?\.51[67]\d*\b'
     scoring_rules: |
       Correct answers:
       1. P(red | heads) = 7/10 or 0.7
@@ -59,7 +69,11 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 4", "P4", "4)", "4."]
     anchor_tokens: ["Var(X) = 25", "correlation between X and Y"]
-    expected_answers: ['-\b10\b', '-\b60\b', '\b21\b', '\b124\b']
+    expected_answers:
+      - '\b-10\b'
+      - '\b-60\b'
+      - '\b21\b'
+      - '\b124\b'
     scoring_rules: |
       Correct answers:
       a) Cov(X, Y) = -10
@@ -73,7 +87,8 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 5", "P5", "5)", "5."]
     anchor_tokens: ["Motel has 40 bedrooms", "expected value of the compensation"]
-    expected_answers: ['\b(167\.78|167\.80|168)\b']
+    expected_answers:
+      - '\b(167\.7[89]\d*|167\.8\d*|168)\b'
     scoring_rules: |
       Expected value of compensation: $167.78 (allow rounding to $167.80 or $168).
       Must show setup summing Payout * P(X=x) for people showing up from 41 to 50.
@@ -84,7 +99,9 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 6", "P6", "6)", "6."]
     anchor_tokens: ["own (just) two stocks", "expected return of $.12"]
-    expected_answers: ['\b0\.162\b|\b16\.2%', '\b0\.15[678]\b|\b15\.[678]%']
+    expected_answers:
+      - '\b0?\.162\d*\b|\b16\.2\d*\s*%'
+      - '\b0?\.15[678]\d*\b|\b15\.[678]\d*\s*%'
     scoring_rules: |
       Correct portfolio values:
       Expected return = 0.162 (or 16.2%)
@@ -96,11 +113,21 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 7", "P7", "7)", "7."]
     anchor_tokens: ["orders 200 bolts", "12 bolts"]
-    expected_answers: ['\b0\.258\b', '\b0\.473\b']
+    expected_answers:
+      - '\b0?\.27[12]\d*\b|\b27\.[12]\d*\s*%|\b180\s*C\s*12\b|combin\(\s*180\s*,\s*12\)'
+      - '\b0?\.46[9]\d*\b|\b0?\.47[03]?\d*\b|\b46\.9\d*\s*%|\b47\.[03]?\d*\s*%|\b190\s*C\s*12\b|combin\(\s*190\s*,\s*12\)'
     scoring_rules: |
-      Correct hypergeometric probabilities (formulas, combinations, or decimal values accepted):
-      A) P(none defective when 20 in population) = combin(180, 12) / combin(200, 12) ≈ 0.258
-      B) P(send back shipment when 10 in population) = 1 - P(none defective) = 1 - [combin(190, 12) / combin(200, 12)] ≈ 0.473
+      Correct answers (accept decimals, percentages, combinations, or formulas):
+      Part A: P(none defective when 20 in population)
+        - True value: combin(180, 12) / combin(200, 12) ≈ 0.2718 (or 27.2%)
+        - Accept any answer within ±1% tolerance of 0.2718 (e.g. 0.27 to 0.272).
+      Part B: P(send back shipment when 10 in population)
+        - True value: 1 - combin(190, 12) / combin(200, 12) ≈ 0.4693 (or 46.9%)
+        - Accept any answer within ±1% tolerance of 0.4693 (e.g. 0.469 to 0.473).
+      
+      Grading Guidance:
+      - If the student sets up correct hypergeometric combination formulas (even if they don't compute the final decimal or make an arithmetic slip), award partial credit (0.5).
+      - Minor intermediate rounding differences (such as rounding Part B to 0.47) must be fully accepted for full credit.
     short_note_pass: "Hypergeometric probabilities for shipment acceptance are correct."
     short_note_fail: "Review hypergeometric formula or probability of complement for part B."
 
@@ -108,7 +135,9 @@ questions:
     weight: 1.0
     label_patterns: ["Problem 8", "P8", "8)", "8."]
     anchor_tokens: ["ATM machine", "Poisson Distribution"]
-    expected_answers: ['\b0\.114[4]?\b', '\b0\.323[3]?\b']
+    expected_answers:
+      - '\b0?\.114[34]\d*\b|\b11\.4[34]\d*\s*%'
+      - '\b0?\.323[34]\d*\b|\b32\.3[34]\d*\s*%'
     scoring_rules: |
       Correct Poisson probabilities:
       A) P(exactly 11 in an hour) = e^(-12) * 12^11 / 11! ≈ 0.1144
