@@ -874,9 +874,26 @@ select {
    Visual Question Grid & Card Navigation Styles
    ============================================================ */
 
+/* Custom elegant scrollbar applied globally */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+  transition: background var(--transition);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
 .question-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
   gap: 0.5rem;
   margin-top: 0.75rem;
   margin-bottom: 0.75rem;
@@ -888,61 +905,104 @@ select {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0.5rem 0.3rem;
+  padding: 0.6rem 0.4rem;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--panel);
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              border-color 180ms ease,
+              box-shadow 180ms ease,
+              background-color 180ms ease;
 }
 
 .question-nav-card:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: var(--shadow-md);
   border-color: var(--accent);
+  z-index: 1;
 }
 
 .question-nav-card.active {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-ring);
+  box-shadow: 0 0 0 1px var(--accent), 0 4px 10px rgba(26, 115, 232, 0.18);
+  transform: translateY(-2px) scale(1.03);
+  z-index: 2;
 }
 
-/* Verdict classes */
+/* Verdict styling with premium tints */
 .question-nav-card.correct {
   background: var(--success-bg);
-  border-color: rgba(52, 168, 83, 0.2);
-  color: var(--success);
+  border-color: rgba(52, 168, 83, 0.25);
+  color: #137333;
+}
+.question-nav-card.correct:hover,
+.question-nav-card.correct.active {
+  border-color: var(--success);
 }
 
 .question-nav-card.rounding_error {
   background: var(--success-bg);
-  border-color: rgba(52, 168, 83, 0.2);
-  color: var(--success);
+  border-color: rgba(52, 168, 83, 0.25);
+  color: #137333;
+}
+.question-nav-card.rounding_error:hover,
+.question-nav-card.rounding_error.active {
+  border-color: var(--success);
 }
 
 .question-nav-card.partial {
   background: var(--warning-bg);
-  border-color: rgba(249, 171, 0, 0.2);
-  color: var(--warning);
+  border-color: rgba(249, 171, 0, 0.25);
+  color: #b06000;
+}
+.question-nav-card.partial:hover,
+.question-nav-card.partial.active {
+  border-color: var(--warning);
 }
 
 .question-nav-card.incorrect {
   background: var(--error-bg);
-  border-color: rgba(234, 67, 53, 0.2);
-  color: var(--error);
+  border-color: rgba(234, 67, 53, 0.25);
+  color: #c53030;
+}
+.question-nav-card.incorrect:hover,
+.question-nav-card.incorrect.active {
+  border-color: var(--error);
 }
 
 .question-nav-card.needs_review {
-  background: var(--bg);
+  background: var(--panel-hover);
   border-color: var(--border);
-  color: var(--muted);
+  color: var(--text-secondary);
+}
+.question-nav-card.needs_review:hover,
+.question-nav-card.needs_review.active {
+  border-color: var(--accent);
+  background-color: var(--panel);
 }
 
 .question-nav-card .card-icon {
   font-size: 0.95rem;
   margin-top: 0.15rem;
+  font-weight: bold;
+}
+
+@keyframes badge-pop-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  80% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .q-check-badge {
@@ -961,12 +1021,41 @@ select {
   font-weight: bold;
   border: 1px solid var(--panel);
   box-shadow: var(--shadow-sm);
+  animation: badge-pop-in 250ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transform-origin: center;
 }
 
 .checkbox-container-custom {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   background: var(--panel);
   border: 1px dashed var(--border);
   padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
+  margin-top: 0.75rem;
   margin-bottom: 0.75rem;
+  transition: border-color var(--transition), background-color var(--transition), box-shadow var(--transition);
 }
+
+.checkbox-container-custom:hover {
+  border-color: var(--muted);
+  background-color: var(--panel-hover);
+}
+
+.checkbox-container-custom label {
+  font-weight: normal;
+  margin-bottom: 0;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-secondary);
+}
+
+.checkbox-container-custom input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--accent);
+  margin: 0;
+  width: 14px;
+  height: 14px;
+}
+
