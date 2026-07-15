@@ -290,9 +290,15 @@ For each graded question, the annotation layer resolves placement using this pri
 | `local_anchor` | Text-based fallback | Regex search for question label tokens (e.g. `"2)"`, `"2."`) |
 | `summary_fallback` | No placement found | Append unresolved questions to a text summary on page 1 |
 
-In practice: `block_id` fires on typed PDFs where OCR confidence is high; `model_coords` is the reliable fallback for handwritten submissions.
+In practice: `block_id` fires on typed PDFs where OCR confidence is high; `model_coords` is the reliable fallback for handwritten submissions. For multi-attachment submissions, the annotator strictly respects the model's chosen `source_file` to ensure marks land on the correct document.
 
 Annotated PDFs are written to `output_dir` mirroring the Brightspace folder structure, with FreeText annotations (green ✓ / red ✗) placed at the resolved coordinates.
+
+### Stage 4 — Judge LLM Auditing (Planned)
+
+To ensure the highest grading integrity, a post-grading **Judge LLM** pipeline is being introduced. The Judge does not re-read the raw PDFs; instead, it uses the generated `grading_audit.csv` as its database. By evaluating the primary grader's logged `logic_analysis`, `detail_reason`, and `evidence_quote` against the rubric, the Judge objectively critiques the scoring logic.
+
+Approved critiques and proposed fixes are injected directly into `review_state.json`. This ensures that the review UI, the grading audit, and the Brightspace import always reflect a single, unified source of truth.
 
 ### Concurrency model
 

@@ -7,6 +7,7 @@
 
 ## Planned
 - **Preprocessing & Pipeline Optimization**: Dynamic scaling, OCR resolution alignment, decoupled async preprocessing, and pipeline robustness. See [preprocessing-and-optimization.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/preprocessing-and-optimization.md).
+- **Judge LLM Critique Engine**: Integrating a secondary Judge LLM to critique and patch grading logic using `grading_audit.csv` as the DB and `review_state.json` for reconciliation. See [judge-llm-critique-and-annotation.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/judge-llm-critique-and-annotation.md).
 
 ## Current Objective
-Completed Phase 5: Per-Question Regrade. Next step is evaluating and executing the Preprocessing & Pipeline Optimization roadmap.
+Executing the Judge LLM Critique Engine & Multi-Attachment Annotation Fixes plan to establish an automated post-grading audit pipeline.

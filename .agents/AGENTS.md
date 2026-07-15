@@ -5,6 +5,7 @@
 - Never promote REVIEW_REQUIRED to a passing grade automatically.
 - All grades in brightspace_grades_import.csv must trace back to an LLM 
   verdict or regex pre-check recorded in grading_audit.csv.
+- Judge LLM critiques and automated fixes must be injected into `review_state.json` rather than mutating `grading_audit.csv` directly, ensuring a single source of truth across the UI, audit DB, and Brightspace export.
 
 ## Feedback Integrity (MUST)
 - Never annotate a point deduction on a student PDF without a short_reason.
