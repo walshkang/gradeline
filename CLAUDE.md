@@ -29,6 +29,15 @@ Exit codes
 Running tests
 source .venv/bin/activate && python3 -m pytest tests/ -x -q
 
+Running E2E/Playwright tests:
+# 1. Install dependencies
+source .venv/bin/activate && pip install -r requirements-dev.txt
+# 2. Install browsers (with mirror fallback if needed)
+export PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright
+playwright install chromium
+# 3. Run UI tests
+python3 -m pytest tests/test_review_ui.py -v
+
 
 Key conventions (verified in code)
 - ConsoleUI is the UI base in grader/ui.py; PlainConsoleUI and RichConsoleUI implement its methods. create_console_ui(force_plain=...) chooses PlainConsoleUI when force_plain=True or when stdout is not a TTY or Rich is unavailable; otherwise RichConsoleUI is used.

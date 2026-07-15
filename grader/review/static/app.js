@@ -269,6 +269,18 @@
         metaDiv.appendChild(reviewBadge);
       }
 
+      if (item.review_status) {
+        const statusSpan = document.createElement("span");
+        statusSpan.className = `badge badge-${item.review_status}`;
+        statusSpan.textContent =
+          item.review_status === "in_progress"
+            ? "In Progress"
+            : item.review_status === "done"
+              ? "Reviewed"
+              : "Todo";
+        metaDiv.appendChild(statusSpan);
+      }
+
       btn.appendChild(nameSpan);
       btn.appendChild(metaDiv);
       btn.addEventListener("click", () => selectSubmission(item.submission_id));
@@ -367,11 +379,49 @@
     }
   }
 
-  function selectQuestion(questionId) {
+  async function selectQuestion(questionId) {
     state.currentQuestionId = questionId;
     if (ui.questionSelect) {
       ui.questionSelect.value = questionId;
     }
+
+    const question = getCurrentQuestion();
+    if (question && question.final) {
+      const finalData = question.final;
+      const docFilename = finalData.source_file;
+      const pageNum = finalData.page_number; // 1-based page number
+
+      let targetDocIdx = state.currentDocIdx;
+      if (docFilename) {
+        const docs = state.currentSubmission?.documents || [];
+        const foundIdx = docs.findIndex((d) => d.filename === docFilename);
+        if (foundIdx >= 0) {
+          targetDocIdx = foundIdx;
+        }
+      }
+
+      let targetPageIdx = state.currentPageIdx;
+      if (typeof pageNum === "number" && pageNum >= 1) {
+        targetPageIdx = pageNum - 1;
+      }
+
+      if (targetDocIdx !== state.currentDocIdx || targetPageIdx !== state.currentPageIdx) {
+        state.currentDocIdx = targetDocIdx;
+        state.currentPageIdx = targetPageIdx;
+        if (ui.docSelect) {
+          ui.docSelect.value = String(targetDocIdx);
+        }
+        if (ui.pageInput) {
+          ui.pageInput.value = String(targetPageIdx + 1);
+        }
+        try {
+          await loadCurrentPage();
+        } catch (error) {
+          showToast(error.message, "error");
+        }
+      }
+    }
+
     renderSubmission();
   }
 
@@ -1114,10 +1164,67 @@
       queuePatch({ page_final: raw ? Number(raw) : null }, 550);
     });
 
+    if (ui.questionReviewedCheckbox) {
+      ui.questionReviewedCheckbox.addEventListener("change", () => {
+        const question = getCurrentQuestion();
+        if (question) {
+          if (!question.final) {
+            question.final = {};
+          }
+          question.final.reviewed = ui.questionReviewedCheckbox.checked;
+          renderQuestionNavGrid();
+          queuePatch({ reviewed_final: ui.questionReviewedCheckbox.checked }, 150);
+        }
+      });
+    }
+
     ui.noteInput.addEventListener("input", () => queueNoteSave(600));
     ui.noteInput.addEventListener("blur", () => {
       flushNote().catch((error) => showToast(error.message, "error"));
     });
+
+    if (ui.submissionStatusSelect) {
+      ui.submissionStatusSelect.addEventListener("change", async () => {
+        const submission = state.currentSubmission;
+        if (!submission) return;
+
+        const newValue = ui.submissionStatusSelect.value;
+        const oldValue = submission.review_status || "todo";
+
+        if (newValue === "done") {
+          const needsReviewCount = Object.values(submission.questions || {}).filter(
+            (q) => q?.final?.verdict === "needs_review"
+          ).length;
+
+          if (needsReviewCount > 0) {
+            const confirmed = confirm(
+              "This submission has unresolved questions. It will be exported to Brightspace as REVIEW_REQUIRED (no points). Are you sure you want to mark this as Done?"
+            );
+            if (!confirmed) {
+              ui.submissionStatusSelect.value = oldValue;
+              return;
+            }
+          }
+        }
+
+        try {
+          const res = await apiPatch(`/api/submissions/${submission.submission_id}`, {
+            review_status: newValue,
+          });
+          submission.review_status = res.review_status;
+          const queueItem = state.submissions.find((s) => s.submission_id === submission.submission_id);
+          if (queueItem) {
+            queueItem.review_status = res.review_status;
+          }
+          renderQueue();
+          renderSubmission();
+          showToast(`Submission review status updated to: ${newValue === "done" ? "Reviewed" : newValue}`, "success");
+        } catch (error) {
+          showToast(error.message, "error");
+          ui.submissionStatusSelect.value = oldValue;
+        }
+      });
+    }
 
     if (ui.debugOverlayToggle) {
       ui.debugOverlayToggle.addEventListener("change", () => {

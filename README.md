@@ -423,6 +423,32 @@ Reviewed artifacts are written into `output_dir/review/`:
 - `--dry-run` defaults to header-only annotation (no per-question x/✓ marks). Use `--annotate-dry-run-marks` for debug placement marks.
 - Rich console output with section headings, colored bands, and progress bars is used automatically in interactive terminals; use `--plain` for deterministic text output.
 
+## Running Tests
+
+Gradeline contains both unit/workflow tests and automated E2E browser integration tests (using Playwright).
+
+### Unit & Workflow Tests
+To run the standard test suite:
+```bash
+source .venv/bin/activate
+python3 -m pytest tests/ -x -q
+```
+
+### E2E / Browser Integration Tests
+The manual review server dashboard has integration tests that require Playwright:
+```bash
+# 1. Install dev dependencies
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+# 2. Install Playwright browser binary (using mirror fallback for CDN issues if needed)
+export PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright
+playwright install chromium
+
+# 3. Run E2E tests
+python3 -m pytest tests/test_review_ui.py -v
+```
+
 ## AI Coding Sessions & Agent Guidance
 
 If you are an AI assistant or agent opening a coding session or executing commands/tool calls in this workspace, please adhere to the following rules:

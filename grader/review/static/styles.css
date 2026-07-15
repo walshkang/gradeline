@@ -506,6 +506,21 @@ button:active {
   font-size: 0.68rem;
 }
 
+.badge-todo {
+  background: #f1f3f4;
+  color: #5f6368;
+}
+
+.badge-in_progress {
+  background: #fef7e0;
+  color: #b06000;
+}
+
+.badge-done {
+  background: #e6f4ea;
+  color: #137333;
+}
+
 /* Run outcomes */
 .run-outcomes {
   margin-top: auto;

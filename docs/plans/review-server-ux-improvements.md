@@ -10,20 +10,23 @@ This plan establishes a professional, high-performance grading review experience
 graph TD
     P1["Phase 1: Backend API Extensions<br>Extend PATCH endpoints for questions & submissions<br>Flash-tier"] --> P2["Phase 2: Visual Question Dashboard<br>Grid of color-coded navigation cards<br>Flash-tier"]
     P2 --> P3["Phase 3: Auto-Navigation & Checked State<br>Map cards to document pages & persistence<br>Flash-tier"]
-    P3 --> P4["Phase 4: Design Aesthetics Polish<br>Figma/Google Docs-inspired styles<br>Flash-tier"]
+    P3 --> P4["Phase 4: Automated E2E Testing<br>Playwright E2E tests & mirror fallbacks<br>Flash-tier"]
+    P4 --> P5["Phase 5: Design Aesthetics Polish<br>Figma/Google Docs-inspired styles<br>Flash-tier"]
 
     style P1 fill:#fbb,stroke:#333
     style P2 fill:#bbf,stroke:#333
     style P3 fill:#bbf,stroke:#333
-    style P4 fill:#bbf,stroke:#333
+    style P4 fill:#fbb,stroke:#333
+    style P5 fill:#bbf,stroke:#333
 ```
 
 | Phase | Focus | Tier | What it delivers |
 |---|---|---|---|
-| **Phase 1** | Backend API Extensions | Flash | Support custom `reviewed` flag in question payload; support manual `review_status` overrides on submission PATCH. |
-| **Phase 2** | Visual Question Dashboard | Flash | Render a color-coded grid of cards (`✓`, `◐`, `✗`, `⟳`) next to the active student name for rapid assessment. |
-| **Phase 3** | Auto-Navigation & Checked State | Flash | Auto-scroll/jump the viewer to the correct PDF page/document upon selecting a question card; persist reviewed checks. |
-| **Phase 4** | Design Aesthetics Polish | Flash | Clean Google/Figma-style css layout, card borders, active shadow states, and hover animation micro-interactions. |
+| **Phase 1** | Backend API Extensions | Flash | Support custom `reviewed` flag in question payload; support manual `review_status` overrides on submission PATCH. *(Implemented & verified)* |
+| **Phase 2** | Visual Question Dashboard | Flash | Render a color-coded grid of cards next to the active student name for rapid assessment. *(Implemented & verified)* |
+| **Phase 3** | Auto-Navigation & Checked State | Flash | Auto-scroll/jump the viewer to the correct PDF page/document upon card click; persist reviewed checks. *(Implemented & verified)* |
+| **Phase 4** | Automated E2E Testing | Flash | Establish Playwright E2E browser tests to verify Phase 1-3 features and document fallback mirror setup for local devs/CI. *(Implemented & verified)* |
+| **Phase 5** | Design Aesthetics Polish | Flash | Clean Google/Figma-style CSS layout, card borders, active shadow states, and hover animation micro-interactions. |
 
 ---
 
@@ -120,7 +123,41 @@ graph TD
 
 ---
 
-## 🤖 Phase 4: Design Aesthetics Polish
+## 🤖 Phase 4: Automated E2E Testing
+
+**Principle**: *A test-driven development workflow must cover integration layers. Manual verification of UI interactions is fragile, so E2E test scripts must automate browser testing and handle cross-platform setup errors natively.*
+
+**Recommended Agent**: Flash-tier
+
+### Instructions
+
+1. **Create `requirements-dev.txt`**:
+   - Add the dev/test dependencies to [requirements-dev.txt](file:///Users/walsh.kang/Documents/GitHub/gradeline/requirements-dev.txt):
+     ```text
+     pytest-playwright>=0.5.0
+     playwright>=1.40.0
+     ```
+
+2. **Add setup automation instructions**:
+   - Document or script the setup with mirror fallbacks for macOS/Linux ARM64 users experiencing CDN download issues:
+     ```bash
+     export PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright
+     playwright install chromium
+     ```
+
+3. **Implement UI integration tests in `tests/test_review_ui.py`**:
+   - Create a Pytest fixture that launches the review server in a background thread or subprocess.
+   - Use Playwright to:
+     - Navigate to the review server index page.
+     - Verify that the `#questionNavGrid` renders the expected color-coded grid of cards.
+     - Simulate clicking a `.question-nav-card` to verify that active page/document indices change dynamically.
+     - Verify that checking/unchecking `#questionReviewedCheckbox` triggers a PATCH request to `/api/submissions/{subId}/questions/{qId}` with `{ reviewed_final: true/false }`.
+     - Verify that changing the submission status dropdown triggers a PATCH to `/api/submissions/{subId}`.
+     - Test that changing the status to "done" when there are unresolved questions displays the confirmation dialog and allows canceling/confirming.
+
+---
+
+## 🤖 Phase 5: Design Aesthetics Polish
 
 **Principle**: *Premium web applications feel clean and responsive. Colors must be curated, fonts balanced, and micro-animations smooth.*
 
