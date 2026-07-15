@@ -135,6 +135,71 @@ class ReviewApiTests(unittest.TestCase):
             with self.assertRaises(ReviewApiError):
                 api.patch_question("sub-1", "a", {"source_file_final": "other.pdf"})
 
+    def test_patch_question_saves_reviewed_final(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+            api = ReviewApi(output_dir)
+
+            response = api.patch_question(
+                "sub-1",
+                "a",
+                {
+                    "reviewed_final": True,
+                },
+            )
+            self.assertTrue(response["question"]["final"]["reviewed"])
+
+            # Verify database persistence
+            persisted = json.loads((output_dir / "review" / "review_state.json").read_text(encoding="utf-8"))
+            self.assertTrue(persisted["submissions"]["sub-1"]["questions"]["a"]["final"]["reviewed"])
+
+    def test_patch_submission_updates_status_and_sets_manual_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+            api = ReviewApi(output_dir)
+
+            response = api.patch_submission("sub-1", {"review_status": "done"})
+            self.assertEqual(response["submission_id"], "sub-1")
+            self.assertEqual(response["review_status"], "done")
+
+            persisted = json.loads((output_dir / "review" / "review_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["submissions"]["sub-1"]["review_status"], "done")
+            self.assertTrue(persisted["submissions"]["sub-1"].get("manual_status_override"))
+
+    def test_patch_question_preserves_manual_submission_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+            api = ReviewApi(output_dir)
+
+            # Manually set to "done"
+            api.patch_submission("sub-1", {"review_status": "done"})
+
+            # Now patch a question. Recomputation should run but not override "done" back to "in_progress" or "todo"
+            # even though question is "incorrect" (needs_review is false, but without override it would normally compute "done").
+            # Let's test with a verdict of "needs_review" to ensure it normally would compute "in_progress".
+            api.patch_question(
+                "sub-1",
+                "a",
+                {
+                    "verdict_final": "needs_review",
+                },
+            )
+
+            persisted = json.loads((output_dir / "review" / "review_state.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["submissions"]["sub-1"]["review_status"], "done")
+
+    def test_patch_submission_rejects_invalid_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+            api = ReviewApi(output_dir)
+
+            with self.assertRaises(ReviewApiError):
+                api.patch_submission("sub-1", {"review_status": "invalid_status"})
+
     def test_coords_payload_preserves_yx_order(self) -> None:
         coords = coerce_coords_payload([125, 875])
         self.assertEqual(coords, [125.0, 875.0])

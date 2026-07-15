@@ -400,7 +400,7 @@ Reviewed artifacts are written into `output_dir/review/`:
 - **Custom Dynamic Grading Bands**: You can define any arbitrary grading bands (like `10, 9, 8...`) in the Rubric YAML under `bands`. Gradeline evaluates them dynamically by sorted descending threshold, and numeric band names automatically map directly to the output points score without manual CLI flag mappings.
 - **Rounding Error Forgiveness**: `rounding_error` verdicts are fully forgiven (score 1.0, same as `correct`). They appear as `✓ Q1 ≈` in green on annotated PDFs and as `≈` in the summary line so you can still see where they occurred.
 - **Feedback Fallback Policy**: If the AI feedback contains third-person tokens or is too wordy, the system drops the LLM feedback and falls back to the rubric's `short_note_fail` rather than dropping the note entirely. This ensures that the student is never penalized without a descriptive failure reason.
-- If any question is `needs_review`, the final band is automatically escalated to `REVIEW_REQUIRED`.
+- If any question is `needs_review`, the final band is automatically escalated to `REVIEW_REQUIRED` (which defaults to a blank/ungraded LMS export). This grading escalation is independent of the manual review workflow status (e.g., marking a submission "Reviewed/Done" in the UI does not bypass the grade-level `REVIEW_REQUIRED` escalation if unresolved questions remain).
 - Grade points are configurable via CLI flags: `--check-plus-points`, `--check-points`, `--check-minus-points`, `--review-required-points`.
 
 ### Reliability & Error Handling

@@ -322,6 +322,9 @@ class ReviewApi:
             if "source_file_final" in payload:
                 final_payload["source_file"] = self.coerce_source_file(submission, payload["source_file_final"])
 
+            if "reviewed_final" in payload:
+                final_payload["reviewed"] = bool(payload["reviewed_final"])
+
             question_payload["is_overridden"] = bool(compare_question_payloads(auto_payload, final_payload))
             question_payload["updated_at"] = utc_now_iso()
 
@@ -344,6 +347,33 @@ class ReviewApi:
                 "question_id": question_id,
                 "question": deepcopy(question_payload),
                 "summary": summary,
+            }
+
+    def patch_submission(self, submission_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            submission = self._get_submission(submission_id)
+            if "review_status" in payload:
+                status = str(payload["review_status"]).strip().lower()
+                if status not in {"todo", "in_progress", "done"}:
+                    raise ReviewApiError(f"Invalid review_status '{status}'.")
+                submission["review_status"] = status
+                submission["manual_status_override"] = True
+
+            submission["updated_at"] = utc_now_iso()
+            touch_updated_at(self._state)
+            self._persist_state_locked()
+            append_event(
+                self.events_path,
+                "submission_updated",
+                {
+                    "submission_id": submission_id,
+                    "changes": sorted(payload.keys()),
+                },
+            )
+            return {
+                "submission_id": submission_id,
+                "review_status": submission.get("review_status"),
+                "identity": submission.get("identity", {}),
             }
 
     def patch_note(self, submission_id: str, note: str) -> dict[str, Any]:
@@ -599,7 +629,8 @@ class ReviewApi:
             "points": grade.points,
         }
         submission["final_summary"] = summary
-        submission["review_status"] = "done" if not grade.has_needs_review else "in_progress"
+        if not submission.get("manual_status_override"):
+            submission["review_status"] = "done" if not grade.has_needs_review else "in_progress"
         return summary
 
     def _resolve_rubric(self):

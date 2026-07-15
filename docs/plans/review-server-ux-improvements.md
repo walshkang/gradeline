@@ -29,7 +29,7 @@ graph TD
 
 ## 🤖 Phase 1: Backend API Extensions
 
-**Principle**: *A grading review database must persist the state of human actions. Instructors need a way to mark both individual questions and whole submissions as reviewed.*
+**Principle**: *A grading review database must persist the state of human actions. Instructors need a way to mark both individual questions and whole submissions as reviewed, while decoupling user workflow state from automated grade calculations.*
 
 **Recommended Agent**: Flash-tier
 
@@ -41,11 +41,14 @@ graph TD
      - Save it to `final_payload["reviewed"] = bool(payload["reviewed_final"])`.
      - This ensures it will be saved automatically in the state dict and serialized to `review_state.json`.
 
-2. **Add submission PATCH endpoint**:
+2. **Add submission PATCH endpoint & Decoupled State**:
    - In [grader/review/api.py](file:///Users/walsh.kang/Documents/GitHub/gradeline/grader/review/api.py), create a new method `patch_submission(self, submission_id: str, payload: dict[str, Any]) -> dict[str, Any]`:
      - Access `submission = self._get_submission(submission_id)`.
      - If `"review_status"` is in `payload`, validate it is one of `{"todo", "in_progress", "done"}` and save it: `submission["review_status"] = status`.
+     - Set `submission["manual_status_override"] = True` to flag this status as manually controlled.
      - Save, persist the state, append a `submission_updated` event, and return the updated submission identity and status.
+   - Guard the automatic `review_status` reassignment in `_recompute_submission_summary(self, submission)`:
+     - Only assign the automatic status if `not submission.get("manual_status_override")`.
    - In [grader/review/server.py](file:///Users/walsh.kang/Documents/GitHub/gradeline/grader/review/server.py#L113), under `do_PATCH(self)`:
      - Match `/api/submissions/([^/]+)` route.
      - Call `self.api.patch_submission(submission_id, body)` and return the payload.
@@ -107,9 +110,13 @@ graph TD
    - If they are set and differ from the current page/document, update `state.currentPageIdx` and `state.currentDocIdx`, update the inputs, and call `await loadCurrentPage()`.
    - Execute `renderSubmission()` and `renderQuestionNavGrid()`.
 
-2. **Wire Checkbox Listeners**:
+2. **Wire Checkbox Listeners & Frontend Guardrails**:
    - Add change listener to `#questionReviewedCheckbox`. When toggled, call `queuePatch({ reviewed_final: checkbox.checked }, 150)` and update the visual badge on the nav grid card.
-   - Add change listener to `#submissionStatusSelect`. When changed, make a PATCH to `/api/submissions/{id}` to update `review_status` on the backend, and trigger `renderQueue()` to refresh the student list badge.
+   - Add change listener to `#submissionStatusSelect`. When changed:
+     - Check if the new value is `"done"` and if the student still has unresolved questions (`state.currentSubmission.needs_review_count > 0`).
+     - If so, show a confirmation dialog/modal: *"This submission has unresolved questions. It will be exported to Brightspace as REVIEW_REQUIRED (no points). Are you sure you want to mark this as Done?"*
+     - If the user cancels, revert the dropdown to its previous value and exit.
+     - If confirmed (or if the new value is not `"done"` / has no unresolved questions), make a PATCH to `/api/submissions/{id}` to update `review_status` on the backend, and trigger `renderQueue()` to refresh the student list badge.
 
 ---
 

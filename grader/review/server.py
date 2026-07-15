@@ -140,6 +140,17 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, payload)
             return
 
+        submission_match = re.fullmatch(r"/api/submissions/([^/]+)", path)
+        if submission_match:
+            submission_id = submission_match.group(1)
+            try:
+                payload = self.api.patch_submission(submission_id, body)
+            except ReviewApiError as exc:
+                self._send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+            self._send_json(HTTPStatus.OK, payload)
+            return
+
         if path == "/api/grading-context":
             try:
                 payload = self.api.patch_grading_context(body)
