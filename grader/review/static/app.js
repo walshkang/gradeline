@@ -43,6 +43,9 @@
     submissionTitle: document.getElementById("submissionTitle"),
     summaryBox: document.getElementById("summaryBox"),
     questionSelect: document.getElementById("questionSelect"),
+    judgeCritiqueContainer: document.getElementById("judgeCritiqueContainer"),
+    judgeCritiqueText: document.getElementById("judgeCritiqueText"),
+    acceptJudgeFixBtn: document.getElementById("acceptJudgeFixBtn"),
     verdictSelect: document.getElementById("verdictSelect"),
     confidenceInput: document.getElementById("confidenceInput"),
     sourceFileSelect: document.getElementById("sourceFileSelect"),
@@ -378,6 +381,24 @@
     }
 
     const finalData = question.final || {};
+
+    // Judge critique logic
+    const judgeCritique = question.judge_critique;
+    if (judgeCritique) {
+      ui.judgeCritiqueContainer.style.display = "block";
+      ui.judgeCritiqueText.textContent = judgeCritique.critique;
+      ui.acceptJudgeFixBtn.onclick = () => {
+        ui.verdictSelect.value = judgeCritique.proposed_verdict;
+        ui.reasonInput.value = judgeCritique.proposed_reason || "";
+        queuePatch({ 
+          verdict_final: judgeCritique.proposed_verdict,
+          short_reason_final: judgeCritique.proposed_reason || ""
+        }, 0);
+      };
+    } else {
+      ui.judgeCritiqueContainer.style.display = "none";
+    }
+
     ui.verdictSelect.value = finalData.verdict || "needs_review";
     ui.confidenceInput.value = String(finalData.confidence ?? 0);
     ui.pageNumberInput.value = finalData.page_number || "";
@@ -800,6 +821,10 @@
         
         if (inconsistencies.has(`${student.student_name}|${qId}`)) {
           cell.classList.add("hotspot-inconsistency");
+        }
+        
+        if (cellData.judge_critique && cellData.judge_critique.proposed_verdict !== cellData.verdict) {
+          cell.style.border = "2px dotted #e53e3e";
         }
         
         cell.textContent = verdictSym;
