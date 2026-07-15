@@ -316,6 +316,77 @@ class EditableAnnotationTests(unittest.TestCase):
                 self.assertLessEqual(len(reason_part), 42)
                 self.assertFalse(reason_part.endswith("..."))
 
+    def test_multi_pdf_annotation_strict_source_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_root = root / "subs"
+            folder_name = "803 - Student"
+            folder_path = submissions_root / folder_name
+            folder_path.mkdir(parents=True, exist_ok=True)
+            
+            pdf1_path = folder_path / "part1.pdf"
+            pdf2_path = folder_path / "part2.pdf"
+            
+            # Make both PDFs contain the anchor text "a)"
+            make_pdf(path=pdf1_path, anchor_text="a)")
+            make_pdf(path=pdf2_path, anchor_text="a)")
+            
+            submission = SubmissionUnit(
+                folder_path=folder_path,
+                folder_relpath=Path(folder_name),
+                folder_token=folder_name.split(" - ")[0],
+                student_name=folder_name,
+                pdf_paths=[pdf1_path, pdf2_path],
+            )
+            
+            rubric = make_rubric("a")
+            
+            # QuestionResult specifies source_file is "part2.pdf"
+            question_results = [
+                QuestionResult(
+                    id="a",
+                    verdict="correct",
+                    confidence=0.9,
+                    short_reason="Matches",
+                    logic_analysis="",
+                    evidence_quote="...",
+                    source_file="part2.pdf",
+                )
+            ]
+            output_dir = root / "out"
+            
+            output_paths, _ = annotate_submission_pdfs(
+                submission=submission,
+                rubric=rubric,
+                question_results=question_results,
+                output_dir=output_dir,
+                submissions_root=submissions_root,
+                final_band="CHECK_PLUS",
+                dry_run=False,
+                annotate_dry_run_marks=False,
+            )
+            
+            self.assertEqual(len(output_paths), 2)
+            
+            # Check part1.pdf (should NOT have "✓ Qa")
+            with fitz.open(output_paths[0]) as doc1:
+                self.assertTrue(str(doc1.name).endswith("part1.pdf"))
+                page = doc1[0]
+                annots = list(page.annots() or [])
+                contents = [annot.info.get("content", "") for annot in annots]
+                # part1.pdf should have the grade header because it's the first PDF,
+                # but it should NOT have the question mark for Q"a".
+                self.assertIn("Grade: CHECK_PLUS", contents)
+                self.assertNotIn("✓ Qa", contents)
+                
+            # Check part2.pdf (should HAVE "✓ Qa")
+            with fitz.open(output_paths[1]) as doc2:
+                self.assertTrue(str(doc2.name).endswith("part2.pdf"))
+                page = doc2[0]
+                annots = list(page.annots() or [])
+                contents = [annot.info.get("content", "") for annot in annots]
+                self.assertIn("✓ Qa", contents)
+
 
 if __name__ == "__main__":
     unittest.main()

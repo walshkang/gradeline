@@ -82,6 +82,10 @@ def annotate_submission_pdfs(
                     if progress_callback is not None:
                         progress_callback(len(rendered) + 1, len(rubric.questions), question.id)
 
+                    if not single_pdf and q_result.source_file:
+                        if Path(q_result.source_file).name.lower() != pdf_path.name.lower():
+                            continue
+
                     model_location = resolve_model_location(
                         doc=doc,
                         pdf_filename=pdf_path.name,
