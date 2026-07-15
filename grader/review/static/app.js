@@ -42,6 +42,10 @@
     viewerMeta: document.getElementById("viewerMeta"),
     submissionTitle: document.getElementById("submissionTitle"),
     summaryBox: document.getElementById("summaryBox"),
+    summaryText: document.getElementById("summaryText"),
+    questionNavGrid: document.getElementById("questionNavGrid"),
+    questionReviewedCheckbox: document.getElementById("questionReviewedCheckbox"),
+    submissionStatusSelect: document.getElementById("submissionStatusSelect"),
     questionSelect: document.getElementById("questionSelect"),
     judgeCritiqueContainer: document.getElementById("judgeCritiqueContainer"),
     judgeCritiqueText: document.getElementById("judgeCritiqueText"),
@@ -363,6 +367,81 @@
     }
   }
 
+  function selectQuestion(questionId) {
+    state.currentQuestionId = questionId;
+    if (ui.questionSelect) {
+      ui.questionSelect.value = questionId;
+    }
+    renderSubmission();
+  }
+
+  function renderQuestionNavGrid() {
+    if (!ui.questionNavGrid) {
+      return;
+    }
+    ui.questionNavGrid.innerHTML = "";
+    const submission = state.currentSubmission;
+    if (!submission) {
+      return;
+    }
+    const questions = submission.questions || {};
+    Object.keys(questions)
+      .sort()
+      .forEach((qId) => {
+        const questionObj = questions[qId] || {};
+        const finalData = questionObj.final || {};
+        const verdict = finalData.verdict || "needs_review";
+
+        const card = document.createElement("div");
+        card.className = "question-nav-card";
+        if (qId === state.currentQuestionId) {
+          card.classList.add("active");
+        }
+
+        if (["correct", "rounding_error", "partial", "incorrect", "needs_review"].includes(verdict)) {
+          card.classList.add(verdict);
+        } else {
+          card.classList.add("needs_review");
+        }
+
+        const isReviewed = !!finalData.reviewed;
+        if (isReviewed) {
+          card.classList.add("reviewed");
+        }
+
+        const verdictIcons = {
+          correct: "✓",
+          rounding_error: "≈",
+          partial: "◐",
+          incorrect: "✗",
+          needs_review: "⟳"
+        };
+        const icon = verdictIcons[verdict] || "⟳";
+
+        const labelSpan = document.createElement("span");
+        labelSpan.textContent = `Q${qId}`;
+        card.appendChild(labelSpan);
+
+        const iconSpan = document.createElement("span");
+        iconSpan.className = "card-icon";
+        iconSpan.textContent = icon;
+        card.appendChild(iconSpan);
+
+        if (isReviewed) {
+          const badge = document.createElement("span");
+          badge.className = "q-check-badge";
+          badge.textContent = "✓";
+          card.appendChild(badge);
+        }
+
+        card.addEventListener("click", () => {
+          selectQuestion(qId);
+        });
+
+        ui.questionNavGrid.appendChild(card);
+      });
+  }
+
   function renderSubmission() {
     const submission = state.currentSubmission;
     if (!submission) {
@@ -371,16 +450,34 @@
     const identity = submission.identity || {};
     const summary = submission.final_summary || {};
     ui.submissionTitle.textContent = identity.student_name || "Submission";
-    ui.summaryBox.textContent = `Band: ${summary.band || "—"} · Percent: ${summary.percent || 0}% · Points: ${summary.points || "—"}`;
+    if (ui.summaryText) {
+      ui.summaryText.textContent = `Band: ${summary.band || "—"} · Percent: ${summary.percent || 0}% · Points: ${summary.points || "—"}`;
+    } else {
+      ui.summaryBox.textContent = `Band: ${summary.band || "—"} · Percent: ${summary.percent || 0}% · Points: ${summary.points || "—"}`;
+    }
+
+    if (ui.submissionStatusSelect) {
+      ui.submissionStatusSelect.value = submission.review_status || "todo";
+    }
+
+    renderQuestionNavGrid();
 
     const question = getCurrentQuestion();
     if (!question) {
       ui.marker.hidden = true;
       updateDebugOverlay(null);
+      if (ui.questionReviewedCheckbox) {
+        ui.questionReviewedCheckbox.checked = false;
+        ui.questionReviewedCheckbox.disabled = true;
+      }
       return;
     }
 
     const finalData = question.final || {};
+    if (ui.questionReviewedCheckbox) {
+      ui.questionReviewedCheckbox.checked = !!finalData.reviewed;
+      ui.questionReviewedCheckbox.disabled = false;
+    }
 
     // Judge critique logic
     const judgeCritique = question.judge_critique;

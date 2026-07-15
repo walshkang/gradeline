@@ -80,7 +80,22 @@
       <aside class="editor">
         <div class="editor-section">
           <h2 id="submissionTitle">Submission</h2>
-          <div class="summary" id="summaryBox"></div>
+          <div class="question-grid" id="questionNavGrid"></div>
+          <div class="checkbox-container-custom" style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+            <input type="checkbox" id="questionReviewedCheckbox" />
+            <label for="questionReviewedCheckbox" style="font-weight: normal; margin-bottom: 0; cursor: pointer;">Mark Question as Reviewed</label>
+          </div>
+          <div class="summary" id="summaryBox">
+            <span id="summaryText"></span>
+            <div class="submission-status-control" style="margin-top: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
+              <label for="submissionStatusSelect" style="font-weight: bold; margin-bottom: 0; font-size: 0.78rem;">Review Status:</label>
+              <select id="submissionStatusSelect" style="width: auto; padding: 0.1rem 0.3rem; font-size: 0.78rem;">
+                <option value="todo">Todo</option>
+                <option value="in_progress">In Progress</option>
+                <option value="done">Reviewed</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div class="editor-section">

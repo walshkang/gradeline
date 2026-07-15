@@ -854,3 +854,104 @@ select {
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================
+   Visual Question Grid & Card Navigation Styles
+   ============================================================ */
+
+.question-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.question-nav-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+
+.question-nav-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--accent);
+}
+
+.question-nav-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-ring);
+}
+
+/* Verdict classes */
+.question-nav-card.correct {
+  background: var(--success-bg);
+  border-color: rgba(52, 168, 83, 0.2);
+  color: var(--success);
+}
+
+.question-nav-card.rounding_error {
+  background: var(--success-bg);
+  border-color: rgba(52, 168, 83, 0.2);
+  color: var(--success);
+}
+
+.question-nav-card.partial {
+  background: var(--warning-bg);
+  border-color: rgba(249, 171, 0, 0.2);
+  color: var(--warning);
+}
+
+.question-nav-card.incorrect {
+  background: var(--error-bg);
+  border-color: rgba(234, 67, 53, 0.2);
+  color: var(--error);
+}
+
+.question-nav-card.needs_review {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.question-nav-card .card-icon {
+  font-size: 0.95rem;
+  margin-top: 0.15rem;
+}
+
+.q-check-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 14px;
+  height: 14px;
+  background: var(--success);
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: bold;
+  border: 1px solid var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.checkbox-container-custom {
+  background: var(--panel);
+  border: 1px dashed var(--border);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  margin-bottom: 0.75rem;
+}
