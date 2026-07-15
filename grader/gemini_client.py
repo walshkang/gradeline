@@ -611,6 +611,7 @@ def build_legacy_grading_prompt(
         '"global_flags":["..."]'
         "}\n"
         "No markdown fences. No extra fields.\n"
+        "If a question has sub-parts (a, b, c or 1, 2, 3), return each sub-part as a separate entry with id \"{parent_id}.{subpart}\".\n"
         "Feedback rules:\n"
         "- Generate logic_analysis to reason through the answer before assigning a verdict.\n"
         "- If verdict is correct, short_reason must be an empty string.\n"
@@ -663,6 +664,7 @@ def build_unified_grading_prompt(
     return (
         f"Submission ID: {submission_id}\n"
         f"Expected question IDs: {labels}\n"
+        "If a question contains sub-parts, return each sub-part with id \"{parent_id}.{subpart}\" (e.g. \"4.a\", \"4.b\").\n"
         f"Attached student PDF files (use exact filenames for source_file):\n{files_list}\n"
         "Grade this submission exactly according to the cached rubric and master solution.\n"
         f"{NUMERIC_EQUIVALENCE_RULE}\n\n"
@@ -756,6 +758,13 @@ def build_context_system_instruction(rubric: RubricConfig) -> str:
         "If you cannot locate an answer visually, omit coords/page_number/source_file rather than guessing.\n"
         "Block ID rule: if the student text was provided as XML-wrapped blocks (<answer id=\"pN_bN\">...</answer>), set block_id to the id attribute of the block containing the answer. "
         "When block_id is set it takes priority over coords for placement — omit coords when you have block_id.\n"
+        "Sub-question rule: Some questions contain multiple sub-parts (e.g. a), b), c) or 1), 2), 3)). "
+        "When you encounter such questions, you MUST return each sub-part as a separate entry in the "
+        "questions array, with the id formatted as \"{parent_id}.{subpart_label}\" — for example \"1.a\", "
+        "\"1.b\", \"4.1\", \"4.2\". The parent_id must exactly match one of the Expected question IDs. "
+        "Never use prefixes like \"Q1.a\" or \"Question 1a\". Never omit the parent entry entirely in "
+        "favor of only returning sub-parts — if you decompose, each sub-part id must start with the "
+        "parent id followed by a dot separator.\n"
         "If uncertain, set verdict=needs_review and confidence near 0.0.\n"
         "You must generate logic_analysis BEFORE determining the verdict.\n"
         "Rubric rules:\n"
@@ -822,6 +831,7 @@ def build_agent_grading_prompt(
         f"- {NUMERIC_EQUIVALENCE_RULE}\n"
         f"Submission ID: {submission_id}\n"
         f"Expected question IDs: {labels}\n"
+        "If a question has sub-parts, return each sub-part as a separate entry with id \"{parent_id}.{subpart}\".\n"
     )
 
 

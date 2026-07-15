@@ -8,12 +8,14 @@ This plan closes the gaps identified in the July 11–15 sprint retrospective: b
 
 ```mermaid
 graph TD
-    P1["Phase 1: Test Hygiene & Gitignore<br>Fix test_cache.py + .gitignore<br>Flash-tier"] --> P2["Phase 2: Golden-Output Integration Test<br>Real fixture PDF → expected output<br>Flash-tier"]
+    P0["Phase 0: Click-Only & Touch-First UX<br>Split-screen, auto-advance, large buttons<br>Flash-tier"] --> P1["Phase 1: Test Hygiene & Gitignore<br>Fix test_cache.py + .gitignore<br>Flash-tier"]
+    P1 --> P2["Phase 2: Golden-Output Integration Test<br>Real fixture PDF → expected output<br>Flash-tier"]
     P2 --> P3["Phase 3: Orchestrator Decomposition<br>Split 1718-line orchestrator.py<br>Pro-tier"]
     P3 --> P4["Phase 4: Workflow CLI Decomposition<br>Split 2537-line workflow_cli.py<br>Pro-tier"]
     P4 --> P5["Phase 5: GitHub Actions CI<br>Automated test pipeline<br>Flash-tier"]
     P1 --> P6["Phase 6: Housekeeping<br>context.md + plans directory<br>Flash-tier"]
 
+    style P0 fill:#dfd,stroke:#333
     style P1 fill:#fbb,stroke:#333
     style P2 fill:#bbf,stroke:#333
     style P3 fill:#fbb,stroke:#333
@@ -24,12 +26,50 @@ graph TD
 
 | Phase | Focus | Tier | What it delivers |
 |---|---|---|---|
+| **Phase 0** | Click-Only & Touch-First UX | Flash | Split-screen mobile layout, large verdict buttons, auto-advance toggle, and coordinate-aligned auto-scrolling. |
 | **Phase 1** | Test Hygiene & Gitignore | Flash | Fix `test_cache.py` collection error; add `__pycache__/` and `*.pyc` to `.gitignore`; relocate the stray root-level test file into `tests/`. |
 | **Phase 2** | Golden-Output Integration Test | Flash | A small fixture PDF with a known rubric that runs extraction → pre-check → scoring end-to-end and asserts deterministic output. |
 | **Phase 3** | Orchestrator Decomposition | Pro | Split `orchestrator.py` (1718 lines) into `grading.py`, `preprocessing.py`, and keep `orchestrator.py` as a thin coordinator. |
 | **Phase 4** | Workflow CLI Decomposition | Pro | Split `workflow_cli.py` (2537 lines) into `quickstart.py`, `import_cmd.py`, and `profile_utils.py` submodules. |
 | **Phase 5** | GitHub Actions CI | Flash | `.github/workflows/test.yml` running the full test suite on push/PR with `.venv` caching and Playwright setup. |
 | **Phase 6** | Housekeeping | Flash | Update `context.md` to reflect current state; reorganize `docs/plans/` with active vs. archive separation. |
+
+---
+
+## 🤖 Phase 0: Click-Only & Touch-First UX
+
+**Principle**: *A grading review experience must be highly optimized for direct clicking and touch interaction, preventing endless scrolling or tedious multi-click workflows on mobile, tablet, and web.*
+
+**Recommended Agent**: Flash-tier
+
+### Instructions
+
+1. **Split-Screen / Bottom-Sheet Mobile Layout**:
+   - In `styles.css`, modify the responsive media query (`@media (max-width: 1180px)`) to use a split-screen or flexible sheet layout rather than stacking the panels into a single long vertical column.
+   - Set the PDF viewer (`.viewer`) to have a fixed height (e.g., `55vh`) with `overflow: auto`.
+   - Set the editing controls (`.editor`) to occupy the remaining height in a scrollable, touch-friendly panel (bottom-sheet) so that both the PDF and grade fields are simultaneously visible.
+
+2. **One-Tap Verdict Buttons & Auto-Advance**:
+   - In `index.html`, add a row of large, colorful, touch-friendly buttons for verdicts (`Correct`, `Rounding Error`, `Partial`, `Incorrect`, `Needs Review`) right next to or replacing the select element `#verdictSelect`.
+   - Add an `Auto-Advance` toggle checkbox in the editor panel: `<input type="checkbox" id="autoAdvanceToggle" checked />`.
+   - In `app.js`, when a verdict button or "Accept Judge Fix" is tapped/clicked:
+     - Instantly save the verdict.
+     - Automatically check/toggle `reviewed_final` to `true`.
+     - If `Auto-Advance` is enabled, find the next card in the `#questionNavGrid` that is unresolved (verdict is `needs_review` or not marked reviewed) and programmatically trigger `selectQuestion(nextQId)`.
+
+3. **Smooth Scroll to PDF Coordinates**:
+   - In `app.js` (within `selectQuestion` and `renderMarker`), when a question is selected and has valid coordinates `[y, x]`:
+     - Calculate pixel offsets `(px, py)` on the page image.
+     - Scroll `ui.imageWrap` smoothly to center the marker:
+       ```javascript
+       ui.imageWrap.scrollTo({
+         top: py - ui.imageWrap.clientHeight / 2,
+         left: px - ui.imageWrap.clientWidth / 2,
+         behavior: "smooth"
+       });
+       ```
+     - Add a brief CSS keyframe scale/opacity pulse to `#marker` to highlight the location visually when selected.
+     - Enhance touch targets for the marker dot (using `::after` padding) to allow easier finger-dragging on mobile/touch interfaces.
 
 ---
 

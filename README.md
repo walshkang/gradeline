@@ -21,7 +21,7 @@ source .venv/bin/activate
 export GEMINI_API_KEY="your_api_key_here"
 
 # 3. Import your assignment files from Downloads into data/{profile}/
-./gradeline import --profile a2
+./gradeline import --profile a2x
 
 # 4. Run the quickstart wizard for that assignment
 ./gradeline quickstart --profile a2

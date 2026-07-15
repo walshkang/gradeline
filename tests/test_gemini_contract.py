@@ -10,6 +10,7 @@ from grader.gemini_client import (
     DETAIL_REASON_MAX_WORDS,
     NUMERIC_EQUIVALENCE_RULE,
     SHORT_REASON_MAX_CHARS,
+    build_agent_grading_prompt,
     build_context_system_instruction,
     build_legacy_grading_prompt,
     build_unified_grading_prompt,
@@ -122,6 +123,33 @@ class GeminiContractTests(unittest.TestCase):
         self.assertIn(NUMERIC_EQUIVALENCE_RULE, legacy)
         self.assertIn(NUMERIC_EQUIVALENCE_RULE, unified)
         self.assertIn(NUMERIC_EQUIVALENCE_RULE, context_system)
+
+    def test_prompts_include_subpart_instruction(self) -> None:
+        rubric = make_rubric()
+        legacy = build_legacy_grading_prompt(
+            submission_id="sub-1",
+            rubric=rubric,
+            solutions_text="Solution text",
+            combined_text="Student text",
+        )
+        unified = build_unified_grading_prompt(
+            submission_id="sub-1",
+            rubric=rubric,
+            pdf_paths=[Path("submission.pdf")],
+        )
+        context_system = build_context_system_instruction(rubric)
+        agent = build_agent_grading_prompt(
+            submission_id="sub-1",
+            rubric=rubric,
+            pdf_paths=[Path("submission.pdf")],
+            solutions_pdf_path=Path("solutions.pdf"),
+        )
+
+        for prompt in (legacy, unified, context_system, agent):
+            self.assertTrue(
+                "sub-part" in prompt.lower() or "subpart" in prompt.lower(),
+                f"Prompt did not contain sub-part instruction: {prompt}"
+            )
 
     def test_backoff_retries_rate_limit(self) -> None:
         calls = {"count": 0}
