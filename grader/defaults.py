@@ -29,12 +29,20 @@ _defaults = _read_defaults()
 DEFAULT_MODEL: str = (
     (_defaults.get("models") or {}).get("grading")
     or (_defaults.get("defaults") or {}).get("model")
-    or "gemma-4-31b-it"
+    or "auto"
 )
 DEFAULT_EXTRACTION_MODEL: str = (
     (_defaults.get("models") or {}).get("extraction")
-    or "gemini-3.1-flash-lite"
+    or "auto"
 )
+
+def resolve_model(role: str, setting: str) -> str:
+    """Resolve a model setting to an exact model name based on [models.auto] or [models.free]."""
+    if setting in ("auto", "free"):
+        models_dict = _defaults.get("models", {})
+        tier_dict = models_dict.get(setting, {})
+        return tier_dict.get(role, setting)
+    return setting
 DEFAULT_CONCURRENCY: int = int(
     (_defaults.get("grading") or {}).get("concurrency", 8)
 )

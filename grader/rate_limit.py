@@ -13,6 +13,7 @@ FREE_TIER_LIMITS: dict[str, dict[str, int]] = {
     "gemma-3":            {"rpm": 30, "rpd": 1500},
     "gemini-3-flash":     {"rpm": 5,  "rpd": 20},
     "gemini-3.1-flash":   {"rpm": 15, "rpd": 1500},
+    "gemini-2.5-flash-lite": {"rpm": 10, "rpd": 1500},
     "gemini-2.5-flash":   {"rpm": 10, "rpd": 1500},
     "gemini-2.0-flash":   {"rpm": 10, "rpd": 1500},
 }
