@@ -259,6 +259,12 @@ def build_parser() -> argparse.ArgumentParser:
     regrade_parser.add_argument("--host", default=None)
     regrade_parser.add_argument("--port", type=int, default=None)
 
+    judge_parser = subparsers.add_parser(
+        "judge",
+        help="Run Judge LLM over grading audit data to propose grading fixes.",
+    )
+    judge_parser.add_argument("--profile", required=False, help="Workflow profile to judge")
+
     spot_grade_parser = subparsers.add_parser(
         "spot-grade",
         help="Grade a single PDF submission directly (no Brightspace CSV required).",
@@ -612,6 +618,13 @@ def main(argv: list[str] | None = None) -> int:
                     host_override=getattr(args, "host", None),
                     port_override=getattr(args, "port", None),
                 )
+            elif command == "judge":
+                profile = getattr(args, "profile", None) or prompt_profile_interactive()
+                if profile is None:
+                    return 0
+                
+                from .judge import run_judge
+                exit_code = run_judge(profile_spec=profile)
             else:
                 styled_error("Unknown command.")
                 return 2
