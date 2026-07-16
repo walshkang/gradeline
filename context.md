@@ -6,9 +6,7 @@
 - **Trust Loop & Visual Audit**: Completed Phase 1 to Phase 5. See [archive/trust-loop-and-visual-audit.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/archive/trust-loop-and-visual-audit.md) for historical details.
 - **Review Server UX Improvements (Phase 4)**: Completed automated E2E integration testing with Playwright browser testing and local mirror fallbacks. See [review-server-ux-improvements.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/review-server-ux-improvements.md).
 
-## Planned
-- **Preprocessing & Pipeline Optimization**: Dynamic scaling, OCR resolution alignment, decoupled async preprocessing, and pipeline robustness. See [preprocessing-and-optimization.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/preprocessing-and-optimization.md).
-- **Judge LLM Critique Engine**: Integrating a secondary Judge LLM to critique and patch grading logic using `grading_audit.csv` as the DB and `review_state.json` for reconciliation. See [judge-llm-critique-and-annotation.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/judge-llm-critique-and-annotation.md).
+- **Stability, Decomposition & Browser-First Grading**: Codebase stability (tests, gitignore), file/orchestrator modularization, CI automation, and full browser-first workflow (uploads, live progress, UI coordinate/verdict editing, downloads). See [stability-decomposition-browser-first.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/stability-decomposition-browser-first.md).
 
 ## Current Objective
-Executing the Judge LLM Critique Engine & Multi-Attachment Annotation Fixes plan to establish an automated post-grading audit pipeline.
+Executing Wave 1 of the [Stability, Decomposition & Browser-First Grading Plan](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/stability-decomposition-browser-first.md) (Touch-First UX, Test Hygiene, and Browser Downloads).

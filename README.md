@@ -234,83 +234,76 @@ The list view includes:
 
 ## How It Works
 
-Gradeline runs a four-stage pipeline per submission: **extraction → pre-check → grading → annotation**. Grading and annotation use separate models so a lighter extraction model handles vision/OCR work while a stronger reasoning model handles scoring.
+The core grading engine operates as a four-stage linear pipeline per submission, executed concurrently using thread pools.
 
-### Stage 1 — Extraction (block registry)
+```mermaid
+flowchart TD
+    SUB["📄 Student Submissions (PDFs)"]
+    RUBRIC["📋 Rubric & Solutions Key"]
+    CACHE[("Gemini Context Cache\n(TTL: 24h)")]
 
-For each submission PDF, Tesseract OCR runs page-by-page in TSV mode, returning `TextBlock` objects:
+    SUB --> S1
+    RUBRIC --> S15
+    RUBRIC --> CACHE
 
-```
-TextBlock(id="p3_b7", text="R² = 0.853", page=3, left=142, top=680, width=210, height=24, confidence=82.0)
-```
+    S1["Stage 1 — Extraction\n(Tesseract OCR / Vision)"]
+    S1 -->|"TextBlock Registry\n(id, text, bounding box)"| S15
 
-Each block has a unique `id` (`p{page}_b{block_num}`), the text content, and pixel-level bounding box coordinates. These are collected into a **block registry** keyed by block ID.
+    S15["Stage 1.5 — Regex Pre-check\n(Deterministic matching)"]
+    S15 -->|"verdict: correct (bypasses LLM)\nOR falls through"| S2
 
-If Tesseract confidence is too low (handwritten pages, scans), a Gemini vision fallback (`extraction_model`) can be used instead.
+    CACHE -.->|"System Prompt +\nSolutions Context"| S2
+    S2["Stage 2 — AI Grading\n(Gemini unified mode)"]
+    S2 -->|"QuestionResult\n(verdict, evidence_quote, block_id, coords)"| S3
 
-> Set `extract_blocks = false` in your profile to skip this stage — the annotation layer falls back gracefully. Useful for all-handwritten submissions where Tesseract blocks are too noisy to be useful.
+    S3["Stage 3 — Spatial Annotation\n(PDF markup)"]
+    S3 -->|"Annotated PDF"| OUT_DIR
 
-### Stage 1.5 — Regex Pre-check (Hybrid Pipeline)
-
-Before calling the LLM, the extracted block text is evaluated against `expected_answers` defined in the rubric. If a question's regex patterns fully match the text, a correct result is generated deterministically (`grading_source="regex"`). This bypasses the LLM entirely for verifiable numeric or short-text answers, saving time and API costs.
-
-### Stage 2 — Grading (unified mode)
-
-The grading model (`model`) receives the submission PDF directly via vision, with the block registry injected as XML in the system prompt:
-
-```xml
-<answer id="p3_b7">R² = 0.853</answer>
-<answer id="p3_b8">This means 85.3% of the variation in spending is explained by income.</answer>
-```
-
-The model grades each question against the rubric and returns structured JSON:
-
-```json
-{
-  "question_id": "2",
-  "verdict": "correct",
-  "block_id": "p3_b7",
-  "confidence": 0.95,
-  "evidence_quote": "R² = 0.853"
-}
+    OUT_DIR["📂 Output Directory\n(Mirrored Brightspace structure)"]
+    
+    S2 --> AUDIT["grading_audit.csv"]
+    AUDIT --> S4["Stage 4 — Judge LLM\n(Logic Critique)"]
+    S4 -->|"Critiques & Fixes"| REVIEW_STATE["review_state.json"]
+    
+    REVIEW_STATE --> UI["🖥️ Local Review Server\n(Override & Accept Fixes)"]
+    UI --> EXPORT["brightspace_grades_import.csv"]
 ```
 
-The `block_id` field tells the annotation stage exactly which block the model used as evidence — carrying spatial location forward without an extra API call.
+### Stage 1 — Extraction (OCR / Vision)
+Extracts raw text and spatial bounding boxes from student PDFs. Runs Tesseract OCR in TSV mode to generate a **block registry** containing `id`, `text`, and exact pixel coordinates. If confidence is too low (e.g., messy handwriting), a Gemini vision fallback (`extraction_model`) is employed. 
 
-The grading model also returns `model_coords` (normalized x/y within the page) as a fallback when no block matches.
+### Stage 1.5 — Regex Pre-check (Hybrid)
+Evaluates extracted text against `expected_answers` from the rubric. If a regex perfectly matches, the pipeline assigns a `correct` verdict deterministically (`grading_source="regex"`), skipping the LLM entirely to save time and API costs.
 
-### Stage 3 — Annotation (spatial placement)
+### Stage 2 — Grading (AI Reasoning)
+The core logic engine. The submission PDF is sent to the LLM (using Gemini's unified mode) with the block registry injected as XML in the system prompt. The LLM evaluates the answers against the rubric and returns structured JSON containing a `verdict`, `evidence_quote`, and a specific `block_id`.
 
-For each graded question, the annotation layer resolves placement using this priority chain:
+### Stage 3 — Spatial Annotation
+Places physical green checks (✓) and red marks (✗) onto a copy of the student's PDF. Resolves placement using a strict priority chain:
+1. `block_id` — Maps back to the exact bounding box from Stage 1.
+2. `model_coords` — Normalized X/Y coordinates provided by the LLM (handwritten fallback).
+3. `local_anchor` — Regex search for question label tokens (e.g., "1a)").
+4. `summary_fallback` — Appends unresolved marks to a text summary on page 1.
 
-| Source | When it fires | How it works |
-|---|---|---|
-| `block_id` | Block registry populated + model returned a block ID | Look up `TextBlock` → compute center point from bbox |
-| `model_coords` | Model returned normalized coordinates | Scale to page dimensions |
-| `local_anchor` | Text-based fallback | Regex search for question label tokens (e.g. `"2)"`, `"2."`) |
-| `summary_fallback` | No placement found | Append unresolved questions to a text summary on page 1 |
+### Stage 4 — Judge LLM Auditing
+An independent AI pass that evaluates the primary grader's `logic_analysis` and `evidence_quote` against the rubric. It operates strictly on the `grading_audit.csv` database. Approved critiques and fixes are injected into `review_state.json`.
 
-In practice: `block_id` fires on typed PDFs where OCR confidence is high; `model_coords` is the reliable fallback for handwritten submissions. For multi-attachment submissions, the annotator strictly respects the model's chosen `source_file` to ensure marks land on the correct document.
+### Architectural Guardrails & Key Decisions
 
-Annotated PDFs are written to `output_dir` mirroring the Brightspace folder structure, with FreeText annotations (green ✓ / red ✗) placed at the resolved coordinates.
+**Fail-Closed Error Handling (Zero-Trust State Management)**
+The pipeline never crashes on individual submission errors (corrupted PDFs, OCR failures, LLM schema violations). Instead, it catches the exception, flags the submission as `REVIEW_REQUIRED` (scoring it 0), saves a checkpoint, and gracefully proceeds.
 
-### Stage 4 — Judge LLM Auditing (Planned)
+**Context Caching for Answer Keys**
+In `unified` mode, the `solutions.pdf` and base system instructions are uploaded to Gemini's Context Cache once per run. All grading calls reuse this cache, significantly reducing token consumption and latency.
 
-To ensure the highest grading integrity, a post-grading **Judge LLM** pipeline is being introduced. The Judge does not re-read the raw PDFs; instead, it uses the generated `grading_audit.csv` as its database. By evaluating the primary grader's logged `logic_analysis`, `detail_reason`, and `evidence_quote` against the rubric, the Judge objectively critiques the scoring logic.
+**Dual Thread Pools**
+Execution uses two separate thread pools drained by a single event loop:
+- **Grading Pool:** Heavy API wait times (default concurrency: 8)
+- **Annotation Pool:** CPU-bound PDF rendering (concurrency: 4)
+This ensures fast submissions finish immediately while complex ones (handwriting retries) run in the background.
 
-Approved critiques and proposed fixes are injected directly into `review_state.json`. This ensures that the review UI, the grading audit, and the Brightspace import always reflect a single, unified source of truth.
-
-### Concurrency model
-
-Grading and annotation run in parallel across submissions using two thread pools:
-- **Grading pool** (`concurrency`, default 8): submits PDF + rubric to the model API
-- **Annotation pool** (`concurrency // 2`): renders bounding box marks and saves PDFs
-
-A single event loop drains both pools as futures complete, so fast submissions annotate and finish immediately while slow ones (e.g. complex handwriting, API retries) continue in the background without blocking the rest.
-
-### Context caching
-
-In unified mode, the system instruction + solutions PDF is uploaded to Gemini's context cache at the start of a run. All grading calls for that batch reuse the cache, avoiding re-sending the full solutions PDF on every API request. Cache TTL is configurable (`context_cache_ttl_seconds`, default 24h).
+**Separation of Audit State and Review UI**
+The Judge LLM and human reviewers do not mutate the raw `grading_audit.csv` directly. Overrides and AI fixes are injected into `review_state.json`, preserving a clean separation between the original AI run and post-grading manual/audit modifications.
 
 ---
 
