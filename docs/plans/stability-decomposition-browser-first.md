@@ -66,9 +66,11 @@ graph TD
 2. **Decomposition First**: Orchestrator and CLI decomposition (Phases 3 & 4) MUST be completed and merged before adding any browser-side grading or setup APIs to avoid massive merge conflicts.
 3. **Seamless ZIP Extraction**: The browser file upload system will support uploading standard Brightspace downloaded ZIPs directly, performing server-side extraction and structure validation automatically.
 4. **Sidebar-first Annotation Editing (Option C)**:
-   - Phase 9 implements sidebar-based coordinate/verdict editing (modifying numerical position fields, clicking on PDF pages to update coordinates, showing active feedback).
-   - Canvas-overlay drawing and drag-to-position annotations remain future enhancements.
+   - Click-to-place and drag-to-reposition markers already exist in `app.js` (via `ui.imageWrap.addEventListener("click", ...)` and `ui.marker` pointer handlers). Phase 9 adds sidebar X/Y numeric inputs and a multi-marker overlay — it does NOT re-implement click/drag.
+   - Coordinates use a **0–1000 scale** (not 0–1). `convertClientPointToNormalized` clamps to 1000, `renderMarker` divides by 1000. All new code must use this convention.
+   - Canvas-overlay drawing remains a future enhancement.
 5. **SSE for Live Progress**: Live grading feedback uses Server-Sent Events (SSE) for simple, robust one-way updates.
+6. **AGENTS.md Guardrails Apply Everywhere**: All phases must respect the Grade Integrity, Feedback Integrity, Config Hierarchy, and Zero-Trust State Management guardrails defined in [.agents/AGENTS.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/.agents/AGENTS.md).
 
 ---
 
@@ -194,8 +196,22 @@ graph TD
 
 **Recommended Agent**: Pro-tier
 
+> [!NOTE]
+> **Lineage**: `orchestrator.py` already went through a full refactor in the End-State Architecture plan (Slices 1–3, marked complete in `context.md`). This is a second-pass decomposition into separate files, not a first pass.
+
 > [!IMPORTANT]
 > This is a **pure refactor** — no behavioral changes. Every existing test must continue to pass without modification. All imports from `grader.orchestrator` must remain valid (re-export from `__init__` or the orchestrator module itself).
+
+### Guardrails
+
+- **Config Hierarchy**: The config resolution order (`defaults.toml → profile TOML → CLI flags`) is exactly the kind of thing that quietly breaks during a large file split. After extraction, explicitly diff that `GradingConfig` construction and all `resolve_*` calls produce identical behavior.
+- **Mock-target preservation**: Multiple test files use `@patch("grader.orchestrator.grade_one_submission")`. The re-export approach only keeps these patches working if `Orchestrator`'s internal call sites keep calling the **bare name** `grade_one_submission(...)` rather than a qualified `grading.grade_one_submission(...)`. Qualifying the call "for clarity" silently breaks at least three test files' mocking (`test_orchestrator_errors.py`, `test_orchestrator_cache.py`, `test_orchestrator_zero_trust.py`). This must be an explicit, named constraint.
+
+### Definition of Done
+
+- `orchestrator.py` shrinks to a **≤900-line coordinator** (from ~1718).
+- `grading.py` contains ~350 lines of stateless per-submission grading logic.
+- `preprocessing.py` contains ~200 lines of caching/hashing logic.
 
 ### Instructions
 
@@ -207,6 +223,7 @@ graph TD
      - `build_annotation_progress_callback()` (line 634–645)
      - `build_grading_progress_callback()` (line 646–662)
    - These functions are stateless. Update imports in `orchestrator.py` to use `from .grading import grade_one_submission, ...`.
+   - **Critical**: `orchestrator.py` must call `grade_one_submission(...)` by bare name (not `grading.grade_one_submission(...)`) so that `@patch("grader.orchestrator.grade_one_submission")` in tests continues to intercept it.
 
 2. **Extract `grader/preprocessing.py`** (~200 lines):
    - Move from `Orchestrator` class methods:
@@ -217,17 +234,21 @@ graph TD
      - `StageTiming` dataclass
      - `SubmissionTelemetry` dataclass
 
-3. **Keep `orchestrator.py` as the coordinator**:
-   - Retains: `GradingConfig`, `Orchestrator` class, `RollingSnapshot`, rolling snapshot helpers, `summarize_results()`.
+3. **Keep `orchestrator.py` as the coordinator** (target: ≤900 lines):
+   - Retains: `GradingConfig`, `Orchestrator` class (with `.run()`, `.process_student()`, `.annotate_and_finish()`, `._conclude()`, `._shutdown_executors()`), `RollingSnapshot`, rolling snapshot helpers, `summarize_results()`.
    - Re-export moved symbols for backward compatibility:
      ```python
      from .grading import grade_one_submission, collect_locator_candidates, apply_locator_candidates
      from .preprocessing import compute_submission_pdf_hash, get_or_compute_preprocessing
      ```
 
-4. **Update test imports & Verify**:
+4. **Verify** (beyond just pytest):
    ```bash
    PYTHONPATH=. .venv/bin/pytest tests/ -x -q
+   # Verify config resolution is identical:
+   python3 -c "from grader.orchestrator import GradingConfig; print('GradingConfig importable')"
+   # Verify mock targets still work:
+   PYTHONPATH=. .venv/bin/pytest tests/test_orchestrator_errors.py tests/test_orchestrator_cache.py tests/test_orchestrator_zero_trust.py -v
    ```
 
 ---
@@ -240,6 +261,15 @@ graph TD
 
 > [!IMPORTANT]
 > Same rule as Phase 3: **pure refactor, no behavioral changes**. The `main()` entry point and all argparse subcommands must work identically. Re-export moved symbols from `workflow_cli.py` for backward compatibility.
+
+### Guardrails
+
+- **Config Hierarchy**: `workflow_cli.py` implements the `defaults.toml → profile TOML → CLI flags` resolution chain. After extraction, verify that `build_grading_argv()` and `run_from_profile()` still produce identical argv lists and that no model names are hardcoded outside `configs/`.
+
+### Definition of Done
+
+- `workflow_cli.py` shrinks to a **≤1200-line CLI entry point** (from ~2537).
+- `quickstart.py` (~500 lines), `import_cmd.py` (~200 lines), and `profile_utils.py` (~200 lines) are independently importable without triggering Rich console output or stdin prompts at import time.
 
 ### Instructions
 
@@ -266,7 +296,7 @@ graph TD
 4. **Extract `grader/workflow/profile_utils.py`** (~200 lines):
    - Move all profile, string manipulation, and helper utilities.
 
-5. **Keep `workflow_cli.py` as CLI entry point**:
+5. **Keep `workflow_cli.py` as CLI entry point** (target: ≤1200 lines):
    - Retain argparse definitions, `main()`, interactive menu and setup runners. Re-export all necessary functions.
 
 6. **Verify**:
@@ -298,6 +328,7 @@ graph TD
      test:
        runs-on: ubuntu-latest
        strategy:
+         fail-fast: false
          matrix:
            python-version: ["3.12", "3.13", "3.14"]
        steps:
@@ -373,8 +404,11 @@ graph TD
 
 **Recommended Agent**: Flash-tier
 
+> [!NOTE]
+> **Sequencing**: Although this phase depends only on Phase 1, the "update `context.md` to reflect completed items" step should ideally run **after Phases 3 & 4 land**, or it will need to be redone. Run Phase 6 in Wave 4 alongside Phase 7.
+
 ### Instructions
-1. Update `context.md` to reflect completed items.
+1. Update `context.md` to reflect completed items (including Phases 3 & 4 decomposition status).
 2. Reorganize `docs/plans/` directory to hold active plans, moving completed ones to `docs/plans/archive/`.
 
 ---
@@ -385,12 +419,20 @@ graph TD
 
 **Recommended Agent**: Pro-tier
 
+### Security Hardening
+
+> [!WARNING]
+> Phases 7 and 8 add real HTTP file-upload and grading-trigger endpoints to what is currently a trusted, local-only CLI tool. `data/{profile}/` paths and ZIP extraction were safe when only a trusted local script populated them; once profile names and ZIP contents arrive over HTTP, the following must be explicitly addressed:
+> - **Path traversal**: Sanitize the `profile` parameter to reject `..`, `/`, and any characters outside `[a-zA-Z0-9_-]`. Validate that all resolved paths stay within the project's `data/` directory.
+> - **Zip-slip**: Audit `_extract_brightspace_zip()` to verify it rejects archive entries with `..` path components or absolute paths before extraction.
+> - **Upload size limits**: Enforce a max upload size (500MB recommended) at the HTTP layer to prevent disk exhaustion.
+
 ### Instructions
 
 1. **Setup Dashboard UI**:
    - Create a **Setup** panel / tab in `index.html` (shown if no output folder loaded, or selectable in topbar).
    - Inputs:
-     - `Profile Name` text input.
+     - `Profile Name` text input (validated: alphanumeric, hyphens, underscores only).
      - **4 Upload Drag-Zones**: Submissions ZIP or directory, Solutions PDF, Rubric YAML, Brightspace Template CSV.
      - **Profile Config Form**: Model selection (Gemini variants), Concurrency, Grade Column matching, and Grade Points thresholds.
      - **Save Profile** and **Save & Start Grading** action buttons.
@@ -399,7 +441,7 @@ graph TD
    - Support uploading standard Brightspace downloaded ZIPs directly with server-side extraction and structure validation automatically.
    - For CSV uploads, parse columns and return header list to populate the Grade Column select element.
 3. **AI Rubric Generator**:
-   - Wire a button to call `maybe_generate_rubric_with_ai` via `POST /api/upload/rubric/generate`.
+   - `maybe_generate_rubric_with_ai()` currently uses `is_interactive_terminal()` guards, `prompt_yes_no()` calls, and Rich console `Status` spinners — it is **not safe to call directly from a POST endpoint**. Before wiring to `POST /api/upload/rubric/generate`, extract a non-interactive core function (e.g., `generate_rubric_draft_from_pdf(solutions_pdf, profile_name) -> dict`) that performs only the Gemini API call and YAML conversion, without any stdin prompts or Rich side effects. The HTTP endpoint calls this core function; the existing interactive wrapper continues to call it too.
 
 ---
 
@@ -433,18 +475,40 @@ graph TD
 
 **Recommended Agent**: Pro-tier
 
+### What Already Exists (DO NOT Re-implement)
+
+The following features are **already working** in `app.js` and must not be duplicated or replaced:
+
+- **Click-to-place**: `ui.imageWrap.addEventListener("click", ...)` calls `convertClientPointToNormalized()`, patches `coords_final`, and calls `renderMarker()`. (Line ~1317)
+- **Drag-to-reposition**: `ui.marker` has `pointerdown`/`pointermove`/`pointerup` handlers that drag the marker and PATCH new coordinates. (Line ~1334)
+- **Coordinate scale**: The system uses a **0–1000 scale** (not 0.0–1.0). `convertClientPointToNormalized` clamps to `Math.max(0, Math.min(1000, ...))`. `renderMarker` divides by 1000 to compute pixel positions. All new code must use this convention.
+
+### Guardrails
+
+- **Grade Integrity**: Changing a verdict through the sidebar must NOT silently bypass `REVIEW_REQUIRED` escalation. If any question remains `needs_review`, the submission's overall band must still escalate to `REVIEW_REQUIRED` regardless of manual review status.
+- **Feedback Integrity**: Saving a verdict change to `incorrect` or `partial` must not leave `short_reason` blank. The UI should warn or prevent saving if `short_reason` is empty when the verdict implies a deduction.
+
 ### Instructions
 
-1. **Sidebar coordinate & verdict editing (Option C)**:
-   - Add coordinates editing field (X and Y inputs) in the grading details sidebar.
-   - When the user clicks on the PDF page image, capture the click location and calculate relative `[y, x]` coordinates (0.0 to 1.0). Update the coordinate inputs in the sidebar.
-   - Trigger `PATCH /api/submissions/{id}/questions/{qid}` on coordinate or verdict changes to save the updated values to `review_state.json`.
-   - Re-rasterize and update the PDF display dynamically to show the new marker position.
-2. **Render All Marks**:
-   - Render all page question markers simultaneously (active marker at 1.0 opacity, other questions on the same page at 0.4 opacity) so instructors see the full picture.
-   - Clicking a marker on the page selects that question in the sidebar.
-3. **Auto-Scroll to Selected Mark**:
-   - Selecting a question (sidebar or navigation grid) will load its page and smooth-scroll the viewer to center the coordinate marker.
+1. **Sidebar X/Y Coordinate Inputs** (new):
+   - Add two numeric inputs (Y and X, range 0–1000) in the grading details sidebar, below the existing Page Number input.
+   - These inputs must **sync bidirectionally** with the existing click/drag mechanism:
+     - When the user clicks the PDF image or drags the marker (existing logic), update the sidebar Y/X inputs to reflect the new coords.
+     - When the user types new values into the Y/X inputs, update `state.activeCoords` and call the existing `renderMarker()` to move the marker, then `queuePatch({ coords_final: [y, x] }, 250)` to save.
+   - Display a coordinate label below the marker for the selected question (e.g., "Page 2, (341, 672)").
+
+2. **Render All Marks on Page** (new — this is the main deliverable):
+   - `renderMarker()` today only positions a single `ui.marker` div for the currently-selected question. Extend it to render **all question markers** on the current page simultaneously:
+     - For each question in the current submission that has coordinates on the currently-displayed page, create a marker element (verdict-specific: green "✓" for correct/rounding_error, red "✗" for incorrect, orange "◐" for partial, blue "⟳" for needs_review).
+     - The selected question's marker renders at full opacity (1.0); all others at reduced opacity (0.4).
+     - Clicking a non-selected marker on the page should call `selectQuestion(thatQuestionId)` to switch context in the sidebar.
+   - Markers should have a minimum 32×32px touch target (using `::after` padding if needed).
+
+3. **Auto-Scroll to Selected Mark** (enhancement to existing):
+   - When a question is selected (via sidebar, nav grid, or keyboard) and has valid coordinates:
+     - If the viewer is on a different page from the question's `page_final`, load the correct page first.
+     - Smooth-scroll `#imageWrap` to center the marker.
+     - Add a brief CSS keyframe pulse animation to highlight the active marker.
 
 ---
 
