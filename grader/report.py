@@ -72,6 +72,33 @@ def write_grading_audit_csv(
                         result.error or "",
                     ]
                 )
+                if q.sub_results:
+                    for sub in q.sub_results:
+                        writer.writerow(
+                            [
+                                str(result.submission.folder_relpath),
+                                result.submission.student_name,
+                                len(result.submission.pdf_paths),
+                                pdf_relpaths,
+                                "",  # percent
+                                "",  # band
+                                "",  # points
+                                sub.id,
+                                sub.verdict,
+                                f"sub_{sub.grading_source}",
+                                f"{sub.confidence:.2f}",
+                                sub.logic_analysis,
+                                sub.short_reason,
+                                sub.detail_reason,
+                                sub.evidence_quote,
+                                sub.source_file or "",
+                                sub.page_number if sub.page_number is not None else "",
+                                f"{sub.coords[0]:.2f}" if sub.coords else "",
+                                f"{sub.coords[1]:.2f}" if sub.coords else "",
+                                sub.placement_source or "",
+                                "",  # error
+                            ]
+                        )
     return output_path
 
 

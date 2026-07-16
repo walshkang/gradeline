@@ -1059,3 +1059,56 @@ select {
   height: 14px;
 }
 
+/* ---- Sub-parts panel styles ---- */
+#subpartsContainer {
+  margin-top: 1rem;
+}
+.subparts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.subpart-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: var(--panel-hover);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  font-size: 0.85rem;
+}
+.subpart-row:hover {
+  border-color: var(--accent);
+  background: var(--panel);
+}
+.subpart-verdict {
+  font-weight: 600;
+  font-size: 0.8em;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  text-transform: capitalize;
+}
+.subpart-verdict.correct {
+  background: var(--success-bg);
+  color: var(--success);
+}
+.subpart-verdict.rounding_error {
+  background: rgba(227, 116, 0, 0.1);
+  color: #e37400;
+}
+.subpart-verdict.partial {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.subpart-verdict.incorrect {
+  background: var(--error-bg);
+  color: var(--error);
+}
+.subpart-verdict.needs_review {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+

@@ -14,6 +14,7 @@
     pendingNoteTimer: null,
     dragActive: false,
     matrixData: null,
+    activeCoords: null,
   };
 
   const ui = {
@@ -79,6 +80,7 @@
     matrixFilterToggle: document.getElementById("matrixFilterToggle"),
     matrixGrid: document.getElementById("matrixGrid"),
     matrixDetail: document.getElementById("matrixDetail"),
+    subpartsContainer: document.getElementById("subpartsContainer"),
   };
 
   // --- Toast notifications ---
@@ -388,6 +390,7 @@
     const question = getCurrentQuestion();
     if (question && question.final) {
       const finalData = question.final;
+      state.activeCoords = finalData.coords;
       const docFilename = finalData.source_file;
       const pageNum = finalData.page_number; // 1-based page number
 
@@ -569,8 +572,86 @@
     });
     ui.sourceFileSelect.value = finalData.source_file || "";
 
+    // Render subparts if present
+    if (ui.subpartsContainer) {
+      if (finalData.sub_results && finalData.sub_results.length > 0) {
+        ui.subpartsContainer.style.display = "block";
+        const subList = ui.subpartsContainer.querySelector(".subparts-list");
+        if (subList) {
+          subList.innerHTML = finalData.sub_results.map((sub, idx) => {
+            const verdictIcon = {
+              correct: "✓",
+              rounding_error: "≈",
+              partial: "◐",
+              incorrect: "✗",
+              needs_review: "⟳"
+            }[sub.verdict] || "⟳";
+            return `
+              <div class="subpart-row" data-index="${idx}" style="cursor: pointer;">
+                <span style="font-weight: 600;">${sub.id}</span>
+                <span class="subpart-verdict ${sub.verdict}">
+                  ${verdictIcon} ${sub.verdict.replace("_", " ")}
+                </span>
+                <span style="font-size: 0.85em; color: var(--text-secondary); max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${sub.short_reason || ""}">
+                  ${sub.short_reason || ""}
+                </span>
+              </div>
+            `;
+          }).join("");
+
+          subList.querySelectorAll(".subpart-row").forEach((row) => {
+            row.addEventListener("click", async () => {
+              const idx = Number(row.dataset.index);
+              const sub = finalData.sub_results[idx];
+              if (sub) {
+                await jumpToSubpartLocation(sub);
+              }
+            });
+          });
+        }
+      } else {
+        ui.subpartsContainer.style.display = "none";
+      }
+    }
+
     renderMarker();
     updateDebugOverlay(finalData);
+  }
+
+  async function jumpToSubpartLocation(sub) {
+    let targetDocIdx = state.currentDocIdx;
+    if (sub.source_file) {
+      const docs = state.currentSubmission?.documents || [];
+      const foundIdx = docs.findIndex((d) => d.filename === sub.source_file);
+      if (foundIdx >= 0) {
+        targetDocIdx = foundIdx;
+      }
+    }
+
+    let targetPageIdx = state.currentPageIdx;
+    if (typeof sub.page_number === "number" && sub.page_number >= 1) {
+      targetPageIdx = sub.page_number - 1;
+    }
+
+    state.activeCoords = sub.coords;
+
+    if (targetDocIdx !== state.currentDocIdx || targetPageIdx !== state.currentPageIdx) {
+      state.currentDocIdx = targetDocIdx;
+      state.currentPageIdx = targetPageIdx;
+      if (ui.docSelect) {
+        ui.docSelect.value = String(targetDocIdx);
+      }
+      if (ui.pageInput) {
+        ui.pageInput.value = String(targetPageIdx + 1);
+      }
+      try {
+        await loadCurrentPage();
+      } catch (error) {
+        showToast(error.message, "error");
+      }
+    } else {
+      renderMarker();
+    }
   }
 
   function renderConfig() {
@@ -641,7 +722,7 @@
       ui.marker.hidden = true;
       return;
     }
-    const coords = question.final?.coords;
+    const coords = state.activeCoords || question.final?.coords;
     if (!coords || coords.length !== 2) {
       ui.marker.hidden = true;
       return;
@@ -975,7 +1056,7 @@
         }
         
         cell.textContent = verdictSym;
-        if (cellData.grading_source === "regex") {
+        if (cellData.grading_source === "regex" || cellData.grading_source === "sub_regex") {
           const icon = document.createElement("span");
           icon.className = "matrix-regex-icon";
           icon.textContent = "🧪";
@@ -992,7 +1073,7 @@
     if (!ui.matrixDetail) return;
     
     const confPercent = Math.round((cellData.confidence || 0) * 100);
-    const sourceIcon = cellData.grading_source === "regex" ? "🧪 Regex" : "🤖 LLM";
+    const sourceIcon = (cellData.grading_source === "regex" || cellData.grading_source === "sub_regex") ? "🧪 Regex" : "🤖 LLM";
     
     let verdictLabel = "Needs Review";
     if (cellData.verdict === "correct") verdictLabel = "Correct";
@@ -1245,6 +1326,7 @@
       const question = getCurrentQuestion();
       if (question) {
         question.final.coords = coords;
+        state.activeCoords = coords;
       }
       renderMarker();
     });
@@ -1268,6 +1350,7 @@
       const question = getCurrentQuestion();
       if (question) {
         question.final.coords = coords;
+        state.activeCoords = coords;
       }
       renderMarker();
     });

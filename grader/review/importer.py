@@ -197,13 +197,38 @@ def build_submission_payload(unit: SubmissionUnit, rows: list[dict[str, str]]) -
     question_map: dict[str, dict[str, Any]] = {}
     has_needs_review = False
 
+    # Separate parent questions and sub-part rows
+    parent_rows: list[dict[str, str]] = []
+    subpart_rows: list[dict[str, str]] = []
     for row in rows:
+        source = str(row.get("grading_source", "")).strip().lower()
+        if source.startswith("sub_"):
+            subpart_rows.append(row)
+        else:
+            parent_rows.append(row)
+
+    from ..gemini_client import match_subparts_to_parent
+
+    for row in parent_rows:
         question_id = str(row.get("question_id", "")).strip().lower()
         if not question_id:
             continue
         auto_payload = row_to_question_payload(row)
         if auto_payload["verdict"] == "needs_review":
             has_needs_review = True
+
+        # Find subparts matching this parent
+        subs = []
+        for s_row in subpart_rows:
+            sub_id = str(s_row.get("question_id", "")).strip().lower()
+            if match_subparts_to_parent(question_id, {"id": sub_id}):
+                subs.append(row_to_question_payload(s_row))
+
+        if subs:
+            auto_payload["sub_results"] = subs
+            if any(s["verdict"] == "needs_review" for s in subs):
+                has_needs_review = True
+
         question_map[question_id] = {
             "id": question_id,
             "auto": auto_payload,

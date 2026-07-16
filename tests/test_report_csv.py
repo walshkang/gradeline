@@ -337,6 +337,85 @@ class ReportCsvTests(unittest.TestCase):
             self.assertEqual(rows[1]["question_id"], "q2")
             self.assertEqual(rows[1]["grading_source"], "llm")
 
+    def test_write_grading_audit_csv_includes_sub_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            submission = SubmissionUnit(
+                folder_path=Path("123 - Student"),
+                folder_relpath=Path("123 - Student"),
+                folder_token="123",
+                student_name="Student",
+                pdf_paths=[],
+            )
+            grade_result = GradeResult(
+                percent=100.0,
+                band="Check Plus",
+                points="100",
+                has_needs_review=False,
+                per_question_scores={},
+            )
+            sub_results = (
+                QuestionResult(
+                    id="q1.a",
+                    verdict="correct",
+                    confidence=0.9,
+                    short_reason="subpart a correct",
+                    evidence_quote="ev1",
+                    grading_source="llm",
+                ),
+                QuestionResult(
+                    id="q1.b",
+                    verdict="incorrect",
+                    confidence=0.8,
+                    short_reason="subpart b incorrect",
+                    evidence_quote="ev2",
+                    grading_source="llm",
+                ),
+            )
+            result = SubmissionResult(
+                submission=submission,
+                question_results=[
+                    QuestionResult(
+                        id="q1",
+                        verdict="partial",
+                        confidence=0.8,
+                        short_reason="mixed",
+                        evidence_quote="evidence",
+                        grading_source="llm",
+                        sub_results=sub_results,
+                    ),
+                ],
+                grade_result=grade_result,
+                output_pdf_paths=[],
+                extraction_sources={},
+                global_flags=[],
+            )
+            out_csv = write_grading_audit_csv(output_dir, [result])
+            self.assertTrue(out_csv.exists())
+            with out_csv.open("r", newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                rows = list(reader)
+            # Should have 3 rows: parent, then sub1, then sub2
+            self.assertEqual(len(rows), 3)
+            
+            # Row 0: parent
+            self.assertEqual(rows[0]["question_id"], "q1")
+            self.assertEqual(rows[0]["verdict"], "partial")
+            self.assertEqual(rows[0]["grading_source"], "llm")
+            self.assertEqual(rows[0]["percent"], "100.00")
+            
+            # Row 1: sub1
+            self.assertEqual(rows[1]["question_id"], "q1.a")
+            self.assertEqual(rows[1]["verdict"], "correct")
+            self.assertEqual(rows[1]["grading_source"], "sub_llm")
+            self.assertEqual(rows[1]["percent"], "")
+            
+            # Row 2: sub2
+            self.assertEqual(rows[2]["question_id"], "q1.b")
+            self.assertEqual(rows[2]["verdict"], "incorrect")
+            self.assertEqual(rows[2]["grading_source"], "sub_llm")
+            self.assertEqual(rows[2]["percent"], "")
+
 
 if __name__ == "__main__":
     unittest.main()
