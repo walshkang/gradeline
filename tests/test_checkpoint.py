@@ -118,3 +118,100 @@ class TestCheckpoint(unittest.TestCase):
             
             # Second clear should return False
             self.assertFalse(clear_checkpoint(out_dir))
+
+    def test_checkpoint_with_sub_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir)
+            
+            # Setup dummy paths for rubric and solutions
+            rubric_yaml = out_dir / "rubric.yaml"
+            rubric_yaml.write_text("assignment_id: hw1\nbands: {}\nquestions: []", encoding="utf-8")
+            solutions_pdf = out_dir / "solutions.pdf"
+            solutions_pdf.write_text("dummy solutions content", encoding="utf-8")
+            
+            config_hash = compute_run_config_hash(
+                rubric_path=rubric_yaml,
+                solutions_pdf=solutions_pdf,
+                model="gemma4-31b-it",
+                grading_mode="unified",
+            )
+            
+            # Create a mock result
+            sub_unit = SubmissionUnit(
+                folder_path=out_dir / "Student1 - John Doe",
+                folder_relpath=Path("Student1 - John Doe"),
+                folder_token="student_token_123",
+                student_name="John Doe",
+                pdf_paths=[out_dir / "Student1 - John Doe" / "sub.pdf"],
+            )
+            
+            sub1 = QuestionResult(
+                id="q1.a", verdict="correct", confidence=0.9, short_reason="",
+                evidence_quote="yes", coords=(100.0, 200.0), page_number=1, source_file="sub.pdf"
+            )
+            sub2 = QuestionResult(
+                id="q1.b", verdict="incorrect", confidence=0.8, short_reason="wrong",
+                evidence_quote="no", coords=(300.0, 400.0), page_number=1, source_file="sub.pdf"
+            )
+            q_res = QuestionResult(
+                id="q1",
+                verdict="partial",
+                confidence=0.8,
+                short_reason="wrong",
+                evidence_quote="yes | no",
+                grading_source="llm",
+                sub_results=(sub1, sub2),
+            )
+            
+            gr_res = GradeResult(
+                percent=50.0,
+                band="Check",
+                points="5",
+                has_needs_review=False,
+                per_question_scores={"q1": 5.0},
+            )
+            
+            res = SubmissionResult(
+                submission=sub_unit,
+                question_results=[q_res],
+                grade_result=gr_res,
+                output_pdf_paths=[out_dir / "graded_sub.pdf"],
+                extraction_sources={"sub.pdf": "native"},
+                global_flags=[],
+                error=None,
+            )
+            
+            # Save Checkpoint
+            save_checkpoint(
+                output_dir=out_dir,
+                results=[res],
+                rolling=None,
+                run_config_hash=config_hash,
+                stop_reason="user_interrupt",
+            )
+            
+            # Load Checkpoint and verify restored fields
+            loaded = load_checkpoint(out_dir, expected_config_hash=config_hash)
+            self.assertIsNotNone(loaded)
+            self.assertEqual(len(loaded.results), 1)
+            
+            restored_q = loaded.results[0].question_results[0]
+            self.assertEqual(restored_q.id, "q1")
+            self.assertEqual(restored_q.verdict, "partial")
+            self.assertIsNotNone(restored_q.sub_results)
+            self.assertEqual(len(restored_q.sub_results), 2)
+            
+            restored_sub1 = restored_q.sub_results[0]
+            self.assertEqual(restored_sub1.id, "q1.a")
+            self.assertEqual(restored_sub1.verdict, "correct")
+            self.assertEqual(restored_sub1.coords, (100.0, 200.0))
+            self.assertEqual(restored_sub1.source_file, "sub.pdf")
+            
+            restored_sub2 = restored_q.sub_results[1]
+            self.assertEqual(restored_sub2.id, "q1.b")
+            self.assertEqual(restored_sub2.verdict, "incorrect")
+            self.assertEqual(restored_sub2.short_reason, "wrong")
+
+
+if __name__ == "__main__":
+    unittest.main()

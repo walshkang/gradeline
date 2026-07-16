@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .types import SubmissionResult
+from .types import SubmissionResult, QuestionResult
 
 
 def file_sha256(path: Path) -> str:
@@ -38,6 +38,56 @@ def get_checkpoint_path(output_dir: Path) -> Path:
     return output_dir / ".gradeline_checkpoint.json"
 
 
+def serialize_question_result(qr: QuestionResult) -> dict[str, Any]:
+    """Serialize a QuestionResult recursively."""
+    d = {
+        "id": qr.id,
+        "verdict": qr.verdict,
+        "confidence": qr.confidence,
+        "short_reason": qr.short_reason,
+        "evidence_quote": qr.evidence_quote,
+        "logic_analysis": qr.logic_analysis,
+        "detail_reason": qr.detail_reason,
+        "coords": list(qr.coords) if qr.coords else None,
+        "page_number": qr.page_number,
+        "source_file": qr.source_file,
+        "placement_source": qr.placement_source,
+        "block_id": qr.block_id,
+        "grading_source": qr.grading_source,
+    }
+    if qr.sub_results is not None:
+        d["sub_results"] = [serialize_question_result(sub) for sub in qr.sub_results]
+    return d
+
+
+def deserialize_question_result(q: dict[str, Any]) -> QuestionResult:
+    """Deserialize a QuestionResult recursively."""
+    sub_results_raw = q.get("sub_results")
+    sub_results = None
+    if isinstance(sub_results_raw, list) and sub_results_raw:
+        sub_results = tuple(
+            deserialize_question_result(sub)
+            for sub in sub_results_raw
+            if isinstance(sub, dict)
+        )
+    return QuestionResult(
+        id=q["id"],
+        verdict=q["verdict"],
+        confidence=q["confidence"],
+        short_reason=q["short_reason"],
+        evidence_quote=q["evidence_quote"],
+        logic_analysis=q.get("logic_analysis", ""),
+        detail_reason=q.get("detail_reason", ""),
+        coords=tuple(q["coords"]) if q.get("coords") else None,
+        page_number=q.get("page_number"),
+        source_file=q.get("source_file"),
+        placement_source=q.get("placement_source"),
+        block_id=q.get("block_id"),
+        grading_source=q.get("grading_source", "llm"),
+        sub_results=sub_results,
+    )
+
+
 def serialize_result(res: SubmissionResult) -> dict[str, Any]:
     """Serialize a SubmissionResult dataclass into a JSON-compatible dictionary."""
     return {
@@ -47,21 +97,7 @@ def serialize_result(res: SubmissionResult) -> dict[str, Any]:
         "folder_relpath": str(res.submission.folder_relpath),
         "pdf_paths": [str(p) for p in res.submission.pdf_paths],
         "question_results": [
-            {
-                "id": qr.id,
-                "verdict": qr.verdict,
-                "confidence": qr.confidence,
-                "short_reason": qr.short_reason,
-                "evidence_quote": qr.evidence_quote,
-                "logic_analysis": qr.logic_analysis,
-                "detail_reason": qr.detail_reason,
-                "coords": list(qr.coords) if qr.coords else None,
-                "page_number": qr.page_number,
-                "source_file": qr.source_file,
-                "placement_source": qr.placement_source,
-                "block_id": qr.block_id,
-                "grading_source": qr.grading_source,
-            }
+            serialize_question_result(qr)
             for qr in res.question_results
         ],
         "grade_result": {
@@ -80,7 +116,7 @@ def serialize_result(res: SubmissionResult) -> dict[str, Any]:
 
 def deserialize_result(data: dict[str, Any]) -> SubmissionResult:
     """Reconstruct a SubmissionResult dataclass from a dictionary."""
-    from .types import SubmissionUnit, QuestionResult, GradeResult, SubmissionResult
+    from .types import SubmissionUnit, GradeResult, SubmissionResult
     
     sub = SubmissionUnit(
         folder_path=Path(data["folder_path"]),
@@ -91,21 +127,7 @@ def deserialize_result(data: dict[str, Any]) -> SubmissionResult:
     )
     
     q_results = [
-        QuestionResult(
-            id=q["id"],
-            verdict=q["verdict"],
-            confidence=q["confidence"],
-            short_reason=q["short_reason"],
-            evidence_quote=q["evidence_quote"],
-            logic_analysis=q.get("logic_analysis", ""),
-            detail_reason=q.get("detail_reason", ""),
-            coords=tuple(q["coords"]) if q.get("coords") else None,
-            page_number=q.get("page_number"),
-            source_file=q.get("source_file"),
-            placement_source=q.get("placement_source"),
-            block_id=q.get("block_id"),
-            grading_source=q.get("grading_source", "llm"),
-        )
+        deserialize_question_result(q)
         for q in data["question_results"]
     ]
     

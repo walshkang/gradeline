@@ -73,6 +73,7 @@ class QuestionResult:
     placement_source: str | None = None
     block_id: str | None = None
     grading_source: str = "llm"
+    sub_results: tuple[QuestionResult, ...] | None = None  # Subpart breakdown
 
 
 @dataclass(frozen=True)

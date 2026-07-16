@@ -90,7 +90,8 @@ def normalize_coords(value: Any) -> list[float] | None:
 
 
 def question_result_to_payload(result: QuestionResult) -> dict[str, Any]:
-    return {
+    payload = {
+        "id": result.id,
         "verdict": result.verdict,
         "confidence": float(result.confidence),
         "logic_analysis": str(result.logic_analysis),
@@ -103,9 +104,13 @@ def question_result_to_payload(result: QuestionResult) -> dict[str, Any]:
         "placement_source": str(result.placement_source) if result.placement_source else None,
         "grading_source": result.grading_source,
     }
+    if result.sub_results:
+        payload["sub_results"] = [question_result_to_payload(sr) for sr in result.sub_results]
+    return payload
 
 
 def question_result_from_payload(question_id: str, payload: dict[str, Any]) -> QuestionResult:
+    qid = str(payload.get("id", question_id)).strip()
     coords = normalize_coords(payload.get("coords"))
     page_number: int | None = None
     raw_page = payload.get("page_number")
@@ -115,8 +120,18 @@ def question_result_from_payload(question_id: str, payload: dict[str, Any]) -> Q
             page_number = value if value >= 1 else None
         except (TypeError, ValueError):
             page_number = None
+
+    sub_results_raw = payload.get("sub_results")
+    sub_results = None
+    if isinstance(sub_results_raw, list) and sub_results_raw:
+        sub_results = tuple(
+            question_result_from_payload(sr.get("id", qid), sr)
+            for sr in sub_results_raw
+            if isinstance(sr, dict)
+        )
+
     return QuestionResult(
-        id=question_id,
+        id=qid,
         verdict=str(payload.get("verdict", "needs_review")).strip().lower(),
         confidence=float(payload.get("confidence", 0.0)),
         logic_analysis=str(payload.get("logic_analysis", "")),
@@ -128,6 +143,7 @@ def question_result_from_payload(question_id: str, payload: dict[str, Any]) -> Q
         source_file=str(payload.get("source_file") or "").strip() or None,
         placement_source=str(payload.get("placement_source") or "").strip() or None,
         grading_source=str(payload.get("grading_source", "llm")).strip(),
+        sub_results=sub_results,
     )
 
 

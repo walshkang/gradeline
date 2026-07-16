@@ -1067,6 +1067,33 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
         evidence_parts = [str(s.get("evidence_quote", "")).strip() for s in sub_items if s.get("evidence_quote")]
         evidence_quote = " | ".join(evidence_parts)[:500]
 
+        sub_question_results = []
+        for s in sub_items:
+            sub_verdict = normalize_verdict(s.get("verdict"))
+            sub_conf = normalize_confidence(s.get("confidence"))
+            sub_raw_short = str(s.get("short_reason", "")).strip()[:500]
+            sub_raw_detail = str(s.get("detail_reason", "")).strip()[:900]
+            sub_short, sub_detail = normalize_feedback(
+                verdict=sub_verdict,
+                raw_short_reason=sub_raw_short,
+                raw_detail_reason=sub_raw_detail,
+                fallback_fail_note=question.short_note_fail,
+            )
+            sub_qr = QuestionResult(
+                id=str(s.get("id", "")).strip(),
+                verdict=sub_verdict,
+                confidence=sub_conf,
+                logic_analysis=str(s.get("logic_analysis", "")).strip(),
+                short_reason=sub_short,
+                detail_reason=sub_detail,
+                evidence_quote=str(s.get("evidence_quote", "")).strip()[:500],
+                coords=parse_coords_0_to_1000(s.get("coords")),
+                page_number=parse_page_number(s.get("page_number") or s.get("page")),
+                source_file=str(s.get("source_file", "")).strip() or None,
+                block_id=str(s.get("block_id", "")).strip() or None,
+            )
+            sub_question_results.append(sub_qr)
+
         normalized_questions.append(
             QuestionResult(
                 id=question.id,
@@ -1080,6 +1107,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                 page_number=page_number,
                 source_file=source_file,
                 block_id=block_id,
+                sub_results=tuple(sub_question_results) if sub_question_results else None,
             )
         )
 

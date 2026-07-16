@@ -28,7 +28,7 @@ from grader.gemini_client import (
     match_subparts_to_parent,
     aggregate_subpart_verdicts,
 )
-from grader.types import QuestionRubric, RubricConfig
+from grader.types import QuestionRubric, RubricConfig, QuestionResult
 
 
 def make_rubric() -> RubricConfig:
@@ -551,8 +551,27 @@ class SubpartAggregationTests(unittest.TestCase):
         self.assertIn("[1.1]", by_id["1"].logic_analysis)
         self.assertIn("[1.2]", by_id["1"].logic_analysis)
 
+        # Check sub_results breakdown
+        self.assertIsNotNone(by_id["1"].sub_results)
+        self.assertEqual(len(by_id["1"].sub_results), 2)
+        sub1, sub2 = by_id["1"].sub_results
+        self.assertEqual(sub1.id, "1.1")
+        self.assertEqual(sub1.verdict, "correct")
+        self.assertEqual(sub1.confidence, 0.95)
+        self.assertEqual(sub1.coords, (100.0, 200.0))
+        self.assertEqual(sub1.page_number, 1)
+        self.assertEqual(sub1.source_file, "a.pdf")
+
+        self.assertEqual(sub2.id, "1.2")
+        self.assertEqual(sub2.verdict, "incorrect")
+        self.assertEqual(sub2.confidence, 0.85)
+        self.assertEqual(sub2.coords, (300.0, 400.0))
+        self.assertEqual(sub2.page_number, 1)
+        self.assertEqual(sub2.short_reason, "Wrong formula")
+
         # Q2 should remain a direct match
         self.assertEqual(by_id["2"].verdict, "correct")
+        self.assertIsNone(by_id["2"].sub_results)
 
     def test_normalize_response_does_not_match_10_to_1(self) -> None:
         """Ensure parent="1" does not grab "10" or "10.a"."""
@@ -578,6 +597,39 @@ class SubpartAggregationTests(unittest.TestCase):
         by_id = {q.id: q for q in normalized["questions"]}
         # Q1 should be needs_review (10 is NOT a subpart of 1)
         self.assertEqual(by_id["1"].verdict, "needs_review")
+
+    def test_question_result_payload_roundtrip_with_sub_results(self) -> None:
+        from grader.review.types import question_result_to_payload, question_result_from_payload
+        sub1 = QuestionResult(
+            id="1.a", verdict="correct", confidence=0.9, short_reason="",
+            evidence_quote="yes", coords=(100.0, 200.0), page_number=1, source_file="a.pdf"
+        )
+        sub2 = QuestionResult(
+            id="1.b", verdict="incorrect", confidence=0.8, short_reason="wrong",
+            evidence_quote="no", coords=(300.0, 400.0), page_number=1, source_file="a.pdf"
+        )
+        parent = QuestionResult(
+            id="1", verdict="partial", confidence=0.8, short_reason="wrong",
+            evidence_quote="yes | no", sub_results=(sub1, sub2)
+        )
+
+        payload = question_result_to_payload(parent)
+        # Ensure it serialized recursively
+        self.assertIn("sub_results", payload)
+        self.assertEqual(len(payload["sub_results"]), 2)
+        self.assertEqual(payload["sub_results"][0]["id"], "1.a")
+        self.assertEqual(payload["sub_results"][1]["id"], "1.b")
+
+        # Deserialize and check roundtrip
+        deserialized = question_result_from_payload("1", payload)
+        self.assertEqual(deserialized.id, "1")
+        self.assertEqual(deserialized.verdict, "partial")
+        self.assertIsNotNone(deserialized.sub_results)
+        self.assertEqual(len(deserialized.sub_results), 2)
+        self.assertEqual(deserialized.sub_results[0].id, "1.a")
+        self.assertEqual(deserialized.sub_results[0].verdict, "correct")
+        self.assertEqual(deserialized.sub_results[1].id, "1.b")
+        self.assertEqual(deserialized.sub_results[1].verdict, "incorrect")
 
 
 if __name__ == "__main__":
