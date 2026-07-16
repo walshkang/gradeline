@@ -7,7 +7,7 @@ This document records usability pain points and suggested feature improvements d
 ## Usability Pain Points & Feature Requests
 
 ### 1. Hard Dependency on PDF for Solutions
-* **Issue**: The tool strictly expects a PDF file for the solutions key (`solutions.pdf`). Instructors often draft answer keys in MS Word (`.docx`), resulting in manual conversion steps.
+* **Issue**: The tool strictly expects a PDF file for the solutions key (`solutions.pdf`). Instructors may draft answer keys in MS Word (`.docx`), resulting in manual conversion steps.
 * **Impact**: Friction during assignment initialization. If the user forgets to export to PDF, the tool fails during LLM upload.
 * **Suggested Solution**: 
   * Add support for native text/Markdown solution keys (`solutions.txt`, `solutions.md`).
@@ -56,3 +56,53 @@ This document records usability pain points and suggested feature improvements d
 * **Impact**: This DPI mismatch can reduce local OCR accuracy because Tesseract expects a 300 DPI image but receives a 150 DPI image.
 * **Suggested Solution**: 
   * Align the DPI arguments in `run_ocr_all_pages` so both `pdftoppm` and `tesseract` use the same matching resolution.
+
+### 9. PDF Annotation Overlap Mitigation
+* **Issue**: PDF annotations (question results, verdicts, and feedback text) often overlap each other when multiple subparts or adjacent questions map to the same coordinates/page, or when reasons are physically long.
+* **Impact**: Unreadable, cluttered annotation overlays on student PDFs.
+* **Suggested Solution**: 
+  * Implement visual collision detection in `grader/annotate.py`.
+  * Track a list of bounding boxes (rects) of placed annotations per page.
+  * When placing a new annotation, estimate its dimensions (based on font size and text length) and shift it vertically or horizontally until a non-overlapping slot is found.
+
+### 10. Inaccurate Coordinate Resolution for Scanned/Handwritten Submissions
+* **Issue**: Visual annotations are often placed at incorrect coordinates on handwritten submissions (like Aldo Arossa's). Scanned PDFs frequently lack a clean text layer (rendering text-based local anchors useless) and may contain page rotation (e.g. 90/180/270 degrees) or custom CropBoxes that the coordinate mapping does not adjust for.
+* **Impact**: Marks and annotations are printed outside the visible margin or on incorrect areas of the page.
+* **Suggested Solution**:
+  * Retrieve and respect `page.rotation` and actual page boundaries (CropBox/MediaBox) from PyMuPDF in `resolve_model_location` and coordinate conversion functions.
+  * If a page is rotated, apply a geometric transformation to coordinate mapping.
+  * Provide fallback locator heuristics or visual margin anchors for scanned documents lacking embedded OCR text.
+
+### 11. PDF Viewer Viewport Scrolling and Centering Focus
+* **Issue**: The PDF viewer panel in the web UI is large, and when clicking on a question number in the right-hand nav drawer, the page loads but does not scroll to focus on the question. The user has to manually scroll, and the target coordinates/marker can be far down.
+* **Impact**: Extra friction when reviewing submissions question-by-question.
+* **Suggested Solution**:
+  * In the web app (`app.js`), after calling `loadCurrentPage()` and `renderMarker()`, automatically scroll the `.image-wrap` container so the marker is focused near the top of the viewport (at the same height as the toolbar/buttons), rather than staying at the top of the page or in a random scroll position.
+
+### 12. Review State Visibility and Control in Matrix View
+* **Issue**: The Matrix View is useful for spotting anomalies, but it does not display whether a question has been marked as "Reviewed" (synced with the review view's "Mark Question as Reviewed" checkbox). Additionally, there is no way to toggle the review status of a cell directly from the Matrix panel.
+* **Impact**: Hard to track review progress across all students and questions at a glance.
+* **Suggested Solution**:
+  * Update `get_matrix` in `grader/review/api.py` to include the `"reviewed"` field in the response cells payload.
+  * In the frontend Matrix Grid, add a visual badge (e.g., green dot, small checkmark icon, or border style) to cell containers that have been reviewed.
+  * In `showMatrixDetail`, add a "Reviewed" toggle checkbox/button that directly patches the review state (`reviewed_final`) via API and re-renders the Matrix View.
+
+### 13. Transparency on Review Export Artifacts
+* **Question**: What does the export button in the web UI do, and what files are saved where?
+* **Answer / Documentation**:
+  * Clicking **Export** triggers the `/api/export` endpoint on the backend, which executes `export_review_outputs` in [exporter.py](file:///Users/walsh.kang/Documents/GitHub/gradeline/grader/review/exporter.py).
+  * It generates/saves the following files inside the `<output_dir>/review/` directory:
+    1. **Reviewed PDFs**: Student submissions are annotated with final reviewed grades/marks and saved to `review/reviewed_pdfs/` (using the same directory structure and filenames).
+    2. **Review Decisions JSON**: A snapshot of the review state and decisions is saved to `review/review_decisions.json`.
+    3. **Grading Audit CSV**: Updated grading audit entries representing reviewed results saved to `review/grading_audit_reviewed.csv`.
+    4. **Review Queue CSV**: Updated queue records saved to `review/review_queue_reviewed.csv`.
+    5. **Brightspace Grades Import CSV**: A ready-to-import CSV with final scores mapped from the grades template spreadsheet, saved to `review/brightspace_grades_import_reviewed.csv`.
+
+### 14. LLM Run Cost Breakdown
+* **Feature Request**: Track and display a detailed cost breakdown of LLM API usage per run, per student, and per question.
+* **Suggested Solution**:
+  * Parse and capture `usage_metadata` (input tokens, output tokens, cached tokens) from Gemini API response payloads in `gemini_client.py`.
+  * Store token usage per question in the results data structure and save to `grading_audit.csv` / `review_state.json`.
+  * Implement a billing helper that maps token counts to model pricing (e.g., input and output prices for Gemini 1.5 Flash).
+  * Display a cost summary in the CLI output summary bands and in the review server's "Run Summary" dashboard.
+
