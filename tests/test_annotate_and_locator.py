@@ -201,3 +201,188 @@ def test_add_movable_freetext_annotation_with_border():
     assert annots[0].type[1] == "FreeText"
 
 
+import tempfile
+from grader.annotate import annotate_submission_pdfs
+from grader.types import SubmissionUnit, RubricConfig, QuestionRubric
+
+def _make_pdf(path: Path, anchor_text: str = "4)") -> None:
+    import fitz
+    doc = fitz.open()
+    try:
+        page = doc.new_page()
+        page.insert_text((72, 120), anchor_text, fontsize=12, fontname="helv")
+        doc.save(path)
+    finally:
+        doc.close()
+
+def _make_submission(
+    submissions_root: Path,
+    folder_name: str,
+    pdf_name: str = "submission.pdf",
+    anchor_text: str = "4)",
+) -> SubmissionUnit:
+    folder_path = submissions_root / folder_name
+    folder_path.mkdir(parents=True, exist_ok=True)
+    pdf_path = folder_path / pdf_name
+    _make_pdf(pdf_path, anchor_text)
+    return SubmissionUnit(
+        folder_path=folder_path,
+        folder_relpath=Path(folder_name),
+        folder_token="123",
+        student_name="Student",
+        pdf_paths=[pdf_path],
+    )
+
+def _make_rubric(question_id: str) -> RubricConfig:
+    return RubricConfig(
+        assignment_id="test",
+        bands={"check_plus_min": 0.9, "check_min": 0.7},
+        questions=[
+            QuestionRubric(
+                id=question_id,
+                label_patterns=[f"{question_id})"],
+                scoring_rules="",
+                short_note_pass="ok",
+                short_note_fail="check",
+            )
+        ]
+    )
+
+
+def test_subpart_annotation_renders_multiple_marks():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        submissions_root = root / "subs"
+        submission = _make_submission(submissions_root=submissions_root, folder_name="123 - Student")
+        rubric = _make_rubric("4")
+        
+        # Sub-parts with distinct coordinates
+        sub_results = (
+            QuestionResult(
+                id="4.a", verdict="correct", confidence=0.9, short_reason="", evidence_quote="",
+                coords=(100, 100), page_number=1, source_file="submission.pdf"
+            ),
+            QuestionResult(
+                id="4.b", verdict="incorrect", confidence=0.9, short_reason="wrong", evidence_quote="",
+                coords=(200, 100), page_number=1, source_file="submission.pdf"
+            ),
+        )
+        
+        qr = QuestionResult(
+            id="4", verdict="partial", confidence=0.9, short_reason="", evidence_quote="",
+            sub_results=sub_results
+        )
+        
+        output_dir = root / "out"
+        output_paths, _ = annotate_submission_pdfs(
+            submission=submission,
+            rubric=rubric,
+            question_results=[qr],
+            output_dir=output_dir,
+            submissions_root=submissions_root,
+            final_band="check_min",
+        )
+        
+        import fitz
+        doc = fitz.open(output_paths[0])
+        page = doc[0]
+        annots = list(page.annots())
+        
+        # Expect header + fallback summary title + 2 marks for the subparts
+        # Actually, because all subparts rendered, parent "4" is marked as rendered,
+        # so there should be NO fallback summary title. 
+        # Just Header + 4.a mark + 4.b mark = 3 annotations
+        assert len(annots) == 3
+        
+        subjects = [annot.info.get("subject") for annot in annots]
+        assert any("q=4.a" in s for s in subjects if s)
+        assert any("q=4.b" in s for s in subjects if s)
+        doc.close()
+
+
+def test_subpart_annotation_falls_back_to_parent_anchor():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        submissions_root = root / "subs"
+        submission = _make_submission(submissions_root=submissions_root, folder_name="123 - Student", anchor_text="4)")
+        rubric = _make_rubric("4")
+        
+        # Sub-parts where one is missing coordinates completely
+        sub_results = (
+            QuestionResult(
+                id="Q4.a", verdict="correct", confidence=0.9, short_reason="", evidence_quote="",
+                coords=(100, 100), page_number=1, source_file="submission.pdf"
+            ),
+            QuestionResult(
+                id="Q4.b", verdict="incorrect", confidence=0.9, short_reason="wrong", evidence_quote="",
+                coords=None, page_number=None, source_file=None
+            ),
+        )
+        
+        qr = QuestionResult(
+            id="4", verdict="partial", confidence=0.9, short_reason="", evidence_quote="",
+            sub_results=sub_results
+        )
+        
+        output_dir = root / "out"
+        output_paths, _ = annotate_submission_pdfs(
+            submission=submission,
+            rubric=rubric,
+            question_results=[qr],
+            output_dir=output_dir,
+            submissions_root=submissions_root,
+            final_band="check_min",
+        )
+        
+        import fitz
+        doc = fitz.open(output_paths[0])
+        page = doc[0]
+        annots = list(page.annots())
+        
+        # Because fallback successfully placed 4.b at the parent anchor, 
+        # both subparts rendered successfully. No summary fallback!
+        # Header + 4.a mark + 4.b mark (at parent anchor) = 3
+        assert len(annots) == 3
+        
+        subjects = [annot.info.get("subject") for annot in annots]
+        assert any("q=4.a" in s for s in subjects if s)
+        assert any("q=4.b" in s for s in subjects if s)
+        
+        # Check that 4.b's placement y is lower (greater) than the anchor 4) default position
+        # but it should be rendered!
+        doc.close()
+
+
+def test_no_subresults_renders_single_mark():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        submissions_root = root / "subs"
+        submission = _make_submission(submissions_root=submissions_root, folder_name="123 - Student", anchor_text="4)")
+        rubric = _make_rubric("4")
+        
+        qr = QuestionResult(
+            id="4", verdict="incorrect", confidence=0.9, short_reason="bad", evidence_quote="",
+        )
+        
+        output_dir = root / "out"
+        output_paths, _ = annotate_submission_pdfs(
+            submission=submission,
+            rubric=rubric,
+            question_results=[qr],
+            output_dir=output_dir,
+            submissions_root=submissions_root,
+            final_band="check_min",
+        )
+        
+        import fitz
+        doc = fitz.open(output_paths[0])
+        page = doc[0]
+        annots = list(page.annots())
+        
+        # Header + parent mark = 2 annotations
+        assert len(annots) == 2
+        
+        subjects = [annot.info.get("subject") for annot in annots]
+        assert any("q=4|" in s for s in subjects if s)
+        doc.close()
+

@@ -86,6 +86,113 @@ def annotate_submission_pdfs(
                         if Path(q_result.source_file).name.lower() != pdf_path.name.lower():
                             continue
 
+                    if getattr(q_result, "sub_results", None) and len(q_result.sub_results) > 1:
+                        # Render individual marks for each sub-part
+                        all_subparts_rendered = True
+                        parent_loc_resolved = False
+                        parent_page_idx, parent_point = None, None
+                        missing_count = 0
+
+                        for sub_result in q_result.sub_results:
+                            subpart_label = sub_result.id
+
+                            # strip "q", "q.", "question "
+                            lower_label = subpart_label.lower()
+                            for prefix in ("question ", "question", "q.", "q"):
+                                if lower_label.startswith(prefix):
+                                    subpart_label = subpart_label[len(prefix):].lstrip()
+                                    break
+
+                            if subpart_label.lower().startswith(question.id.lower()):
+                                subpart_label = subpart_label[len(question.id):].lstrip("._- ")
+                            subpart_label = subpart_label or sub_result.id
+
+                            sub_model_location = resolve_model_location(
+                                doc=doc,
+                                pdf_filename=pdf_path.name,
+                                result=sub_result,
+                                block_registry=block_registry,
+                                ignore_source_file=single_pdf,
+                            )
+
+                            sub_page_idx, sub_point = None, None
+
+                            if sub_model_location is not None:
+                                sub_page_idx = sub_model_location[0]
+                                sub_point = sub_model_location[1]
+                            else:
+                                # Fallback 1: finding anchor for the subpart
+                                sub_anchor = find_anchor_in_doc(
+                                    doc=doc,
+                                    question_id=sub_result.id,
+                                    label_patterns=[],
+                                    explicit_tokens=[f"{subpart_label})", f"{subpart_label}."],
+                                )
+                                if sub_anchor:
+                                    sub_page_idx, sub_point = sub_anchor
+                                else:
+                                    # Fallback 2: parent location or parent anchor
+                                    if not parent_loc_resolved:
+                                        parent_loc = resolve_model_location(
+                                            doc=doc,
+                                            pdf_filename=pdf_path.name,
+                                            result=q_result,
+                                            block_registry=block_registry,
+                                            ignore_source_file=single_pdf,
+                                        )
+                                        if parent_loc:
+                                            parent_page_idx, parent_point = parent_loc[0], parent_loc[1]
+                                        else:
+                                            parent_anchor = find_anchor_in_doc(
+                                                doc=doc,
+                                                question_id=question.id,
+                                                label_patterns=question.label_patterns,
+                                                explicit_tokens=question.anchor_tokens,
+                                            )
+                                            if parent_anchor:
+                                                parent_page_idx, parent_point = parent_anchor
+                                        parent_loc_resolved = True
+
+                                    if parent_page_idx is not None and parent_point is not None:
+                                        import fitz
+                                        sub_page_idx = parent_page_idx
+                                        sub_point = fitz.Point(parent_point.x, parent_point.y + (missing_count * 15))
+                                        missing_count += 1
+
+                            if sub_page_idx is not None and sub_point is not None:
+                                sub_mark_text = mark_text_for_result(
+                                    question_id=question.id,
+                                    result=sub_result,
+                                    subpart_label=subpart_label,
+                                )
+                                sub_fontsize = max(8.0, question_fontsize * 0.85)
+                                insert_mark(
+                                    doc[sub_page_idx],
+                                    sub_point,
+                                    mark_text=sub_mark_text,
+                                    is_correct=(sub_result.verdict in ("correct", "rounding_error")),
+                                    question_id=f"{question.id}.{subpart_label}",
+                                    fontsize=sub_fontsize,
+                                )
+                            else:
+                                all_subparts_rendered = False
+
+                        if all_subparts_rendered:
+                            rendered.add(question.id)
+
+                        # Record placement for the first sub-part with valid coords for audit
+                        for sub_result in q_result.sub_results:
+                            if sub_result.coords is not None:
+                                placement_details[question.id] = {
+                                    "placement_source": "subpart_model_coords",
+                                    "source_file": sub_result.source_file or pdf_path.name,
+                                    "page_number": getattr(sub_result, "page_number", None),
+                                    "coords": sub_result.coords,
+                                }
+                                break
+
+                        continue
+
                     model_location = resolve_model_location(
                         doc=doc,
                         pdf_filename=pdf_path.name,
@@ -396,15 +503,16 @@ def find_anchor_in_doc(
     return best_page_idx, point
 
 
-def mark_text_for_result(question_id: str, result: QuestionResult) -> str:
+def mark_text_for_result(question_id: str, result: QuestionResult, *, subpart_label: str | None = None) -> str:
+    display_id = f"{question_id}.{subpart_label}" if subpart_label else question_id
     if result.verdict == "correct":
-        return f"✓ Q{question_id}"
+        return f"✓ Q{display_id}"
     if result.verdict == "rounding_error":
-        return f"✓ Q{question_id} ≈"
+        return f"✓ Q{display_id} ≈"
     reason = compact_reason(result.short_reason, max_chars=42)
     if reason:
-        return f"x Q{question_id}: {reason}"
-    return f"x Q{question_id}"
+        return f"x Q{display_id}: {reason}"
+    return f"x Q{display_id}"
 
 
 def compact_reason(text: str, max_chars: int = 42) -> str:
