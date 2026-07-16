@@ -19,7 +19,7 @@ graph TD
     P6 --> P7
 
     style P1 fill:#dfd,stroke:#333
-    style P2 fill:#fbb,stroke:#333
+    style P2 fill:#dfd,stroke:#333
     style P3 fill:#dfd,stroke:#333
     style P4 fill:#fbb,stroke:#333
     style P5 fill:#bbf,stroke:#333

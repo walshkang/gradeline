@@ -25,6 +25,8 @@ from grader.gemini_client import (
     normalize_locator_response,
     normalize_model_response,
     parse_coords_0_to_1000,
+    match_subparts_to_parent,
+    aggregate_subpart_verdicts,
 )
 from grader.types import QuestionRubric, RubricConfig
 
@@ -447,6 +449,135 @@ class TwoTierFeedbackTests(unittest.TestCase):
         )
         self.assertLessEqual(len(result), SHORT_REASON_MAX_CHARS)
         self.assertTrue(raw.startswith(result))
+class SubpartAggregationTests(unittest.TestCase):
+    """Tests for match_subparts_to_parent and aggregate_subpart_verdicts."""
+
+    def test_match_subparts_dot_format(self):
+        self.assertTrue(match_subparts_to_parent("1", {"id": "1.a"}))
+        self.assertTrue(match_subparts_to_parent("1", {"id": "1.b"}))
+        self.assertTrue(match_subparts_to_parent("4", {"id": "4.1"}))
+
+    def test_match_subparts_letter_suffix(self):
+        self.assertTrue(match_subparts_to_parent("4", {"id": "4a"}))
+        self.assertTrue(match_subparts_to_parent("4", {"id": "4b"}))
+
+    def test_match_subparts_q_prefix(self):
+        self.assertTrue(match_subparts_to_parent("1", {"id": "Q1.a"}))
+        self.assertTrue(match_subparts_to_parent("1", {"id": "q1.b"}))
+
+    def test_match_subparts_content_based(self):
+        # 1. Standalone ID in ID string
+        self.assertTrue(match_subparts_to_parent("3", {"id": "part c of question 3"}))
+        self.assertTrue(match_subparts_to_parent("3", {"id": "part c of q3"}))
+        # 2. Standalone ID but not part of another number
+        self.assertFalse(match_subparts_to_parent("3", {"id": "part c of question 30"}))
+        self.assertFalse(match_subparts_to_parent("3", {"id": "part c of q13"}))
+        # 3. Content scanning for generic IDs
+        self.assertTrue(match_subparts_to_parent("3", {
+            "id": "c",
+            "logic_analysis": "This is grading question 3 which has several parts."
+        }))
+        self.assertTrue(match_subparts_to_parent("3", {
+            "id": "part b",
+            "evidence_quote": "Based on the formula in Q3, we derive..."
+        }))
+        # 4. Content scanning ignores non-generic IDs
+        self.assertFalse(match_subparts_to_parent("3", {
+            "id": "question_4_c",
+            "logic_analysis": "This is grading question 3."
+        }))
+
+    def test_no_match_different_parent(self):
+        self.assertFalse(match_subparts_to_parent("1", {"id": "10"}))
+        self.assertFalse(match_subparts_to_parent("1", {"id": "10.a"}))
+        self.assertFalse(match_subparts_to_parent("1", {"id": "12"}))
+        self.assertFalse(match_subparts_to_parent("1", {"id": "11"}))
+
+    def test_no_match_unrelated(self):
+        self.assertFalse(match_subparts_to_parent("1", {"id": "2"}))
+        self.assertFalse(match_subparts_to_parent("1", {"id": "abc"}))
+
+    def test_aggregate_all_correct(self):
+        self.assertEqual(aggregate_subpart_verdicts(["correct", "correct"]), "correct")
+
+    def test_aggregate_mixed_needs_review(self):
+        self.assertEqual(aggregate_subpart_verdicts(["correct", "needs_review"]), "needs_review")
+
+    def test_aggregate_rounding_error(self):
+        self.assertEqual(aggregate_subpart_verdicts(["correct", "rounding_error"]), "rounding_error")
+
+    def test_aggregate_partial_mix(self):
+        self.assertEqual(aggregate_subpart_verdicts(["correct", "incorrect"]), "partial")
+
+    def test_aggregate_all_incorrect(self):
+        self.assertEqual(aggregate_subpart_verdicts(["incorrect", "incorrect"]), "incorrect")
+
+    def test_normalize_response_aggregates_subparts(self) -> None:
+        """Full integration: model returns "1.1" and "1.2" but not "1"."""
+        rubric = RubricConfig(
+            assignment_id="test",
+            bands={"check_plus_min": 0.9, "check_min": 0.7},
+            questions=[
+                QuestionRubric(
+                    id="1", label_patterns=["1)"], scoring_rules="",
+                    short_note_pass="ok", short_note_fail="check",
+                ),
+                QuestionRubric(
+                    id="2", label_patterns=["2)"], scoring_rules="",
+                    short_note_pass="ok", short_note_fail="check",
+                ),
+            ],
+        )
+        payload = {
+            "student_submission_id": "x",
+            "questions": [
+                {"id": "1.1", "verdict": "correct", "confidence": 0.95,
+                 "logic_analysis": "Part 1", "short_reason": "", "evidence_quote": "e1",
+                 "coords": [100, 200], "page_number": 1, "source_file": "a.pdf"},
+                {"id": "1.2", "verdict": "incorrect", "confidence": 0.85,
+                 "logic_analysis": "Part 2", "short_reason": "Wrong formula",
+                 "evidence_quote": "e2", "coords": [300, 400], "page_number": 1},
+                {"id": "2", "verdict": "correct", "confidence": 0.9,
+                 "short_reason": "", "evidence_quote": "e3"},
+            ],
+            "global_flags": [],
+        }
+        normalized = normalize_model_response(payload, rubric)
+        by_id = {q.id: q for q in normalized["questions"]}
+
+        # Q1 should aggregate to "partial" (one correct, one incorrect)
+        self.assertEqual(by_id["1"].verdict, "partial")
+        self.assertEqual(by_id["1"].confidence, 0.85)
+        self.assertIn("[1.1]", by_id["1"].logic_analysis)
+        self.assertIn("[1.2]", by_id["1"].logic_analysis)
+
+        # Q2 should remain a direct match
+        self.assertEqual(by_id["2"].verdict, "correct")
+
+    def test_normalize_response_does_not_match_10_to_1(self) -> None:
+        """Ensure parent="1" does not grab "10" or "10.a"."""
+        rubric = RubricConfig(
+            assignment_id="test",
+            bands={"check_plus_min": 0.9, "check_min": 0.7},
+            questions=[
+                QuestionRubric(
+                    id="1", label_patterns=["1)"], scoring_rules="",
+                    short_note_pass="ok", short_note_fail="check",
+                ),
+            ],
+        )
+        payload = {
+            "student_submission_id": "x",
+            "questions": [
+                {"id": "10", "verdict": "correct", "confidence": 0.9,
+                 "short_reason": "", "evidence_quote": ""},
+            ],
+            "global_flags": [],
+        }
+        normalized = normalize_model_response(payload, rubric)
+        by_id = {q.id: q for q in normalized["questions"]}
+        # Q1 should be needs_review (10 is NOT a subpart of 1)
+        self.assertEqual(by_id["1"].verdict, "needs_review")
 
 
 if __name__ == "__main__":

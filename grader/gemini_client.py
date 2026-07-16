@@ -861,6 +861,94 @@ def build_rubric_lines(rubric: RubricConfig) -> list[str]:
     return lines
 
 
+def match_subparts_to_parent(parent_id: str, raw_item: dict) -> bool:
+    """Return True if raw_item represents a sub-part of parent_id.
+
+    Matches patterns like:
+      parent="1" → "1.a", "1.b", "1.1", "1_a", "1a" in raw_item["id"]
+      parent="4" → "4.a", "4.b", "4.1", "q4.a", "Q4.b" in raw_item["id"]
+      parent="3" → raw_item["id"]="part c of question 3"
+      parent="3" → raw_item["id"]="c", with "question 3" in raw_item["logic_analysis"]
+    """
+    raw_id = str(raw_item.get("id", "")).strip()
+    if not raw_id:
+        return False
+
+    parent = parent_id.strip().lower()
+    raw = raw_id.lower()
+
+    # 1. Strip common prefixes: "q", "q.", "question", "question "
+    for prefix in ("question ", "question", "q.", "q"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):].lstrip()
+            break
+
+    if raw == parent:
+        return True  # Exact match (not a sub-part, but a direct hit)
+
+    # 2. Check if raw starts with parent followed by a separator (e.g., "1.a" or "1a")
+    if raw.startswith(parent):
+        remainder = raw[len(parent):]
+        if remainder:
+            # The first character after parent_id must be a separator or letter
+            # to avoid matching parent="1" to raw="10"
+            first_char = remainder[0]
+            if first_char in ('.', '_', '-', ' ') or first_char.isalpha():
+                return True
+
+    # 3. Check for standalone parent_id in raw ID string (e.g. "part c of question 3")
+    # We want to match parent as a standalone word (e.g. word boundary on both sides,
+    # or preceded by q/question, but not part of another number like "30").
+    pattern = rf"\b(q|question\s*)?{re.escape(parent)}\b"
+    if re.search(pattern, raw):
+        return True
+
+    # 4. Context scan: if the raw ID is very generic (e.g., has no digits other than parent digits),
+    # search the content fields (logic_analysis, evidence_quote, short_reason) for clear references
+    # to this parent question (e.g., "question 3", "q3", "q.3").
+    raw_digits = "".join(c for c in raw if c.isdigit())
+    parent_digits = "".join(c for c in parent if c.isdigit())
+    is_generic = all(d in parent_digits for d in raw_digits)
+    if is_generic:
+        content_fields = [
+            str(raw_item.get("logic_analysis", "")),
+            str(raw_item.get("evidence_quote", "")),
+            str(raw_item.get("short_reason", "")),
+        ]
+        combined_content = " ".join(content_fields).lower()
+        content_pattern = rf"\b(q|question|q\.)\s*{re.escape(parent)}\b"
+        if re.search(content_pattern, combined_content):
+            return True
+
+    return False
+
+
+def aggregate_subpart_verdicts(sub_verdicts: list[str]) -> str:
+    """Aggregate multiple sub-part verdicts into a single parent verdict.
+
+    Rules (ordered by priority):
+    - If ANY sub-part is needs_review → needs_review
+    - If ALL are correct → correct
+    - If ALL are correct or rounding_error (with ≥1 rounding_error) → rounding_error
+    - If ALL are incorrect → incorrect
+    - Otherwise → partial
+    """
+    if not sub_verdicts:
+        return "needs_review"
+
+    verdict_set = set(sub_verdicts)
+
+    if "needs_review" in verdict_set:
+        return "needs_review"
+    if verdict_set == {"correct"}:
+        return "correct"
+    if verdict_set <= {"correct", "rounding_error"}:
+        return "rounding_error"
+    if verdict_set == {"incorrect"}:
+        return "incorrect"
+    return "partial"
+
+
 def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDict:
     questions_raw = payload.get("questions")
     if not isinstance(questions_raw, list):
@@ -872,10 +960,26 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
             qid = str(item["id"]).strip().lower()
             question_map[qid] = item
 
+    # Group sub-question IDs under their rubric parent ID
+    parent_subparts: dict[str, list[JsonDict]] = {}
+    for question in rubric.questions:
+        parent_id = question.id.strip().lower()
+        if parent_id in question_map:
+            continue  # Direct match exists, no need to search sub-parts
+        subs = []
+        for raw_id, raw_item in question_map.items():
+            if match_subparts_to_parent(parent_id, raw_item):
+                subs.append(raw_item)
+        if subs:
+            parent_subparts[parent_id] = subs
+
     normalized_questions: list[QuestionResult] = []
     for question in rubric.questions:
         raw = question_map.get(question.id)
-        if raw is None:
+        sub_items = parent_subparts.get(question.id.strip().lower())
+
+        if raw is None and sub_items is None:
+            # No match at all — flag for review
             normalized_questions.append(
                 QuestionResult(
                     id=question.id,
@@ -889,26 +993,86 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
             )
             continue
 
-        verdict = normalize_verdict(raw.get("verdict"))
-        confidence = normalize_confidence(raw.get("confidence"))
-        logic_analysis = str(raw.get("logic_analysis", "")).strip()
+        if raw is not None:
+            # Direct match — process as before
+            verdict = normalize_verdict(raw.get("verdict"))
+            confidence = normalize_confidence(raw.get("confidence"))
+            logic_analysis = str(raw.get("logic_analysis", "")).strip()
+            short_reason, detail_reason = normalize_feedback(
+                verdict=verdict,
+                raw_short_reason=str(raw.get("short_reason", "")).strip()[:500],
+                raw_detail_reason=str(raw.get("detail_reason", "")).strip()[:900],
+                fallback_fail_note=question.short_note_fail,
+            )
+            evidence_quote = str(raw.get("evidence_quote", "")).strip()[:500]
+            coords = parse_coords_0_to_1000(raw.get("coords"))
+            page_number = parse_page_number(raw.get("page_number") or raw.get("page"))
+            source_file = str(raw.get("source_file", "")).strip() or None
+            block_id = str(raw.get("block_id", "")).strip() or None
+            normalized_questions.append(
+                QuestionResult(
+                    id=question.id,
+                    verdict=verdict,
+                    confidence=confidence,
+                    logic_analysis=logic_analysis,
+                    short_reason=short_reason,
+                    detail_reason=detail_reason,
+                    evidence_quote=evidence_quote,
+                    coords=coords,
+                    page_number=page_number,
+                    source_file=source_file,
+                    block_id=block_id,
+                )
+            )
+            continue
+
+        # Sub-part aggregation path
+        sub_verdicts = [normalize_verdict(s.get("verdict")) for s in sub_items]
+        aggregated_verdict = aggregate_subpart_verdicts(sub_verdicts)
+        aggregated_confidence = min(
+            normalize_confidence(s.get("confidence")) for s in sub_items
+        )
+
+        # Build logic_analysis by concatenating sub-part analyses
+        analysis_parts = []
+        for s in sub_items:
+            sid = str(s.get("id", "")).strip()
+            analysis = str(s.get("logic_analysis", "")).strip()
+            if analysis:
+                analysis_parts.append(f"[{sid}] {analysis}")
+        aggregated_logic = "\n".join(analysis_parts)
+
+        # Pick short_reason from the first failing sub-part
+        first_failing = next(
+            (s for s in sub_items if normalize_verdict(s.get("verdict")) not in ("correct", "rounding_error")),
+            sub_items[0],
+        )
+        raw_short = str(first_failing.get("short_reason", "")).strip()[:500]
+        raw_detail = str(first_failing.get("detail_reason", "")).strip()[:900]
         short_reason, detail_reason = normalize_feedback(
-            verdict=verdict,
-            raw_short_reason=str(raw.get("short_reason", "")).strip()[:500],
-            raw_detail_reason=str(raw.get("detail_reason", "")).strip()[:900],
+            verdict=aggregated_verdict,
+            raw_short_reason=raw_short,
+            raw_detail_reason=raw_detail,
             fallback_fail_note=question.short_note_fail,
         )
-        evidence_quote = str(raw.get("evidence_quote", "")).strip()[:500]
-        coords = parse_coords_0_to_1000(raw.get("coords"))
-        page_number = parse_page_number(raw.get("page_number") or raw.get("page"))
-        source_file = str(raw.get("source_file", "")).strip() or None
-        block_id = str(raw.get("block_id", "")).strip() or None
+
+        # Pick coords from the first failing sub-part (or first sub-part)
+        coord_source = first_failing
+        coords = parse_coords_0_to_1000(coord_source.get("coords"))
+        page_number = parse_page_number(coord_source.get("page_number") or coord_source.get("page"))
+        source_file = str(coord_source.get("source_file", "")).strip() or None
+        block_id = str(coord_source.get("block_id", "")).strip() or None
+
+        # Evidence: concatenate from all sub-parts
+        evidence_parts = [str(s.get("evidence_quote", "")).strip() for s in sub_items if s.get("evidence_quote")]
+        evidence_quote = " | ".join(evidence_parts)[:500]
+
         normalized_questions.append(
             QuestionResult(
                 id=question.id,
-                verdict=verdict,
-                confidence=confidence,
-                logic_analysis=logic_analysis,
+                verdict=aggregated_verdict,
+                confidence=aggregated_confidence,
+                logic_analysis=aggregated_logic,
                 short_reason=short_reason,
                 detail_reason=detail_reason,
                 evidence_quote=evidence_quote,
@@ -925,6 +1089,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
         "questions": normalized_questions,
         "global_flags": merge_flags(global_flags),
     }
+
 
 
 def normalize_feedback(
