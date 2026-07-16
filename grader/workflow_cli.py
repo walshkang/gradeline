@@ -258,6 +258,11 @@ def build_parser() -> argparse.ArgumentParser:
     regrade_parser.add_argument("--student-filter", default="", help="Regex to regrade specific students only.")
     regrade_parser.add_argument("--host", default=None)
     regrade_parser.add_argument("--port", type=int, default=None)
+    regrade_parser.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="Delete all rows from the grading_cache and context_cache tables in cache.db before starting the run.",
+    )
 
     judge_parser = subparsers.add_parser(
         "judge",
@@ -617,6 +622,7 @@ def main(argv: list[str] | None = None) -> int:
                     student_filter=getattr(args, "student_filter", ""),
                     host_override=getattr(args, "host", None),
                     port_override=getattr(args, "port", None),
+                    clear_cache=getattr(args, "clear_cache", False),
                 )
             elif command == "judge":
                 profile = getattr(args, "profile", None) or prompt_profile_interactive()
@@ -685,6 +691,7 @@ def regrade_from_profile(
     student_filter: str = "",
     host_override: str | None,
     port_override: int | None,
+    clear_cache: bool = False,
 ) -> int:
     """Clear cached results and output artifacts, then re-run grading."""
     profile = load_workflow_profile(profile_spec, cwd=get_project_root())
@@ -701,8 +708,12 @@ def regrade_from_profile(
     styled_section_heading("Regrade")
 
     # --- Clear local results cache ---
-    if question is None:
-        cache_file = cache_dir / "cache.db"
+    cache_file = cache_dir / "cache.db"
+    if clear_cache:
+        if cache_file.exists():
+            _clear_db_caches(cache_file)
+            styled_info("Deleted all rows from grading_cache and context_cache tables in cache.db.")
+    elif question is None:
         if cache_file.exists():
             if pattern is None:
                 cache_file.unlink()
@@ -794,6 +805,18 @@ def _purge_cache_entries(cache_file: Path, pattern: re.Pattern[str]) -> None:
             styled_info(f"Purged {len(to_remove)} of {len(rows)} cache entries matching filter.")
     except Exception as exc:
         styled_info(f"Could not purge cache entries: {exc}")
+
+
+def _clear_db_caches(cache_file: Path) -> None:
+    """Delete all rows from grading_cache and context_cache tables in cache.db."""
+    import sqlite3
+    try:
+        with sqlite3.connect(cache_file) as conn:
+            conn.execute("DELETE FROM grading_cache")
+            conn.execute("DELETE FROM context_cache")
+            conn.commit()
+    except Exception as exc:
+        styled_info(f"Could not clear cache tables: {exc}")
 
 
 def spot_grade_interactive(*, profile_spec: str, pdf_path: Path | None, student_name: str | None) -> int:

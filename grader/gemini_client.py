@@ -17,7 +17,7 @@ from .streaming import StreamProgressParser
 from .types import JsonDict, QuestionResult, RubricConfig, TextBlock
 
 
-PROMPT_VERSION = "2026-04-18-gemini-placement-v5"
+PROMPT_VERSION = "2026-07-15-subpart-aggregation-v6"
 DEFAULT_CONTEXT_CACHE_TTL_SECONDS = 86400
 SHORT_REASON_MAX_CHARS = 42
 SHORT_REASON_MAX_WORDS = 12

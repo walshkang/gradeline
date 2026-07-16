@@ -65,3 +65,53 @@ def test_regrade_question_bypasses_cache_if_no_checkpoint(dummy_config):
     pass
     # The actual integration logic requires too many mocks (extract_pdf_text, regex_precheck, etc)
     # A basic structural test is sufficient.
+
+
+def test_clear_db_caches(tmp_path):
+    import sqlite3
+    from grader.workflow_cli import _clear_db_caches
+    
+    cache_file = tmp_path / "cache.db"
+    
+    # Setup cache database with tables and sample data
+    with sqlite3.connect(cache_file) as conn:
+        conn.execute("CREATE TABLE grading_cache (hash_key TEXT PRIMARY KEY, payload TEXT)")
+        conn.execute("CREATE TABLE context_cache (hash_key TEXT PRIMARY KEY, payload TEXT)")
+        
+        conn.execute("INSERT INTO grading_cache VALUES ('k1', 'payload1')")
+        conn.execute("INSERT INTO context_cache VALUES ('ck1', 'cpayload1')")
+        conn.commit()
+        
+    # Verify rows exist
+    with sqlite3.connect(cache_file) as conn:
+        assert len(conn.execute("SELECT * FROM grading_cache").fetchall()) == 1
+        assert len(conn.execute("SELECT * FROM context_cache").fetchall()) == 1
+        
+    # Clear the caches
+    _clear_db_caches(cache_file)
+    
+    # Verify rows are deleted but tables still exist
+    with sqlite3.connect(cache_file) as conn:
+        assert len(conn.execute("SELECT * FROM grading_cache").fetchall()) == 0
+        assert len(conn.execute("SELECT * FROM context_cache").fetchall()) == 0
+
+
+def test_regrade_cli_parses_clear_cache(monkeypatch):
+    from grader.workflow_cli import main
+    import grader.workflow_cli as wcli
+    
+    parsed_args = []
+    
+    # Mock regrade_from_profile
+    def mock_regrade_from_profile(*, profile_spec, question, student_filter, host_override, port_override, clear_cache=False):
+        parsed_args.append((profile_spec, question, student_filter, clear_cache))
+        return 0
+        
+    monkeypatch.setattr(wcli, "regrade_from_profile", mock_regrade_from_profile)
+    monkeypatch.setattr(wcli, "prompt_profile_interactive", lambda: "dummy_profile")
+    
+    # Call main with regrade --profile dummy_profile --clear-cache
+    exit_code = main(["regrade", "--profile", "dummy_profile", "--clear-cache"])
+    assert exit_code == 0
+    assert parsed_args == [("dummy_profile", None, "", True)]
+
