@@ -431,6 +431,7 @@ def grade_one_submission(
             )
 
     prechecked_results = regex_precheck(rubric, combined_text)
+    questions_to_grade = [q for q in rubric.questions if q.id not in prechecked_results]
 
     if dry_run:
         if status_update is not None:
@@ -450,15 +451,19 @@ def grade_one_submission(
     else:
         try:
             assert grader is not None
-            if grading_mode == LEGACY_MODE:
+            if not questions_to_grade:
+                question_results = []
+                model_flags = []
+            elif grading_mode == LEGACY_MODE:
                 if status_update is not None:
-                    status_update(f"grading {len(rubric.questions)} questions")
+                    status_update(f"grading {len(questions_to_grade)} questions")
                 question_results, model_flags = grader.grade_submission(
                     submission_id=unit.folder_path.name,
                     pdf_paths=unit.pdf_paths,
                     combined_text=combined_text,
                     rubric=rubric,
                     solutions_text=solutions_text or "",
+                    questions_to_grade=questions_to_grade,
                 )
                 global_flags.extend(model_flags)
             elif grading_mode == UNIFIED_MODE:
@@ -484,6 +489,7 @@ def grade_one_submission(
                     context_cache_enabled=context_cache,
                     context_cache_ttl_seconds=context_cache_ttl_seconds,
                     blocks=list(block_registry.values()) if block_registry else None,
+                    questions_to_grade=questions_to_grade,
                     **extra_kwargs,
                 )
                 global_flags.extend(model_flags)
@@ -503,13 +509,14 @@ def grade_one_submission(
                             )
             elif grading_mode == AGENT_MODE:
                 if status_update is not None:
-                    status_update(f"agentic grading ({agent_type}) {len(rubric.questions)} questions")
+                    status_update(f"agentic grading ({agent_type}) {len(questions_to_grade)} questions")
                 question_results, model_flags = grader.grade_submission_agent(
                     submission_id=unit.folder_path.name,
                     pdf_paths=unit.pdf_paths,
                     rubric=rubric,
                     solutions_pdf_path=solutions_pdf_path,
                     agent_type=agent_type,
+                    questions_to_grade=questions_to_grade,
                 )
                 global_flags.extend(model_flags)
             else:
@@ -580,9 +587,70 @@ def grade_one_submission(
             global_flags.append("grading_error")
             accumulated_error = append_error(accumulated_error, str(exc))
 
-    for i, result in enumerate(question_results):
-        if result.id in prechecked_results:
-            question_results[i] = prechecked_results[result.id]
+    # Reassemble final question results in original rubric order, and apply diagnostics traces.
+    final_question_results = []
+    llm_result_map = {res.id: res for res in question_results}
+
+    for q in rubric.questions:
+        if q.id in prechecked_results:
+            orig = prechecked_results[q.id]
+            trace = ("regex_precheck: match",)
+            final_qr = QuestionResult(
+                id=orig.id,
+                verdict=orig.verdict,
+                confidence=orig.confidence,
+                short_reason=orig.short_reason,
+                evidence_quote=orig.evidence_quote,
+                logic_analysis=orig.logic_analysis,
+                detail_reason=orig.detail_reason,
+                coords=orig.coords,
+                page_number=orig.page_number,
+                source_file=orig.source_file,
+                placement_source=orig.placement_source,
+                block_id=orig.block_id,
+                grading_source=orig.grading_source,
+                sub_results=orig.sub_results,
+                diagnostics_trace=trace,
+            )
+            final_question_results.append(final_qr)
+        else:
+            orig = llm_result_map.get(q.id)
+            if orig is None:
+                orig = QuestionResult(
+                    id=q.id,
+                    verdict="needs_review",
+                    confidence=0.0,
+                    logic_analysis="",
+                    short_reason="Question omitted by grader.",
+                    evidence_quote="",
+                )
+
+            if dry_run:
+                trace = ("dry_run: skipped",)
+            else:
+                precheck_status = "regex_precheck: no match" if q.expected_answers else "regex_precheck: skipped (no expected_answers)"
+                trace = (precheck_status, f"llm_grading: {grading_mode}")
+
+            final_qr = QuestionResult(
+                id=orig.id,
+                verdict=orig.verdict,
+                confidence=orig.confidence,
+                short_reason=orig.short_reason,
+                evidence_quote=orig.evidence_quote,
+                logic_analysis=orig.logic_analysis,
+                detail_reason=orig.detail_reason,
+                coords=orig.coords,
+                page_number=orig.page_number,
+                source_file=orig.source_file,
+                placement_source=orig.placement_source,
+                block_id=orig.block_id,
+                grading_source=orig.grading_source,
+                sub_results=orig.sub_results,
+                diagnostics_trace=trace,
+            )
+            final_question_results.append(final_qr)
+
+    question_results = final_question_results
 
     needs_locator = any(result.coords is None for result in question_results)
     if (not dry_run) and locator_model and grader is not None and needs_locator:

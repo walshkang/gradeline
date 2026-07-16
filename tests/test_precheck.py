@@ -176,3 +176,120 @@ def test_validate_expected_answers():
         warnings.simplefilter("error")
         validate_expected_answers(rubric_good)
 
+
+def test_precheck_optimizes_llm_grading():
+    from grader.orchestrator import grade_one_submission, GradingConfig
+    from grader.types import SubmissionUnit, QuestionRubric, RubricConfig, ExtractedPdf, QuestionResult
+    from pathlib import Path
+    from unittest.mock import patch, MagicMock
+    
+    rubric = RubricConfig(
+        assignment_id="test_opt",
+        bands={},
+        questions=[
+            QuestionRubric(
+                id="q1",
+                label_patterns=[],
+                scoring_rules="",
+                short_note_pass="",
+                short_note_fail="Fail",
+                expected_answers=["123"],
+            ),
+            QuestionRubric(
+                id="q2",
+                label_patterns=[],
+                scoring_rules="",
+                short_note_pass="",
+                short_note_fail="Fail",
+                expected_answers=[],
+            ),
+        ],
+    )
+    
+    combined_text = "The answer to q1 is 123."
+    
+    class CaptureGrader:
+        def __init__(self):
+            self.passed_questions = None
+            
+        def grade_submission(self, submission_id, pdf_paths, combined_text, rubric, solutions_text, *, questions_to_grade=None):
+            self.passed_questions = questions_to_grade
+            return [
+                QuestionResult(
+                    id="q2",
+                    verdict="correct",
+                    confidence=0.95,
+                    short_reason="",
+                    evidence_quote="some quote",
+                )
+            ], []
+            
+        def locate_answers_for_pdf(self, pdf_path, rubric, locator_model):
+            return []
+            
+    grader = CaptureGrader()
+    config = MagicMock()
+    config.submissions_root = Path(".")
+    config.output_dir = Path(".")
+    config.temp_dir = Path(".")
+    config.ocr_char_threshold = 100
+    config.rubric = rubric
+    config.solutions_text = "solution"
+    config.solutions_pdf_path = Path("solutions.pdf")
+    config.grade_points = {}
+    config.grader = grader
+    config.grading_mode = "legacy"
+    config.agent_type = "gemini"
+    config.context_cache = False
+    config.context_cache_ttl_seconds = 300
+    config.dry_run = False
+    config.locator_model = None
+    config.annotate_dry_run_marks = False
+    config.extraction_model = "gemini-1.5-flash"
+    config.gemini_api_key = "fake_key"
+    config.extract_blocks = False
+    config.diagnostics = None
+    config.rate_limiter = None
+    
+    unit = SubmissionUnit(
+        folder_path=Path("/tmp/student1"),
+        folder_relpath=Path("student1"),
+        folder_token="student1",
+        student_name="Test Student",
+        pdf_paths=[Path("a.pdf")],
+    )
+    
+    extracted = ExtractedPdf(
+        pdf_path=Path("a.pdf"),
+        blocks=[],
+        text=combined_text,
+        source="ocr",
+        native_char_count=100,
+        ocr_char_count=100,
+    )
+    
+    with patch("grader.orchestrator.extract_pdf_text", return_value=extracted), \
+         patch("grader.orchestrator.score_submission") as mock_score:
+         
+        mock_score.return_value = MagicMock()
+        
+        res = grade_one_submission(
+            unit=unit,
+            config=config,
+        )
+        
+        assert grader.passed_questions is not None
+        assert len(grader.passed_questions) == 1
+        assert grader.passed_questions[0].id == "q2"
+        
+        q_map = {qr.id: qr for qr in res.question_results}
+        assert "q1" in q_map
+        assert "q2" in q_map
+        
+        assert q_map["q1"].grading_source == "regex"
+        assert q_map["q1"].diagnostics_trace == ("regex_precheck: match",)
+        
+        assert q_map["q2"].grading_source == "llm"
+        assert q_map["q2"].diagnostics_trace == ("regex_precheck: skipped (no expected_answers)", "llm_grading: legacy")
+
+

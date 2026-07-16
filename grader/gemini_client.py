@@ -130,6 +130,8 @@ class GeminiGrader:
         combined_text: str,
         rubric: RubricConfig,
         solutions_text: str,
+        *,
+        questions_to_grade: list[QuestionRubric] | None = None,
     ) -> tuple[list[QuestionResult], list[str]]:
         cache_key = compute_grade_cache_key(
             submission_id=submission_id,
@@ -151,6 +153,7 @@ class GeminiGrader:
             rubric=rubric,
             solutions_text=solutions_text,
             combined_text=combined_text,
+            questions_to_grade=questions_to_grade,
         )
 
         def invoke() -> JsonDict:
@@ -179,6 +182,8 @@ class GeminiGrader:
         context_cache_ttl_seconds: int = DEFAULT_CONTEXT_CACHE_TTL_SECONDS,
         progress_callback: Callable[[int, int, str], None] | None = None,
         blocks: list[TextBlock] | None = None,
+        *,
+        questions_to_grade: list[QuestionRubric] | None = None,
     ) -> tuple[list[QuestionResult], list[str]]:
         context_key = compute_context_cache_key(
             model=self.model,
@@ -207,6 +212,7 @@ class GeminiGrader:
             rubric=rubric,
             pdf_paths=pdf_paths,
             blocks=blocks or [],
+            questions_to_grade=questions_to_grade,
         )
 
         cache_flags: list[str] = []
@@ -238,9 +244,10 @@ class GeminiGrader:
         payload = call_with_backoff(invoke, max_retries=self.max_retries)
 
         # Simulate per-question grading progress after the full response is available.
-        total_questions = len(rubric.questions)
+        qs = questions_to_grade if questions_to_grade is not None else rubric.questions
+        total_questions = len(qs)
         if progress_callback is not None and total_questions > 0:
-            for idx, question in enumerate(rubric.questions, start=1):
+            for idx, question in enumerate(qs, start=1):
                 try:
                     progress_callback(idx, total_questions, question.id)
                 except Exception:
@@ -259,6 +266,8 @@ class GeminiGrader:
         rubric: RubricConfig,
         solutions_pdf_path: Path,
         agent_type: str = "gemini",
+        *,
+        questions_to_grade: list[QuestionRubric] | None = None,
     ) -> tuple[list[QuestionResult], list[str]]:
         cache_key = compute_agent_grade_cache_key(
             submission_id=submission_id,
@@ -278,6 +287,7 @@ class GeminiGrader:
             pdf_paths=pdf_paths,
             solutions_pdf_path=solutions_pdf_path,
             agent_type=agent_type,
+            questions_to_grade=questions_to_grade,
         )
 
         def invoke() -> JsonDict:
@@ -598,8 +608,11 @@ def build_legacy_grading_prompt(
     rubric: RubricConfig,
     solutions_text: str,
     combined_text: str,
+    *,
+    questions_to_grade: list[QuestionRubric] | None = None,
 ) -> str:
-    rubric_lines = build_rubric_lines(rubric)
+    qs = questions_to_grade if questions_to_grade is not None else rubric.questions
+    rubric_lines = build_rubric_lines(rubric, questions=qs)
 
     return (
         "You are grading one statistics assignment submission.\n"
@@ -616,6 +629,7 @@ def build_legacy_grading_prompt(
         "- Generate logic_analysis to reason through the answer before assigning a verdict.\n"
         "- If verdict is correct, short_reason must be an empty string.\n"
         "- If verdict is incorrect or partial, short_reason must be a pithy correction under 42 characters.\n"
+        "- If verdict is needs_review, you MUST provide a short_reason explaining exactly why the student's work cannot be confidently graded.\n"
         "- detail_reason is optional and may expand with one concise coaching sentence.\n"
         "- Use direct second-person voice and avoid third-person phrasing.\n\n"
         f"{NUMERIC_EQUIVALENCE_RULE}\n\n"
@@ -645,8 +659,10 @@ def build_unified_grading_prompt(
     *,
     combined_text: str | None = None,
     blocks: list[TextBlock] | None = None,
+    questions_to_grade: list[QuestionRubric] | None = None,
 ) -> str:
-    labels = ", ".join(question.id for question in rubric.questions)
+    qs = questions_to_grade if questions_to_grade is not None else rubric.questions
+    labels = ", ".join(question.id for question in qs)
     files = ", ".join(path.name for path in pdf_paths)
 
     student_section = ""
@@ -765,7 +781,7 @@ def build_context_system_instruction(rubric: RubricConfig) -> str:
         "Never use prefixes like \"Q1.a\" or \"Question 1a\". Never omit the parent entry entirely in "
         "favor of only returning sub-parts — if you decompose, each sub-part id must start with the "
         "parent id followed by a dot separator.\n"
-        "If uncertain, set verdict=needs_review and confidence near 0.0.\n"
+        "If uncertain, set verdict=needs_review and confidence near 0.0. You MUST provide a short_reason explaining exactly why the student's work cannot be confidently graded.\n"
         "You must generate logic_analysis BEFORE determining the verdict.\n"
         "Rubric rules:\n"
         f"{chr(10).join(rubric_lines)}"
@@ -777,10 +793,13 @@ def build_agent_grading_prompt(
     pdf_paths: list[Path],
     solutions_pdf_path: Path,
     agent_type: str = "gemini",
+    *,
+    questions_to_grade: list[QuestionRubric] | None = None,
 ) -> str:
-    labels = ", ".join(question.id for question in rubric.questions)
+    qs = questions_to_grade if questions_to_grade is not None else rubric.questions
+    labels = ", ".join(question.id for question in qs)
     files_info = "\n".join([f"- Student File: {path.absolute()}" for path in pdf_paths])
-    rubric_lines = build_rubric_lines(rubric)
+    rubric_lines = build_rubric_lines(rubric, questions=qs)
 
     agent_flavor = ""
     if agent_type == "gemini":
@@ -789,6 +808,8 @@ def build_agent_grading_prompt(
         agent_flavor = "Use your code execution and file reading tools to analyze the PDF contents."
     elif agent_type == "claude":
         agent_flavor = "Analyze the PDF files provided in the context."
+    else:
+        raise ValueError(f"Unsupported agent type: {agent_type}")
 
     return (
         "You are an expert statistics grader. Your goal is to grade a student submission accurately.\n\n"
@@ -827,6 +848,7 @@ def build_agent_grading_prompt(
         "Rules:\n"
         "- IMPORTANT: You must write logic_analysis BEFORE the verdict.\n"
         "- If verdict is correct, short_reason and detail_reason MUST be empty.\n"
+        "- If verdict is needs_review, you MUST provide a short_reason explaining exactly why the student's work cannot be confidently graded.\n"
         "- Use direct second-person voice ('You did X') for feedback.\n"
         f"- {NUMERIC_EQUIVALENCE_RULE}\n"
         f"Submission ID: {submission_id}\n"
@@ -853,9 +875,10 @@ def build_locator_prompt(pdf_name: str, rubric: RubricConfig) -> str:
     )
 
 
-def build_rubric_lines(rubric: RubricConfig) -> list[str]:
+def build_rubric_lines(rubric: RubricConfig, *, questions: list[QuestionRubric] | None = None) -> list[str]:
     lines: list[str] = []
-    for question in rubric.questions:
+    qs = questions if questions is not None else rubric.questions
+    for question in qs:
         labels = ", ".join(question.label_patterns) if question.label_patterns else f"{question.id})"
         lines.append(f"- Q{question.id}: labels=[{labels}] rule={question.scoring_rules}")
     return lines
@@ -1130,7 +1153,15 @@ def normalize_feedback(
     if verdict == "correct":
         return "", ""
     if verdict == "needs_review":
-        return "", ""
+        first_line = re.split(r"[\r\n]+", str(raw_short_reason or ""), maxsplit=1)[0].strip()
+        first_sentence = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
+        cleaned = " ".join(first_sentence.split())
+        lowered = cleaned.lower()
+        if lowered in {"n/a", "na", "none", "no reason provided by model."}:
+            cleaned = ""
+        short_reason = clamp_short_reason(cleaned) if cleaned else "Needs review."
+        detail_reason = raw_detail_reason.strip() if raw_detail_reason else ""
+        return short_reason, detail_reason
 
     short_reason = derive_short_reason(raw_short_reason=raw_short_reason, fallback_fail_note=fallback_fail_note)
     detail_reason = derive_detail_reason(

@@ -54,6 +54,7 @@ def serialize_question_result(qr: QuestionResult) -> dict[str, Any]:
         "placement_source": qr.placement_source,
         "block_id": qr.block_id,
         "grading_source": qr.grading_source,
+        "diagnostics_trace": list(qr.diagnostics_trace) if qr.diagnostics_trace else None,
     }
     if qr.sub_results is not None:
         d["sub_results"] = [serialize_question_result(sub) for sub in qr.sub_results]
@@ -85,6 +86,7 @@ def deserialize_question_result(q: dict[str, Any]) -> QuestionResult:
         block_id=q.get("block_id"),
         grading_source=q.get("grading_source", "llm"),
         sub_results=sub_results,
+        diagnostics_trace=tuple(q["diagnostics_trace"]) if q.get("diagnostics_trace") else None,
     )
 
 

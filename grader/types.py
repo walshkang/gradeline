@@ -74,6 +74,8 @@ class QuestionResult:
     block_id: str | None = None
     grading_source: str = "llm"
     sub_results: tuple[QuestionResult, ...] | None = None  # Subpart breakdown
+    diagnostics_trace: tuple[str, ...] | None = None
+
 
 
 @dataclass(frozen=True)

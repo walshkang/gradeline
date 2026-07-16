@@ -105,7 +105,7 @@ class GeminiContractTests(unittest.TestCase):
         by_id = {item.id: item for item in normalized["questions"]}
         self.assertEqual(by_id["a"].short_reason, "Show the final probability value.")
         self.assertEqual(by_id["b"].short_reason, "check")
-        self.assertEqual(by_id["c"].short_reason, "")
+        self.assertEqual(by_id["c"].short_reason, "unclear")
 
     def test_prompts_include_numeric_equivalence_rule(self) -> None:
         rubric = make_rubric()
@@ -384,7 +384,7 @@ class TwoTierFeedbackTests(unittest.TestCase):
         }
         normalized = normalize_model_response(payload, rubric)
         by_id = {item.id: item for item in normalized["questions"]}
-        self.assertEqual(by_id["a"].short_reason, "")
+        self.assertEqual(by_id["a"].short_reason, "unclear")
         self.assertEqual(by_id["a"].detail_reason, "")
 
     def test_normalize_incorrect_short_raw_gives_reason_no_detail(self) -> None:

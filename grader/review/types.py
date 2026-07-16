@@ -103,6 +103,7 @@ def question_result_to_payload(result: QuestionResult) -> dict[str, Any]:
         "source_file": str(result.source_file) if result.source_file else None,
         "placement_source": str(result.placement_source) if result.placement_source else None,
         "grading_source": result.grading_source,
+        "diagnostics_trace": list(result.diagnostics_trace) if result.diagnostics_trace else None,
     }
     if result.sub_results:
         payload["sub_results"] = [question_result_to_payload(sr) for sr in result.sub_results]
@@ -144,6 +145,7 @@ def question_result_from_payload(question_id: str, payload: dict[str, Any]) -> Q
         placement_source=str(payload.get("placement_source") or "").strip() or None,
         grading_source=str(payload.get("grading_source", "llm")).strip(),
         sub_results=sub_results,
+        diagnostics_trace=tuple(payload.get("diagnostics_trace")) if payload.get("diagnostics_trace") else None,
     )
 
 
