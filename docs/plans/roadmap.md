@@ -9,32 +9,32 @@ This document is the single source of truth for all planned improvements. It mer
 
 ## Master Status Table
 
-| Wave | Task ID | Title | Size | Status | Origin |
-|:---:|:---:|:---|:---:|:---:|:---|
-| — | S-1 | Test Hygiene & Gitignore | S | ✅ Done | Plan Phase 1 |
-| — | F-5 | CPU Bottlenecks on Large PDFs | M | ✅ Done | Feedback #5 |
-| — | F-6 | Suppress Subprocess Stderr Warnings | S | ✅ Done | Feedback #6 |
-| — | F-7 | Interval Checkpointing | S | ✅ Done | Feedback #7 |
-| — | F-8 | OCR DPI Mismatch | S | ✅ Done | Feedback #8 |
-| — | F-11 | Auto-Scroll PDF Viewer to Focus | S | 🔀 → Wave 1 (UX) | Feedback #11 |
-| **1** | **W1-UX** | **Touch-First UX + Viewer Scroll Focus** | **M** | ✅ Done | Plan Phase 0 + Feedback #11 |
-| **1** | **W1-COORD** | **Coordinate Mapping for Scans/Rotation** | **M** | ✅ Done | Feedback #10 |
-| **1** | **W1-OVERLAP** | **PDF Annotation Overlap Mitigation** | **M** | ✅ Done | Feedback #9 |
-| **1** | **W1-MATRIX** | **Reviewed State in Matrix View** | **M** | ✅ Done | Feedback #12 |
-| **2** | W2-GOLDEN | Golden-Output Integration Test | M | Todo | Plan Phase 2 |
-| **2** | W2-ORCH | Orchestrator Decomposition | L | Todo | Plan Phase 3 |
-| **2** | W2-ZIP | Exclude Metadata in ZIP Import | S | Todo | Feedback #4 |
-| **2** | W2-TTY | TTY Bypass for CLI Wizards | S | Todo | Feedback #2 |
-| **3** | W3-CLI | Workflow CLI Decomposition | L | Todo | Plan Phase 4 |
-| **3** | W3-CI | GitHub Actions CI | M | Todo | Plan Phase 5 |
-| **3** | W3-HOUSE | Housekeeping (context.md, docs/) | S | Todo | Plan Phase 6 |
-| **4** | W4-UPLOAD | Browser File Upload & Profile Setup | L | Todo | Plan Phase 7 |
-| **4** | W4-EXPORT | Export Feedback & Browser Download | M | Todo | Plan Phase 10 + Feedback #13 |
-| **4** | W4-COST | LLM Cost Breakdown Dashboard | M | Todo | Feedback #14 |
-| **5** | W5-SSE | Server Grading + SSE Progress | L | Todo | Plan Phase 8 |
-| **5** | W5-ANNOT | PDF Annotation Editing (Option C) | L | Todo | Plan Phase 9 |
-| **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Backlog | Feedback #1 |
-| **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Backlog | Feedback #3 |
+| Wave | Task ID | Title | Size | Tier | Status | Origin |
+|:---:|:---:|:---|:---:|:---:|:---:|:---|
+| — | S-1 | Test Hygiene & Gitignore | S | Flash | ✅ Done | Plan Phase 1 |
+| — | F-5 | CPU Bottlenecks on Large PDFs | M | Flash | ✅ Done | Feedback #5 |
+| — | F-6 | Suppress Subprocess Stderr Warnings | S | Flash | ✅ Done | Feedback #6 |
+| — | F-7 | Interval Checkpointing | S | Flash | ✅ Done | Feedback #7 |
+| — | F-8 | OCR DPI Mismatch | S | Flash | ✅ Done | Feedback #8 |
+| — | F-11 | Auto-Scroll PDF Viewer to Focus | S | Flash | 🔀 → Wave 1 (UX) | Feedback #11 |
+| **1** | **W1-UX** | **Touch-First UX + Viewer Scroll Focus** | **M** | **Flash** | ✅ Done | Plan Phase 0 + Feedback #11 |
+| **1** | **W1-COORD** | **Coordinate Mapping for Scans/Rotation** | **M** | **Flash** | ✅ Done | Feedback #10 |
+| **1** | **W1-OVERLAP** | **PDF Annotation Overlap Mitigation** | **M** | **Flash** | ✅ Done | Feedback #9 |
+| **1** | **W1-MATRIX** | **Reviewed State in Matrix View** | **M** | **Flash** | ✅ Done | Feedback #12 |
+| **2** | W2-GOLDEN | Golden-Output Integration Test | M | Flash | Todo | Plan Phase 2 |
+| **2** | W2-ORCH | Orchestrator Decomposition | L | Pro | Todo | Plan Phase 3 |
+| **2** | W2-ZIP | Exclude Metadata in ZIP Import | S | Flash | Todo | Feedback #4 |
+| **2** | W2-TTY | TTY Bypass for CLI Wizards | S | Flash | Todo | Feedback #2 |
+| **3** | W3-CLI | Workflow CLI Decomposition | L | Pro | Todo | Plan Phase 4 |
+| **3** | W3-CI | GitHub Actions CI | M | Flash | Todo | Plan Phase 5 |
+| **3** | W3-HOUSE | Housekeeping (context.md, docs/) | S | Flash | Todo | Plan Phase 6 |
+| **4** | W4-UPLOAD | Browser File Upload & Profile Setup | L | Pro | Todo | Plan Phase 7 |
+| **4** | W4-EXPORT | Export Feedback & Browser Download | M | Flash | Todo | Plan Phase 10 + Feedback #13 |
+| **4** | W4-COST | LLM Cost Breakdown Dashboard | M | Flash | Todo | Feedback #14 |
+| **5** | W5-SSE | Server Grading + SSE Progress | L | Pro | Todo | Plan Phase 8 |
+| **5** | W5-ANNOT | PDF Annotation Editing (Option C) | L | Pro | Todo | Plan Phase 9 |
+| **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
+| **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
 
 ---
 
