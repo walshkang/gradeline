@@ -137,4 +137,12 @@ This document records usability pain points and suggested feature improvements d
 * **Suggested Solution**: Update the summary output logic to aggregate and display details for subparts alongside parent questions, rather than collapsing them or omitting subpart-level resolution metrics.
 * **Status/Roadmap**: *Active Feedback* - To be addressed in CLI/grading updates.
 
+### 16. PDF Annotation Overlap with Student Text
+* **Issue**: PDF annotations (verdicts, grades, and feedback comments) sometimes overlap egregiously with the student's own handwritten or typed text/answers on the document, making both the student's work and the feedback hard to read.
+* **Suggested Solution**: 
+  * Extract text bounding boxes or visual bounding boxes (for scans/handwritten work) around the student's content on the target page.
+  * Adjust annotation placement coords dynamically to sit in the margins, whitespace, or unoccupied space near the target coordinates instead of directly overlaying text elements.
+* **Status/Roadmap**: *Active Feedback* - To be scoped (potentially as part of layout/spacing improvements).
+
+
 
