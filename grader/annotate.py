@@ -45,6 +45,7 @@ def annotate_submission_pdfs(
 
 
     result_map = {item.id: item for item in question_results}
+    placed_rects: dict[int, list[fitz.Rect]] = {}
     rendered: set[str] = set()
     output_paths: list[Path] = []
     placement_details: dict[str, dict[str, object | None]] = {}
@@ -55,6 +56,7 @@ def annotate_submission_pdfs(
     )
 
     for pdf_path in submission.pdf_paths:
+        placed_rects.clear()
         rel_path = pdf_path.relative_to(submissions_root)
         out_path = output_dir / rel_path
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,7 +75,8 @@ def annotate_submission_pdfs(
 
             if render_question_marks:
                 question_fontsize = max(8.0, float(annotation_font_size))
-                for question in rubric.questions:
+                total_questions = len(rubric.questions)
+                for q_idx, question in enumerate(rubric.questions):
                     q_result = result_map.get(question.id)
                     if q_result is None:
                         continue
@@ -81,6 +84,8 @@ def annotate_submission_pdfs(
                         continue
                     if progress_callback is not None:
                         progress_callback(len(rendered) + 1, len(rubric.questions), question.id)
+
+                    fallback_y_ratio = (q_idx + 0.5) / total_questions if total_questions > 0 else 0.5
 
                     if not single_pdf and q_result.source_file:
                         if Path(q_result.source_file).name.lower() != pdf_path.name.lower():
@@ -127,6 +132,7 @@ def annotate_submission_pdfs(
                                     question_id=sub_result.id,
                                     label_patterns=[],
                                     explicit_tokens=[f"{subpart_label})", f"{subpart_label}."],
+                                    fallback_y_ratio=fallback_y_ratio,
                                 )
                                 if sub_anchor:
                                     sub_page_idx, sub_point = sub_anchor
@@ -148,6 +154,7 @@ def annotate_submission_pdfs(
                                                 question_id=question.id,
                                                 label_patterns=question.label_patterns,
                                                 explicit_tokens=question.anchor_tokens,
+                                                fallback_y_ratio=fallback_y_ratio,
                                             )
                                             if parent_anchor:
                                                 parent_page_idx, parent_point = parent_anchor
@@ -173,6 +180,7 @@ def annotate_submission_pdfs(
                                     is_correct=(sub_result.verdict in ("correct", "rounding_error")),
                                     question_id=f"{question.id}.{subpart_label}",
                                     fontsize=sub_fontsize,
+                                    placed_rects=placed_rects,
                                 )
                             else:
                                 all_subparts_rendered = False
@@ -215,6 +223,7 @@ def annotate_submission_pdfs(
                             question_id=question.id,
                             label_patterns=question.label_patterns,
                             explicit_tokens=question.anchor_tokens,
+                            fallback_y_ratio=fallback_y_ratio,
                         )
                         if anchor is None:
                             continue
@@ -230,6 +239,7 @@ def annotate_submission_pdfs(
                         is_correct=(q_result.verdict in ("correct", "rounding_error")),
                         question_id=question.id,
                         fontsize=question_fontsize,
+                        placed_rects=placed_rects,
                     )
                     rendered.add(question.id)
                     placement_details[question.id] = {
@@ -326,7 +336,12 @@ def resolve_model_location(
                 page = doc[page_idx]
                 x = block.left + (block.width / 2.0)
                 y = block.top
-                point = fitz.Point(x, y)
+                point_rot = fitz.Point(x, y)
+                rotation = getattr(page, "rotation", 0)
+                if rotation != 0:
+                    point = point_rot * (~page.rotation_matrix)
+                else:
+                    point = point_rot
                 normalized_coords = point_to_normalized(page, point)
                 # Return placement_source as an extra element so callers can honor it.
                 return page_idx, point, normalized_coords, "block_id"
@@ -356,7 +371,12 @@ def resolve_model_location(
         return None
     x = clamp((x_norm / 1000.0) * page.rect.width, 4.0, max(4.0, page.rect.width - 4.0))
     y = clamp((y_norm / 1000.0) * page.rect.height, 4.0, max(4.0, page.rect.height - 4.0))
-    point = fitz.Point(x, y)
+    point_rot = fitz.Point(x, y)
+    rotation = getattr(page, "rotation", 0)
+    if rotation != 0:
+        point = point_rot * (~page.rotation_matrix)
+    else:
+        point = point_rot
     return page_idx, point, (y_norm, x_norm)
 
 
@@ -371,8 +391,14 @@ def clamp(value: float, lower: float, upper: float) -> float:
 def point_to_normalized(page: "fitz.Page", point: "fitz.Point") -> tuple[float, float]:
     if page.rect.width <= 0 or page.rect.height <= 0:
         return (0.0, 0.0)
-    y = clamp((point.y / page.rect.height) * 1000.0, 0.0, 1000.0)
-    x = clamp((point.x / page.rect.width) * 1000.0, 0.0, 1000.0)
+    rotation = getattr(page, "rotation", 0)
+    if rotation != 0:
+        p_rot = point * page.rotation_matrix
+        y = clamp((p_rot.y / page.rect.height) * 1000.0, 0.0, 1000.0)
+        x = clamp((p_rot.x / page.rect.width) * 1000.0, 0.0, 1000.0)
+    else:
+        y = clamp((point.y / page.rect.height) * 1000.0, 0.0, 1000.0)
+        x = clamp((point.x / page.rect.width) * 1000.0, 0.0, 1000.0)
     return (y, x)
 
 
@@ -413,13 +439,12 @@ def is_literal_pattern(pattern: str) -> bool:
 
 def strip_regex_markers(pattern: str) -> str:
     return pattern.replace(r"\b", "").replace("^", "").replace("$", "").strip()
-
-
 def find_anchor_in_doc(
     doc: "fitz.Document",
     question_id: str,
     label_patterns: list[str],
     explicit_tokens: list[str],
+    fallback_y_ratio: float = 0.5,
 ):
     import fitz
 
@@ -482,7 +507,23 @@ def find_anchor_in_doc(
                 max_priority_found = page_highest_priority
 
     if max_priority_found == 0:
-        return None
+        if len(doc) == 0:
+            return None
+        # Only fallback for text-less (scanned) PDFs to avoid regression on typed PDFs
+        has_text = any(page.get_text().strip() for page in doc)
+        if has_text:
+            return None
+        page_idx = 0
+        page = doc[page_idx]
+        x_rot = page.rect.width - 150.0
+        y_rot = page.rect.height * fallback_y_ratio
+        point_rot = fitz.Point(x_rot, y_rot)
+        rotation = getattr(page, "rotation", 0)
+        if rotation != 0:
+            point = point_rot * (~page.rotation_matrix)
+        else:
+            point = point_rot
+        return page_idx, point
 
     # Filter to pages that match at the highest priority level found in the document
     candidate_pages = [
@@ -493,11 +534,10 @@ def find_anchor_in_doc(
 
     # Prefer the earliest page in the document that has matches at the highest priority level
     best_page_idx = min(candidate_pages)
-    _, page_rects = page_matches[best_page_idx]
+    _, page_rect = page_matches[best_page_idx]
     
     # On that page, prefer the lowest match (largest y0)
-    best_rect = max(page_rects, key=lambda r: r.y0)
-
+    best_rect = max(page_rect, key=lambda r: r.y0)
     page = doc[best_page_idx]
     point = fitz.Point(best_rect.x1 + 6, best_rect.y0 + 10)
     return best_page_idx, point
@@ -551,15 +591,26 @@ def text_annotation_rect_from_baseline(
 ) -> "fitz.Rect":
     import fitz
 
+    rotation = getattr(page, "rotation", 0)
     width = min(
         estimate_text_width(text=text, fontsize=fontsize, minimum=min_width),
         max(24.0, page.rect.width - 8.0),
     )
     # FreeText annotations render with extra inner padding in Preview.
     height = max(20.0, fontsize + 12.0)
-    x0 = clamp(x, 4.0, max(4.0, page.rect.width - width - 4.0))
-    y0 = clamp(y - fontsize, 4.0, max(4.0, page.rect.height - height - 4.0))
-    return fitz.Rect(x0, y0, x0 + width, y0 + height)
+
+    if rotation != 0:
+        p_rot = fitz.Point(x, y) * page.rotation_matrix
+        x0_rot = clamp(p_rot.x, 4.0, max(4.0, page.rect.width - width - 4.0))
+        y0_rot = clamp(p_rot.y - fontsize, 4.0, max(4.0, page.rect.height - height - 4.0))
+        rect_rot = fitz.Rect(x0_rot, y0_rot, x0_rot + width, y0_rot + height)
+        rect_unrot = rect_rot * (~page.rotation_matrix)
+        rect_unrot.normalize()
+        return rect_unrot
+    else:
+        x0 = clamp(x, 4.0, max(4.0, page.rect.width - width - 4.0))
+        y0 = clamp(y - fontsize, 4.0, max(4.0, page.rect.height - height - 4.0))
+        return fitz.Rect(x0, y0, x0 + width, y0 + height)
 
 
 def is_dark_background(page: "fitz.Page", rect: "fitz.Rect") -> bool:
@@ -638,6 +689,65 @@ def add_movable_freetext_annotation(
     )
 
 
+def find_non_overlapping_rect(
+    page: "fitz.Page",
+    candidate_rect: "fitz.Rect",
+    placed_rects_for_page: list["fitz.Rect"],
+    max_nudge_px: float = 200.0,
+) -> "fitz.Rect":
+    import fitz
+
+    current_rect = fitz.Rect(candidate_rect)
+
+    # 1. Downward nudging
+    total_nudge_y = 0.0
+    nudge_step_y = candidate_rect.height + 4.0
+
+    while total_nudge_y <= max_nudge_px:
+        collides = False
+        for r in placed_rects_for_page:
+            if current_rect.intersects(r):
+                collides = True
+                break
+        if not collides:
+            return current_rect
+
+        # Nudge downward
+        current_rect = fitz.Rect(
+            current_rect.x0,
+            current_rect.y0 + nudge_step_y,
+            current_rect.x1,
+            current_rect.y1 + nudge_step_y,
+        )
+        total_nudge_y += nudge_step_y
+
+    # 2. Rightward nudging fallback
+    current_rect = fitz.Rect(candidate_rect)
+    total_nudge_x = 0.0
+    nudge_step_x = 50.0
+
+    while total_nudge_x <= max_nudge_px:
+        collides = False
+        for r in placed_rects_for_page:
+            if current_rect.intersects(r):
+                collides = True
+                break
+        if not collides:
+            return current_rect
+
+        # Nudge rightward
+        current_rect = fitz.Rect(
+            current_rect.x0 + nudge_step_x,
+            current_rect.y0,
+            current_rect.x1 + nudge_step_x,
+            current_rect.y1,
+        )
+        total_nudge_x += nudge_step_x
+
+    # Return original candidate rect if still colliding after all attempts
+    return candidate_rect
+
+
 def insert_mark(
     page: "fitz.Page",
     point: "fitz.Point",
@@ -645,7 +755,10 @@ def insert_mark(
     is_correct: bool,
     question_id: str,
     fontsize: float,
+    placed_rects: dict[int, list[fitz.Rect]] | None = None,
 ) -> None:
+    import fitz
+
     mark_point = offset_mark_point(page=page, point=point)
     fontsize = max(8.0, float(fontsize))
     rect = text_annotation_rect_from_baseline(
@@ -656,6 +769,13 @@ def insert_mark(
         fontsize=fontsize,
         min_width=140.0,
     )
+
+    if placed_rects is not None:
+        page_num = page.number
+        placed_list = placed_rects.setdefault(page_num, [])
+        rect = find_non_overlapping_rect(page, rect, placed_list)
+        placed_list.append(rect)
+        mark_point = fitz.Point(rect.x0, rect.y0 + fontsize)
 
     # Detect background brightness at the location of the mark to prioritize readability
     dark = is_dark_background(page, rect)
@@ -695,13 +815,21 @@ def offset_mark_point(
 ) -> "fitz.Point":
     import fitz
 
-    # Default to layout-aware offsets relative to page size.
-    effective_x_offset = x_offset if x_offset is not None else page.rect.width * ANNOTATION_OFFSET_X_RATIO
-    effective_y_offset = y_offset if y_offset is not None else -(page.rect.height * ANNOTATION_OFFSET_Y_RATIO)
+    rotation = getattr(page, "rotation", 0)
+    if rotation != 0:
+        p_rot = point * page.rotation_matrix
+        effective_x_offset = x_offset if x_offset is not None else page.rect.width * ANNOTATION_OFFSET_X_RATIO
+        effective_y_offset = y_offset if y_offset is not None else -(page.rect.height * ANNOTATION_OFFSET_Y_RATIO)
+        x_rot = clamp(p_rot.x + effective_x_offset, 4.0, max(4.0, page.rect.width - 4.0))
+        y_rot = clamp(p_rot.y + effective_y_offset, 4.0, max(4.0, page.rect.height - 4.0))
+        return fitz.Point(x_rot, y_rot) * (~page.rotation_matrix)
+    else:
+        effective_x_offset = x_offset if x_offset is not None else page.rect.width * ANNOTATION_OFFSET_X_RATIO
+        effective_y_offset = y_offset if y_offset is not None else -(page.rect.height * ANNOTATION_OFFSET_Y_RATIO)
 
-    x = clamp(point.x + effective_x_offset, 4.0, max(4.0, page.rect.width - 4.0))
-    y = clamp(point.y + effective_y_offset, 4.0, max(4.0, page.rect.height - 4.0))
-    return fitz.Point(x, y)
+        x = clamp(point.x + effective_x_offset, 4.0, max(4.0, page.rect.width - 4.0))
+        y = clamp(point.y + effective_y_offset, 4.0, max(4.0, page.rect.height - 4.0))
+        return fitz.Point(x, y)
 
 
 def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False, fontsize: float = 14.0) -> None:

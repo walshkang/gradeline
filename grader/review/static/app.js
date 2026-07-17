@@ -15,6 +15,7 @@
     dragActive: false,
     matrixData: null,
     activeCoords: null,
+    scrollPending: false,
   };
 
   const ui = {
@@ -388,6 +389,7 @@
     }
 
     const question = getCurrentQuestion();
+    let pageChanged = false;
     if (question && question.final) {
       const finalData = question.final;
       state.activeCoords = finalData.coords;
@@ -418,6 +420,8 @@
           ui.pageInput.value = String(targetPageIdx + 1);
         }
         try {
+          pageChanged = true;
+          state.scrollPending = true;
           await loadCurrentPage();
         } catch (error) {
           showToast(error.message, "error");
@@ -426,6 +430,35 @@
     }
 
     renderSubmission();
+    if (!pageChanged) {
+      scrollToMarker();
+    }
+  }
+
+  function scrollToMarker() {
+    const question = getCurrentQuestion();
+    if (!question) return;
+    const coords = state.activeCoords || question.final?.coords;
+    if (!coords || coords.length !== 2) return;
+
+    if (!ui.pageImage.complete || !ui.pageImage.offsetWidth || !ui.pageImage.offsetHeight) {
+      return;
+    }
+
+    const y = Number(coords[0]);
+    const x = Number(coords[1]);
+    const px = ui.pageImage.offsetLeft + (x / 1000) * ui.pageImage.offsetWidth;
+    const py = ui.pageImage.offsetTop + (y / 1000) * ui.pageImage.offsetHeight;
+
+    ui.imageWrap.scrollTo({
+      top: py - ui.imageWrap.clientHeight / 2,
+      left: px - ui.imageWrap.clientWidth / 2,
+      behavior: "smooth"
+    });
+
+    ui.marker.classList.remove("pulse-animation");
+    void ui.marker.offsetWidth; // Force reflow
+    ui.marker.classList.add("pulse-animation");
   }
 
   function renderQuestionNavGrid() {
@@ -540,6 +573,14 @@
       ui.acceptJudgeFixBtn.onclick = () => {
         ui.verdictSelect.value = judgeCritique.proposed_verdict;
         ui.reasonInput.value = judgeCritique.proposed_reason || "";
+        const buttons = document.querySelectorAll("#verdictButtonRow .verdict-btn");
+        buttons.forEach((btn) => {
+          if (btn.dataset.verdict === judgeCritique.proposed_verdict) {
+            btn.classList.add("active");
+          } else {
+            btn.classList.remove("active");
+          }
+        });
         queuePatch({ 
           verdict_final: judgeCritique.proposed_verdict,
           short_reason_final: judgeCritique.proposed_reason || ""
@@ -550,6 +591,14 @@
     }
 
     ui.verdictSelect.value = finalData.verdict || "needs_review";
+    const buttons = document.querySelectorAll("#verdictButtonRow .verdict-btn");
+    buttons.forEach((btn) => {
+      if (btn.dataset.verdict === (finalData.verdict || "needs_review")) {
+        btn.classList.add("active");
+      } else {
+        btn.classList.remove("active");
+      }
+    });
     ui.confidenceInput.value = String(finalData.confidence ?? 0);
     ui.pageNumberInput.value = finalData.page_number || "";
     ui.logicAnalysisInput.value = finalData.logic_analysis || "";
@@ -1062,6 +1111,13 @@
           icon.textContent = "🧪";
           cell.appendChild(icon);
         }
+        if (cellData.reviewed) {
+          cell.classList.add("matrix-cell-reviewed");
+          const badge = document.createElement("span");
+          badge.className = "matrix-reviewed-badge";
+          badge.textContent = "✓";
+          cell.appendChild(badge);
+        }
         
         cell.addEventListener("click", () => showMatrixDetail(student, qId, cellData));
         ui.matrixGrid.appendChild(cell);
@@ -1099,9 +1155,25 @@
         <div class="mdetail-logic">${cellData.logic_analysis || "<em>None</em>"}</div>
       </div>
       <div class="mdetail-actions">
+        <div class="checkbox-container-custom" style="margin-top: 0.5rem; margin-bottom: 0.5rem;">
+          <input type="checkbox" id="mdetailReviewedToggle" ${cellData.reviewed ? "checked" : ""} />
+          <label for="mdetailReviewedToggle">Reviewed</label>
+        </div>
         <button id="mdetailJumpBtn" type="button" class="btn-primary">Jump to Review</button>
       </div>
     `;
+    
+    const reviewedToggle = document.getElementById("mdetailReviewedToggle");
+    reviewedToggle.addEventListener("change", async () => {
+      try {
+        await apiPatch(`/api/submissions/${student.submission_id}/questions/${qId}`, { reviewed_final: reviewedToggle.checked });
+        cellData.reviewed = reviewedToggle.checked;
+        renderMatrix();
+      } catch (err) {
+        showToast(err.message, "error");
+        reviewedToggle.checked = !reviewedToggle.checked;
+      }
+    });
     
     document.getElementById("mdetailJumpBtn").addEventListener("click", () => {
       setTab("review");
@@ -1211,6 +1283,10 @@
       renderMarker();
       const question = getCurrentQuestion();
       updateDebugOverlay(question?.final || null);
+      if (state.scrollPending) {
+        state.scrollPending = false;
+        scrollToMarker();
+      }
     });
 
     window.addEventListener("resize", () => {
@@ -1225,7 +1301,74 @@
       renderSubmission();
     });
 
-    ui.verdictSelect.addEventListener("change", () => queuePatch({ verdict_final: ui.verdictSelect.value }, 150));
+    ui.verdictSelect.addEventListener("change", () => {
+      const val = ui.verdictSelect.value;
+      queuePatch({ verdict_final: val }, 150);
+      const buttons = document.querySelectorAll("#verdictButtonRow .verdict-btn");
+      buttons.forEach((btn) => {
+        if (btn.dataset.verdict === val) {
+          btn.classList.add("active");
+        } else {
+          btn.classList.remove("active");
+        }
+      });
+    });
+
+    const verdictBtns = document.querySelectorAll("#verdictButtonRow .verdict-btn");
+    verdictBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const verdict = btn.dataset.verdict;
+        const question = getCurrentQuestion();
+        if (question) {
+          if (!question.final) {
+            question.final = {};
+          }
+          question.final.verdict = verdict;
+          question.final.reviewed = true;
+          
+          if (ui.verdictSelect) {
+            ui.verdictSelect.value = verdict;
+          }
+          if (ui.questionReviewedCheckbox) {
+            ui.questionReviewedCheckbox.checked = true;
+            ui.questionReviewedCheckbox.disabled = false;
+          }
+
+          const buttons = document.querySelectorAll("#verdictButtonRow .verdict-btn");
+          buttons.forEach((b) => {
+            if (b.dataset.verdict === verdict) {
+              b.classList.add("active");
+            } else {
+              b.classList.remove("active");
+            }
+          });
+
+          renderQuestionNavGrid();
+          queuePatch({ verdict_final: verdict, reviewed_final: true }, 150);
+
+          const autoAdvanceToggle = document.getElementById("autoAdvanceToggle");
+          if (autoAdvanceToggle && autoAdvanceToggle.checked) {
+            const questionIds = Object.keys(state.currentSubmission.questions).sort();
+            const currentIdx = questionIds.indexOf(state.currentQuestionId);
+            let nextQId = null;
+            for (let i = 1; i <= questionIds.length; i++) {
+              const idx = (currentIdx + i) % questionIds.length;
+              const qId = questionIds[idx];
+              const q = state.currentSubmission.questions[qId];
+              if (!q.final || !q.final.reviewed) {
+                nextQId = qId;
+                break;
+              }
+            }
+            if (nextQId) {
+              setTimeout(() => {
+                selectQuestion(nextQId);
+              }, 200);
+            }
+          }
+        }
+      });
+    });
     ui.confidenceInput.addEventListener("input", () =>
       queuePatch({ confidence_final: Number(ui.confidenceInput.value || "0") }, 550)
     );

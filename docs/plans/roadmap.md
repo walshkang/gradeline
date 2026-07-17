@@ -17,10 +17,10 @@ This document is the single source of truth for all planned improvements. It mer
 | — | F-7 | Interval Checkpointing | S | ✅ Done | Feedback #7 |
 | — | F-8 | OCR DPI Mismatch | S | ✅ Done | Feedback #8 |
 | — | F-11 | Auto-Scroll PDF Viewer to Focus | S | 🔀 → Wave 1 (UX) | Feedback #11 |
-| **1** | **W1-UX** | **Touch-First UX + Viewer Scroll Focus** | **M** | Todo | Plan Phase 0 + Feedback #11 |
-| **1** | **W1-COORD** | **Coordinate Mapping for Scans/Rotation** | **M** | Todo | Feedback #10 |
-| **1** | **W1-OVERLAP** | **PDF Annotation Overlap Mitigation** | **M** | Todo | Feedback #9 |
-| **1** | **W1-MATRIX** | **Reviewed State in Matrix View** | **M** | Todo | Feedback #12 |
+| **1** | **W1-UX** | **Touch-First UX + Viewer Scroll Focus** | **M** | ✅ Done | Plan Phase 0 + Feedback #11 |
+| **1** | **W1-COORD** | **Coordinate Mapping for Scans/Rotation** | **M** | ✅ Done | Feedback #10 |
+| **1** | **W1-OVERLAP** | **PDF Annotation Overlap Mitigation** | **M** | ✅ Done | Feedback #9 |
+| **1** | **W1-MATRIX** | **Reviewed State in Matrix View** | **M** | ✅ Done | Feedback #12 |
 | **2** | W2-GOLDEN | Golden-Output Integration Test | M | Todo | Plan Phase 2 |
 | **2** | W2-ORCH | Orchestrator Decomposition | L | Todo | Plan Phase 3 |
 | **2** | W2-ZIP | Exclude Metadata in ZIP Import | S | Todo | Feedback #4 |

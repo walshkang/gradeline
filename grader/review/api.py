@@ -177,6 +177,7 @@ class ReviewApi:
                     "grading_source": final_payload.get("grading_source", ""),
                     "evidence_quote": final_payload.get("evidence_quote", ""),
                     "logic_analysis": final_payload.get("logic_analysis", ""),
+                    "reviewed": bool(final_payload.get("reviewed", False)),
                 }
 
             students.append({

@@ -113,7 +113,14 @@
 
           <label>
             Verdict
-            <select id="verdictSelect">
+            <div id="verdictButtonRow" class="verdict-button-row">
+              <button type="button" class="verdict-btn btn-correct" data-verdict="correct">✓ Correct</button>
+              <button type="button" class="verdict-btn btn-rounding_error" data-verdict="rounding_error">≈ Rounding</button>
+              <button type="button" class="verdict-btn btn-partial" data-verdict="partial">◐ Partial</button>
+              <button type="button" class="verdict-btn btn-incorrect" data-verdict="incorrect">✗ Incorrect</button>
+              <button type="button" class="verdict-btn btn-needs_review" data-verdict="needs_review">⟳ Review</button>
+            </div>
+            <select id="verdictSelect" class="hidden">
               <option value="correct">✓ Correct</option>
               <option value="rounding_error">≈ Rounding Error</option>
               <option value="partial">◐ Partial</option>
@@ -121,6 +128,11 @@
               <option value="needs_review">⟳ Needs Review</option>
             </select>
           </label>
+
+          <div class="checkbox-container-custom" style="margin-top: 0.5rem; margin-bottom: 0.5rem; padding: 0.4rem 0.6rem;">
+            <input type="checkbox" id="autoAdvanceToggle" checked />
+            <label for="autoAdvanceToggle" style="font-weight: normal; font-size: 0.78rem;">Auto-Advance on Verdict</label>
+          </div>
 
           <label>
             Confidence

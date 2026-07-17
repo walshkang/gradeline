@@ -444,6 +444,25 @@ class ReviewApiTests(unittest.TestCase):
             outcomes = payload.get("outcomes", {})
             self.assertEqual(outcomes.get("unmatched_grade_rows"), 1)
 
+    def test_get_matrix_includes_reviewed_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+            api = ReviewApi(output_dir)
+
+            # Get matrix initially — reviewed should be False
+            matrix = api.get_matrix()
+            student_cell = matrix["students"][0]["cells"]["a"]
+            self.assertFalse(student_cell["reviewed"])
+
+            # Patch reviewed_final to True
+            api.patch_question("sub-1", "a", {"reviewed_final": True})
+
+            # Get matrix again — reviewed should be True
+            matrix_updated = api.get_matrix()
+            student_cell_updated = matrix_updated["students"][0]["cells"]["a"]
+            self.assertTrue(student_cell_updated["reviewed"])
+
 
 if __name__ == "__main__":
     unittest.main()
