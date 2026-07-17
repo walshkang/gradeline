@@ -25,9 +25,9 @@ This document is the single source of truth for all planned improvements. It mer
 | **2** | W2-ORCH | Orchestrator Decomposition | L | Pro | ✅ Done | Plan Phase 3 |
 | **2** | W2-ZIP | Exclude Metadata in ZIP Import | S | Flash | ✅ Done | Feedback #4 |
 | **2** | W2-TTY | TTY Bypass for CLI Wizards | S | Flash | ✅ Done | Feedback #2 |
-| **3** | W3-CLI | Workflow CLI Decomposition | L | Pro | Todo | Plan Phase 4 |
-| **3** | W3-CI | GitHub Actions CI | M | Flash | Todo | Plan Phase 5 |
-| **3** | W3-HOUSE | Housekeeping (context.md, docs/) | S | Flash | Todo | Plan Phase 6 |
+| **3** | W3-CLI | Workflow CLI Decomposition | L | Pro | ✅ Done | Plan Phase 4 |
+| **3** | W3-CI | GitHub Actions CI | M | Flash | ✅ Done | Plan Phase 5 |
+| **3** | W3-HOUSE | Housekeeping (context.md, docs/) | S | Flash | ✅ Done | Plan Phase 6 |
 | **4** | W4-UPLOAD | Browser File Upload & Profile Setup | L | Pro | Todo | Plan Phase 7 |
 | **4** | W4-EXPORT | Export Feedback & Browser Download | M | Flash | Todo | Plan Phase 10 + Feedback #13 |
 | **4** | W4-COST | LLM Cost Breakdown Dashboard | M | Flash | Todo | Feedback #14 |

@@ -392,8 +392,8 @@ class WorkflowCliTests(unittest.TestCase):
                     patch("grader.workflow_cli.get_project_root", return_value=root),
                     patch("sys.stdin.isatty", return_value=True),
                     patch("sys.stdout.isatty", return_value=True),
-                    patch("grader.workflow_cli.GeminiGrader", DummyGeminiGrader),
-                    patch("grader.workflow_cli.prompt_select", return_value=0),
+                    patch("grader.workflow.quickstart.GeminiGrader", DummyGeminiGrader),
+                    patch("grader.workflow.quickstart.prompt_select", return_value=0),
                     patch("builtins.input", side_effect=inputs),
                 ):
                     exit_code = main(["setup", "--profile", "a2"])
@@ -435,7 +435,7 @@ class WorkflowCliTests(unittest.TestCase):
             with (
                 pushd(root),
                 patch("grader.workflow_cli.get_project_root", return_value=root),
-                patch("grader.workflow_cli.detect_defaults", return_value=detected),
+                patch("grader.workflow.quickstart.detect_defaults", return_value=detected),
                 patch("sys.stdin.isatty", return_value=True),
                 patch("sys.stdout.isatty", return_value=True),
                 patch("builtins.input", side_effect=[""]),
@@ -459,10 +459,11 @@ class WorkflowCliTests(unittest.TestCase):
             with (
                 pushd(root),
                 patch("grader.workflow_cli.get_project_root", return_value=root),
-                patch("grader.workflow_cli.detect_defaults", return_value=detected),
+                patch("grader.workflow.quickstart.detect_defaults", return_value=detected),
                 patch("sys.stdin.isatty", return_value=True),
                 patch("sys.stdout.isatty", return_value=True),
                 patch("builtins.input", side_effect=[""]),
+                patch("grader.workflow.quickstart.prompt_yes_no", return_value=False),
                 patch("grader.workflow_cli.invoke_grading_main", return_value=0) as grade_mock,
                 patch("grader.workflow_cli.initialize_review_state", return_value=output_dir / "review/review_state.json"),
                 patch("grader.workflow_cli.review_state_status", return_value=("valid", "")),
@@ -556,11 +557,11 @@ class WorkflowCliTests(unittest.TestCase):
             with (
                 pushd(root),
                 patch("grader.workflow_cli.get_project_root", return_value=root),
-                patch("grader.workflow_cli.prompt_yes_no", return_value=True),
-                patch("grader.workflow_cli.prompt_text", return_value="abc1234567890123"),
-                patch("grader.workflow_cli.styled_section_heading"),
-                patch("grader.workflow_cli.styled_info"),
-                patch("grader.workflow_cli.styled_success"),
+                patch("grader.workflow.profile_utils.prompt_yes_no", return_value=True),
+                patch("grader.workflow.profile_utils.prompt_text", return_value="abc1234567890123"),
+                patch("grader.workflow.profile_utils.styled_section_heading"),
+                patch("grader.workflow.profile_utils.styled_info"),
+                patch("grader.workflow.profile_utils.styled_success"),
             ):
                 os.environ.pop("GEMINI_API_KEY", None)
                 exit_code = main(["configure-api-key"])
@@ -610,7 +611,7 @@ class WorkflowCliTests(unittest.TestCase):
             with (
                 pushd(root),
                 patch("grader.workflow_cli.get_project_root", return_value=root),
-                patch("grader.workflow_cli.is_interactive_terminal", return_value=False),
+                patch("grader.workflow.import_cmd.is_interactive_terminal", return_value=False),
             ):
                 exit_code = main(
                     [
@@ -640,7 +641,7 @@ class WorkflowCliTests(unittest.TestCase):
             with (
                 pushd(root),
                 patch("grader.workflow_cli.get_project_root", return_value=root),
-                patch("grader.workflow_cli.is_interactive_terminal", return_value=False),
+                patch("grader.workflow.import_cmd.is_interactive_terminal", return_value=False),
                 patch("sys.stdout", stdout),
             ):
                 exit_code = main(
@@ -674,7 +675,7 @@ class WorkflowCliTests(unittest.TestCase):
             with (
                 pushd(root),
                 patch("grader.workflow_cli.get_project_root", return_value=root),
-                patch("grader.workflow_cli.is_interactive_terminal", return_value=False),
+                patch("grader.workflow.import_cmd.is_interactive_terminal", return_value=False),
             ):
                 exit_code = main(
                     [
@@ -735,12 +736,12 @@ class WorkflowCliTests(unittest.TestCase):
             with (
                 pushd(root),
                 patch("grader.workflow_cli.get_project_root", return_value=root),
-                patch("grader.workflow_cli.detect_defaults", return_value=blank_detected),
+                patch("grader.workflow.quickstart.detect_defaults", return_value=blank_detected),
                 patch("grader.workflow_cli.is_interactive_terminal", return_value=True),
                 patch("sys.stdin.isatty", return_value=True),
                 patch("sys.stdout.isatty", return_value=True),
                 patch("builtins.input", side_effect=[""]),  # Accept running setup wizard
-                patch("grader.workflow_cli.setup_profile_interactive", return_value=0) as setup_mock,
+                patch("grader.workflow.quickstart.setup_profile_interactive", return_value=0) as setup_mock,
             ):
                 exit_code = main(["quickstart", "--profile", "a2", "--overwrite"])
 
@@ -836,7 +837,7 @@ questions:
 
 
     def test_maybe_generate_rubric_with_ai_prints_regex_and_runs_proof(self) -> None:
-        from grader.workflow_cli import maybe_generate_rubric_with_ai
+        from grader.workflow.quickstart import maybe_generate_rubric_with_ai
         from grader.types import SubmissionUnit, SubmissionResult
         
         with tempfile.TemporaryDirectory() as tmp:
@@ -891,16 +892,16 @@ questions:
             stderr = io.StringIO()
             with (
                 pushd(root),
-                patch("grader.workflow_cli.GeminiGrader", DummyGeminiGrader),
+                patch("grader.workflow.quickstart.GeminiGrader", DummyGeminiGrader),
                 patch("sys.stdout", stdout),
                 patch("sys.stderr", stderr),
                 patch("sys.stdout.isatty", return_value=True),
                 patch("sys.stdin.isatty", return_value=True),
-                patch("grader.workflow_cli.prompt_select", return_value=0),  # Accept
+                patch("grader.workflow.quickstart.prompt_select", return_value=0),  # Accept
                 patch("grader.orchestrator.Orchestrator") as orch_mock,
                 patch("grader.workflow_cli.styled_error") as error_mock,
                 patch("grader.workflow_cli.styled_warning") as warn_mock,
-                patch("grader.workflow_cli.prompt_yes_no", side_effect=[True, False]),
+                patch("grader.workflow.quickstart.prompt_yes_no", side_effect=[True, False]),
             ):
                 from grader.types import GradeResult, QuestionResult
                 grade_res = GradeResult(
@@ -977,7 +978,7 @@ questions:
                 z.writestr("student1/image.png", "Mock PNG")
 
             # Call extraction
-            from grader.workflow_cli import _extract_brightspace_zip
+            from grader.workflow.import_cmd import _extract_brightspace_zip
             extracted_path = _extract_brightspace_zip(zip_path, "test_prof", tmp_root)
             
             # Check what was extracted
@@ -1022,7 +1023,7 @@ questions:
             with (
                 pushd(root),
                 patch("grader.workflow_cli.get_project_root", return_value=root),
-                patch("grader.workflow_cli.detect_defaults", return_value=detected),
+                patch("grader.workflow.quickstart.detect_defaults", return_value=detected),
             ):
                 exit_code = main(["quickstart", "--profile", "a2", "--no-run", "--non-interactive", "--overwrite"])
 

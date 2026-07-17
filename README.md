@@ -1,5 +1,7 @@
 # Gemini-Backed Brightspace Grader
 
+[![Tests](https://github.com/walshkang/gradeline/actions/workflows/test.yml/badge.svg)](https://github.com/walshkang/gradeline/actions/workflows/test.yml)
+
 This tool grades Brightspace PDF submissions with Gemini, annotates PDFs with movable/editable FreeText annotations (green checks/red `x` marks), and builds CSV outputs for grade import and review.
 
 It is specifically optimized for instructors using **D2L Brightspace** who download PDF submissions and want a repeatable, profile-based grading workflow with a built-in review web app. It natively understands Brightspace's "Download All" ZIP structure, auto-detects `OrgDefinedId` or usernames, and outputs import-ready CSVs that match the Brightspace gradebook format.
