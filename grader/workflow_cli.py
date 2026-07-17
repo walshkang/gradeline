@@ -204,6 +204,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     setup_parser.add_argument("--profile", required=True)
     setup_parser.add_argument("--overwrite", action="store_true")
+    setup_parser.add_argument(
+        "--non-interactive",
+        "--yes",
+        "-y",
+        action="store_true",
+        dest="non_interactive",
+        help="Bypass interactive prompts and use default configuration values.",
+    )
 
     quickstart_parser = subparsers.add_parser(
         "quickstart",
@@ -213,6 +221,14 @@ def build_parser() -> argparse.ArgumentParser:
     quickstart_parser.add_argument("--no-run", action="store_true")
     quickstart_parser.add_argument("--overwrite", action="store_true")
     quickstart_parser.add_argument("--force", action="store_true", help="Alias for --overwrite")
+    quickstart_parser.add_argument(
+        "--non-interactive",
+        "--yes",
+        "-y",
+        action="store_true",
+        dest="non_interactive",
+        help="Bypass interactive prompts and use detected/default configuration values.",
+    )
 
     import_parser = subparsers.add_parser(
         "import",
@@ -572,6 +588,7 @@ def main(argv: list[str] | None = None) -> int:
                 exit_code = setup_profile_interactive(
                     profile_spec=profile,
                     overwrite=getattr(args, "overwrite", False),
+                    non_interactive=getattr(args, "non_interactive", False),
                 )
             elif command == "quickstart":
                 profile = getattr(args, "profile", None) or prompt_profile_interactive()
@@ -581,6 +598,7 @@ def main(argv: list[str] | None = None) -> int:
                     profile_spec=profile,
                     overwrite=bool(getattr(args, "overwrite", False) or getattr(args, "force", False)),
                     auto_run=not bool(getattr(args, "no_run", False)),
+                    non_interactive=getattr(args, "non_interactive", False),
                 )
             elif command == "list":
                 exit_code = list_profiles()
@@ -1120,6 +1138,21 @@ def _extract_brightspace_zip(zip_path: Path, profile_name: str, data_root: Path)
         styled_warning(f"Failed to extract ZIP {zip_path}: {exc}")
         return temp_root
 
+    # Delete D2L metadata and hidden files/folders recursively (bottom-up)
+    for root, dirs, files in os.walk(temp_root, topdown=False):
+        for name in files:
+            if name.lower() in ("index.html", "index.htm", "index.txt") or name.startswith("."):
+                try:
+                    (Path(root) / name).unlink()
+                except Exception:
+                    pass
+        for name in dirs:
+            if name.startswith("."):
+                try:
+                    shutil.rmtree(Path(root) / name)
+                except Exception:
+                    pass
+
     # Many Brightspace zips contain student folders directly at the root.
     return temp_root
 
@@ -1199,8 +1232,8 @@ def prompt_missing_profile_bootstrap_choice() -> str:
     return ["quickstart", "setup", "abort"][idx]
 
 
-def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_run: bool) -> int:
-    if not is_interactive_terminal():
+def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_run: bool, non_interactive: bool = False) -> int:
+    if not non_interactive and not is_interactive_terminal():
         styled_error("quickstart requires an interactive terminal (TTY).")
         return 2
 
@@ -1209,6 +1242,9 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
     profile_path.parent.mkdir(parents=True, exist_ok=True)
 
     if profile_path.exists() and not overwrite:
+        if non_interactive:
+            styled_warning(f"Profile already exists at {profile_path} and --overwrite was not specified. Aborting.")
+            raise AbortToMenu
         if not prompt_yes_no(f"Profile already exists at {profile_path}. Overwrite?", default=False):
             styled_warning("Aborted.")
             raise AbortToMenu
@@ -1241,7 +1277,7 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
             f"  3. Point to files anywhere with the setup wizard: "
             f"`./gradeline setup --profile {profile_spec}`."
         )
-        if is_interactive_terminal():
+        if not non_interactive and is_interactive_terminal():
             raw = input(
                 "Press Enter to run the guided setup wizard now, or type q to abort: "
             ).strip().lower()
@@ -1254,32 +1290,40 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
 
     values, candidates, metadata = initialize_quickstart_state(detected)
 
-    while True:
-        render_quickstart_summary(values=values, metadata=metadata)
-        raw = input("Enter to accept, field # to edit, q to abort: ").strip()
-        if raw.lower() == "q":
-            styled_warning("Aborted.")
-            raise AbortToMenu
-        if raw == "":
-            errors = validate_quickstart_values(values)
-            if errors:
-                styled_warning("Fix required fields before continuing:")
-                for error in errors:
-                    styled_warning(f"  • {error}")
+    if not non_interactive:
+        while True:
+            render_quickstart_summary(values=values, metadata=metadata)
+            raw = input("Enter to accept, field # to edit, q to abort: ").strip()
+            if raw.lower() == "q":
+                styled_warning("Aborted.")
+                raise AbortToMenu
+            if raw == "":
+                errors = validate_quickstart_values(values)
+                if errors:
+                    styled_warning("Fix required fields before continuing:")
+                    for error in errors:
+                        styled_warning(f"  • {error}")
+                    continue
+                break
+
+            try:
+                index = int(raw)
+            except ValueError:
+                styled_warning("Please enter a valid field number.")
                 continue
-            break
+            if index < 1 or index > len(QUICKSTART_FIELDS):
+                styled_warning(f"Please choose 1..{len(QUICKSTART_FIELDS)}.")
+                continue
 
-        try:
-            index = int(raw)
-        except ValueError:
-            styled_warning("Please enter a valid field number.")
-            continue
-        if index < 1 or index > len(QUICKSTART_FIELDS):
-            styled_warning(f"Please choose 1..{len(QUICKSTART_FIELDS)}.")
-            continue
-
-        field = QUICKSTART_FIELDS[index - 1]
-        edit_quickstart_field(field=field, values=values, candidates=candidates, metadata=metadata, cwd=cwd)
+            field = QUICKSTART_FIELDS[index - 1]
+            edit_quickstart_field(field=field, values=values, candidates=candidates, metadata=metadata, cwd=cwd)
+    else:
+        errors = validate_quickstart_values(values)
+        if errors:
+            styled_warning("Validation errors in detected configuration:")
+            for error in errors:
+                styled_warning(f"  • {error}")
+            return 2
 
     rubric_path = values["rubric_yaml"]
     if not isinstance(rubric_path, Path):
@@ -1288,7 +1332,7 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
         # First, attempt AI-assisted draft generation (interactive)
         solutions_pdf = values.get("solutions_pdf")
         generated = False
-        if isinstance(solutions_pdf, Path) and solutions_pdf.exists() and solutions_pdf.is_file():
+        if not non_interactive and isinstance(solutions_pdf, Path) and solutions_pdf.exists() and solutions_pdf.is_file():
             if is_interactive_terminal() and prompt_yes_no("Convert solution key into rubric using AI?", default=True):
                 try:
                     generated = maybe_generate_rubric_with_ai(solutions_pdf=solutions_pdf, rubric_yaml=rubric_path, profile_name=profile_path.stem)
@@ -1301,7 +1345,9 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
             project_root = get_project_root()
             sample_path = (project_root / "configs" / "_templates" / "rubric_sample.yaml").resolve()
             sample_prompt = (project_root / "configs" / "_templates" / "rubric_chat_prompt.txt").resolve()
-            if is_interactive_terminal():
+            if non_interactive:
+                choice = "Create starter rubric"
+            elif is_interactive_terminal():
                 choices = ["Create starter rubric", "Use sample template", "Skip (create later)"]
                 idx = prompt_select(f"Rubric not found at {rubric_path}. Choose how to create one:", choices, default=0)
                 if idx is None:
@@ -1325,21 +1371,27 @@ def quickstart_profile_interactive(*, profile_spec: str, overwrite: bool, auto_r
                     choice = "Create starter rubric"
 
             if choice == "Create starter rubric":
-                assignment_id = prompt_text("Assignment ID", default=profile_path.stem, required=True)
-                inferred = list(detected.prior_rubric_question_ids) or list(default_question_ids())
-                default_qids = ",".join(inferred)
-                question_ids_raw = prompt_text(
-                    "Question IDs (comma-separated, e.g. a,b,c,d)",
-                    default=default_qids,
-                    required=True,
-                )
+                if non_interactive:
+                    assignment_id = profile_path.stem
+                    inferred = list(detected.prior_rubric_question_ids) or list(default_question_ids())
+                    question_ids_raw = ",".join(inferred)
+                else:
+                    assignment_id = prompt_text("Assignment ID", default=profile_path.stem, required=True)
+                    inferred = list(detected.prior_rubric_question_ids) or list(default_question_ids())
+                    default_qids = ",".join(inferred)
+                    question_ids_raw = prompt_text(
+                        "Question IDs (comma-separated, e.g. a,b,c,d)",
+                        default=default_qids,
+                        required=True,
+                    )
                 question_ids = parse_question_ids(question_ids_raw)
                 write_starter_rubric(rubric_path, assignment_id=assignment_id, question_ids=question_ids)
                 styled_success(f"Created starter rubric: {rubric_path}")
-                styled_info("Rubric checklist:")
-                styled_info("  • Update scoring_rules per question.")
-                styled_info("  • Confirm label_patterns and anchor_tokens match your answer key.")
-                styled_info("  • Verify bands thresholds for your class policy.")
+                if not non_interactive:
+                    styled_info("Rubric checklist:")
+                    styled_info("  • Update scoring_rules per question.")
+                    styled_info("  • Confirm label_patterns and anchor_tokens match your answer key.")
+                    styled_info("  • Verify bands thresholds for your class policy.")
             else:
                 styled_warning(f"No rubric created at {rubric_path}. You can add one later with `./gradeline setup --profile {profile_path.stem}`.")
 
@@ -1797,42 +1849,52 @@ def list_profiles() -> int:
     return 0
 
 
-def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
+def setup_profile_interactive(*, profile_spec: str, overwrite: bool, non_interactive: bool = False) -> int:
     project_root = get_project_root()
     profile_path = resolve_profile_path(profile_spec, cwd=project_root, profile_dir=DEFAULT_PROFILE_DIR)
     profile_path.parent.mkdir(parents=True, exist_ok=True)
 
     if profile_path.exists() and not overwrite:
+        if non_interactive:
+            styled_warning(f"Profile already exists at {profile_path} and --overwrite was not specified. Aborting.")
+            raise AbortToMenu
         if not prompt_yes_no(f"Profile already exists at {profile_path}. Overwrite?", default=False):
             styled_warning("Aborted.")
             raise AbortToMenu
 
     profile_name = profile_path.stem
     styled_banner(f"Configuring profile: {profile_name}", str(profile_path))
-    styled_info("Press Ctrl+C at any prompt to return to the main menu.")
+    if not non_interactive:
+        styled_info("Press Ctrl+C at any prompt to return to the main menu.")
 
     default_data_root = project_root / "data" / profile_name
 
-    submissions_dir = prompt_path(
-        "Submissions directory (folder containing all downloaded student PDFs)",
-        default=str(default_data_root / "submissions"),
-        required=True,
-        cwd=project_root,
-    )
-    solutions_pdf = prompt_path(
-        "Solutions PDF (the master answer key used to grade against)",
-        default=str(default_data_root / "solutions.pdf"),
-        required=True,
-        cwd=project_root,
-    )
+    if non_interactive:
+        submissions_dir = normalize_user_path(str(default_data_root / "submissions"), cwd=project_root)
+        solutions_pdf = normalize_user_path(str(default_data_root / "solutions.pdf"), cwd=project_root)
+        default_rubric = (project_root / "configs" / f"{profile_name}.yaml").resolve()
+        rubric_yaml = normalize_user_path(str(default_rubric), cwd=project_root)
+    else:
+        submissions_dir = prompt_path(
+            "Submissions directory (folder containing all downloaded student PDFs)",
+            default=str(default_data_root / "submissions"),
+            required=True,
+            cwd=project_root,
+        )
+        solutions_pdf = prompt_path(
+            "Solutions PDF (the master answer key used to grade against)",
+            default=str(default_data_root / "solutions.pdf"),
+            required=True,
+            cwd=project_root,
+        )
 
-    default_rubric = (project_root / "configs" / f"{profile_name}.yaml").resolve()
-    rubric_yaml = prompt_path(
-        "Rubric YAML path (rules and point weights for grading)",
-        default=str(default_rubric),
-        required=True,
-        cwd=project_root,
-    )
+        default_rubric = (project_root / "configs" / f"{profile_name}.yaml").resolve()
+        rubric_yaml = prompt_path(
+            "Rubric YAML path (rules and point weights for grading)",
+            default=str(default_rubric),
+            required=True,
+            cwd=project_root,
+        )
     # Always offer AI rubric generation; maybe_generate_rubric_with_ai handles
     # the "rubric already exists → overwrite?" prompt internally.
     _ = maybe_generate_rubric_with_ai(
@@ -1851,43 +1913,57 @@ def setup_profile_interactive(*, profile_spec: str, overwrite: bool) -> int:
             rubric_valid = False
 
     if not rubric_valid:
-        if rubric_yaml.exists():
-            starter_prompt = (
-                f"Rubric exists at {rubric_yaml} but is not valid. Overwrite with a starter rubric now?"
-            )
-        else:
-            starter_prompt = f"Rubric not found at {rubric_yaml}. Create a starter rubric now?"
+        use_starter = True
+        if not non_interactive:
+            if rubric_yaml.exists():
+                starter_prompt = (
+                    f"Rubric exists at {rubric_yaml} but is not valid. Overwrite with a starter rubric now?"
+                )
+            else:
+                starter_prompt = f"Rubric not found at {rubric_yaml}. Create a starter rubric now?"
+            use_starter = prompt_yes_no(starter_prompt, default=True)
 
-        if prompt_yes_no(starter_prompt, default=True):
-            assignment_id = prompt_text("Assignment ID", default=profile_name, required=True)
-            question_ids_raw = prompt_text(
-                "Question IDs (comma-separated, e.g. a,b,c,d)",
-                default="a,b,c,d,e",
-                required=True,
-            )
+        if use_starter:
+            if non_interactive:
+                assignment_id = profile_name
+                question_ids_raw = "a,b,c,d,e"
+            else:
+                assignment_id = prompt_text("Assignment ID", default=profile_name, required=True)
+                question_ids_raw = prompt_text(
+                    "Question IDs (comma-separated, e.g. a,b,c,d)",
+                    default="a,b,c,d,e",
+                    required=True,
+                )
             question_ids = parse_question_ids(question_ids_raw)
             write_starter_rubric(rubric_yaml, assignment_id=assignment_id, question_ids=question_ids)
             styled_success(f"Created starter rubric: {rubric_yaml}")
 
-    grades_template_csv = prompt_path(
-        "Brightspace grades template CSV (exported from your course to map grades)",
-        default=str(default_data_root / "grades.csv"),
-        required=True,
-        cwd=project_root,
-    )
-    grade_column = prompt_text(
-        "Grade column header (the exact name of the column in the CSV to write grades to)",
-        default="Assignment 2 Points Grade",
-        required=True,
-    )
-    output_dir = prompt_path(
-        "Output directory",
-        default=str((project_root / "outputs" / profile_name).resolve()),
-        required=True,
-        cwd=project_root,
-    )
-    host = prompt_text("Review host", default=DEFAULT_REVIEW_HOST, required=True)
-    port = prompt_int("Review port", default=DEFAULT_REVIEW_PORT, minimum=1, maximum=65535)
+    if non_interactive:
+        grades_template_csv = normalize_user_path(str(default_data_root / "grades.csv"), cwd=project_root)
+        grade_column = "Assignment 2 Points Grade"
+        output_dir = normalize_user_path(str((project_root / "outputs" / profile_name).resolve()), cwd=project_root)
+        host = DEFAULT_REVIEW_HOST
+        port = DEFAULT_REVIEW_PORT
+    else:
+        grades_template_csv = prompt_path(
+            "Brightspace grades template CSV (exported from your course to map grades)",
+            default=str(default_data_root / "grades.csv"),
+            required=True,
+            cwd=project_root,
+        )
+        grade_column = prompt_text(
+            "Grade column header (the exact name of the column in the CSV to write grades to)",
+            default="Assignment 2 Points Grade",
+            required=True,
+        )
+        output_dir = prompt_path(
+            "Output directory",
+            default=str((project_root / "outputs" / profile_name).resolve()),
+            required=True,
+            cwd=project_root,
+        )
+        host = prompt_text("Review host", default=DEFAULT_REVIEW_HOST, required=True)
+        port = prompt_int("Review port", default=DEFAULT_REVIEW_PORT, minimum=1, maximum=65535)
 
     profile_text = render_profile_toml(
         submissions_dir=submissions_dir,

@@ -11,7 +11,7 @@ from grader.extract import (
     deserialize_extracted_pdf,
     EXTRACTION_VERSION,
 )
-from grader.orchestrator import GradingConfig, Orchestrator
+from grader.orchestrator import GradingConfig, Orchestrator, compute_submission_pdf_hash
 from grader.types import SubmissionUnit, ExtractedPdf, TextBlock, SubmissionResult, GradeResult
 from tests.test_score import make_rubric
 
@@ -82,7 +82,7 @@ class TestOrchestratorCache(unittest.TestCase):
         self.assertEqual(deserialized.blocks[0].confidence, 95.0)
 
     @patch("grader.orchestrator.annotate_submission_pdfs")
-    @patch("grader.orchestrator.extract_pdf_text")
+    @patch("grader.preprocessing.extract_pdf_text")
     @patch("grader.orchestrator.grade_one_submission")
     def test_orchestrator_caching_and_bypass(
         self,
@@ -161,7 +161,7 @@ class TestOrchestratorCache(unittest.TestCase):
         self.assertEqual(mock_extract.call_count, 1)
         
         # Verify cache file was written
-        pdf_hash = orchestrator.compute_submission_pdf_hash([self.pdf_file])
+        pdf_hash = compute_submission_pdf_hash([self.pdf_file])
         composite_key = f"{pdf_hash}_{EXTRACTION_VERSION}"
         cache_file = self.cache_dir / "preprocessing" / f"{composite_key}.json"
         self.assertTrue(cache_file.exists())

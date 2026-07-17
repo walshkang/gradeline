@@ -960,6 +960,81 @@ questions:
             self.assertIn("Running proof on", clean_rendered)
             self.assertIn("Dry-Run Proof: 123 - Bob", clean_rendered)
 
+    def test_extract_brightspace_zip_excludes_metadata(self) -> None:
+        import zipfile
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            zip_path = tmp_root / "brightspace_export.zip"
+            
+            # Create a mock Brightspace zip containing some student directories, index.html, index.txt, and hidden files
+            with zipfile.ZipFile(zip_path, "w") as z:
+                z.writestr("index.html", "<html>Mock root index</html>")
+                z.writestr("index.txt", "Mock text file")
+                z.writestr(".hidden_file", "Mock hidden")
+                z.writestr("student1/submission.pdf", "%PDF-1.4")
+                z.writestr("student1/index.html", "<html>Mock student index</html>")
+                z.writestr("student1/.hidden_student", "Mock student hidden")
+                z.writestr("student1/image.png", "Mock PNG")
+
+            # Call extraction
+            from grader.workflow_cli import _extract_brightspace_zip
+            extracted_path = _extract_brightspace_zip(zip_path, "test_prof", tmp_root)
+            
+            # Check what was extracted
+            extracted_files = [str(p.relative_to(extracted_path)) for p in extracted_path.rglob("*")]
+            
+            # index.html, index.txt, .hidden_file, student1/index.html, student1/.hidden_student should NOT exist
+            self.assertNotIn("index.html", extracted_files)
+            self.assertNotIn("index.txt", extracted_files)
+            self.assertNotIn(".hidden_file", extracted_files)
+            self.assertNotIn("student1/index.html", extracted_files)
+            self.assertNotIn("student1/.hidden_student", extracted_files)
+            
+            # student1/submission.pdf and student1/image.png SHOULD exist
+            self.assertIn("student1/submission.pdf", extracted_files)
+            self.assertIn("student1/image.png", extracted_files)
+
+    def test_setup_non_interactive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
+            ):
+                exit_code = main(["setup", "--profile", "test_setup", "--non-interactive"])
+            
+            self.assertEqual(exit_code, 0)
+            profile_path = root / ".manual_runs" / "profiles" / "test_setup.toml"
+            rubric_path = root / "configs" / "test_setup.yaml"
+            self.assertTrue(profile_path.exists())
+            self.assertTrue(rubric_path.exists())
+            
+            profile = load_workflow_profile("test_setup", cwd=root)
+            self.assertEqual(profile.grade.submissions_dir, (root / "data" / "test_setup" / "submissions").resolve())
+            self.assertEqual(profile.grade.solutions_pdf, (root / "data" / "test_setup" / "solutions.pdf").resolve())
+            self.assertEqual(profile.grade.rubric_yaml, rubric_path.resolve())
+            self.assertEqual(profile.grade.grade_column, "Assignment 2 Points Grade")
+
+    def test_quickstart_non_interactive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            detected = make_detected_config(root, rubric_exists=False)
+            with (
+                pushd(root),
+                patch("grader.workflow_cli.get_project_root", return_value=root),
+                patch("grader.workflow_cli.detect_defaults", return_value=detected),
+            ):
+                exit_code = main(["quickstart", "--profile", "a2", "--no-run", "--non-interactive", "--overwrite"])
+
+            self.assertEqual(exit_code, 0)
+            profile_path = root / ".manual_runs" / "profiles" / "a2.toml"
+            self.assertTrue(profile_path.exists())
+            rubric_path = root / "configs" / "a2.yaml"
+            self.assertTrue(rubric_path.exists())
+            
+            profile = load_workflow_profile("a2", cwd=root)
+            self.assertEqual(profile.grade.grade_column, "Assignment 2 Points Grade <Numeric MaxPoints:2>")
+
 class WorkflowDetectDataTests(unittest.TestCase):
     def test_detect_defaults_prefers_data_directory_over_downloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -268,8 +268,8 @@ def test_precheck_optimizes_llm_grading():
         ocr_char_count=100,
     )
     
-    with patch("grader.orchestrator.extract_pdf_text", return_value=extracted), \
-         patch("grader.orchestrator.score_submission") as mock_score:
+    with patch("grader.grading.extract_pdf_text", return_value=extracted), \
+         patch("grader.grading.score_submission") as mock_score:
          
         mock_score.return_value = MagicMock()
         

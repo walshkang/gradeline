@@ -1,0 +1,31 @@
+assignment_id: "sample_assignment"
+scoring_mode: "equal_weights"
+partial_credit: 0.5
+bands:
+  check_plus_min: 0.85
+  check_min: 0.67
+questions:
+  - id: "q1"
+    label_patterns: ["q1", "q1)", "question 1"]
+    anchor_tokens: ["q1)"]
+    scoring_rules: "Answer must be 4"
+    short_note_pass: "Correct"
+    short_note_fail: "Should be 4"
+    expected_answers: ["Answer: 4"]
+    weight: 1.0
+  - id: "q2"
+    label_patterns: ["q2", "q2)", "question 2"]
+    anchor_tokens: ["q2)"]
+    scoring_rules: "Answer must be 50"
+    short_note_pass: "Correct"
+    short_note_fail: "Should be 50"
+    expected_answers: ["Answer: 50"]
+    weight: 1.0
+  - id: "q3"
+    label_patterns: ["q3", "q3)", "question 3"]
+    anchor_tokens: ["q3)"]
+    scoring_rules: "Answer must be 25"
+    short_note_pass: "Correct"
+    short_note_fail: "Should be 25"
+    expected_answers: ["Answer: 25"]
+    weight: 1.0

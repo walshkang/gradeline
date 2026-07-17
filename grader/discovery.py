@@ -9,7 +9,7 @@ from .types import JsonDict, SubmissionUnit
 
 def discover_submission_units(submissions_dir: Path) -> list[SubmissionUnit]:
     units: list[SubmissionUnit] = []
-    for folder in sorted([p for p in submissions_dir.iterdir() if p.is_dir()], key=lambda p: p.name.lower()):
+    for folder in sorted([p for p in submissions_dir.iterdir() if p.is_dir() and not p.name.startswith(".")], key=lambda p: p.name.lower()):
         pdfs = sorted(folder.rglob("*.pdf"), key=lambda p: str(p.relative_to(folder)).lower())
         if not pdfs:
             convert_non_pdf_files_to_pdf(folder)
@@ -84,8 +84,13 @@ def convert_non_pdf_files_to_pdf(folder: Path) -> None:
     import zipfile
     import xml.etree.ElementTree as ET
 
-    # Get non-PDF files
-    all_files = [p for p in folder.iterdir() if p.is_file() and not p.name.startswith(".")]
+    # Get non-PDF files, excluding metadata
+    all_files = [
+        p for p in folder.iterdir()
+        if p.is_file()
+        and not p.name.startswith(".")
+        and p.name.lower() not in ("index.html", "index.htm", "index.txt")
+    ]
     
     # Process images
     images = [p for p in all_files if p.suffix.lower() in (".png", ".jpg", ".jpeg")]

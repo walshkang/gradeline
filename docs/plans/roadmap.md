@@ -21,10 +21,10 @@ This document is the single source of truth for all planned improvements. It mer
 | **1** | **W1-COORD** | **Coordinate Mapping for Scans/Rotation** | **M** | **Flash** | ✅ Done | Feedback #10 |
 | **1** | **W1-OVERLAP** | **PDF Annotation Overlap Mitigation** | **M** | **Flash** | ✅ Done | Feedback #9 |
 | **1** | **W1-MATRIX** | **Reviewed State in Matrix View** | **M** | **Flash** | ✅ Done | Feedback #12 |
-| **2** | W2-GOLDEN | Golden-Output Integration Test | M | Flash | Todo | Plan Phase 2 |
-| **2** | W2-ORCH | Orchestrator Decomposition | L | Pro | Todo | Plan Phase 3 |
-| **2** | W2-ZIP | Exclude Metadata in ZIP Import | S | Flash | Todo | Feedback #4 |
-| **2** | W2-TTY | TTY Bypass for CLI Wizards | S | Flash | Todo | Feedback #2 |
+| **2** | W2-GOLDEN | Golden-Output Integration Test | M | Flash | ✅ Done | Plan Phase 2 |
+| **2** | W2-ORCH | Orchestrator Decomposition | L | Pro | ✅ Done | Plan Phase 3 |
+| **2** | W2-ZIP | Exclude Metadata in ZIP Import | S | Flash | ✅ Done | Feedback #4 |
+| **2** | W2-TTY | TTY Bypass for CLI Wizards | S | Flash | ✅ Done | Feedback #2 |
 | **3** | W3-CLI | Workflow CLI Decomposition | L | Pro | Todo | Plan Phase 4 |
 | **3** | W3-CI | GitHub Actions CI | M | Flash | Todo | Plan Phase 5 |
 | **3** | W3-HOUSE | Housekeeping (context.md, docs/) | S | Flash | Todo | Plan Phase 6 |
