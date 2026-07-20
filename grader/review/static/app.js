@@ -31,6 +31,13 @@
     searchInput: document.getElementById("searchInput"),
     refreshBtn: document.getElementById("refreshBtn"),
     exportBtn: document.getElementById("exportBtn"),
+    exportDropdown: document.getElementById("exportDropdown"),
+    exportMenu: document.getElementById("exportMenu"),
+    exportCsvBtn: document.getElementById("exportCsvBtn"),
+    exportAuditBtn: document.getElementById("exportAuditBtn"),
+    exportPdfsBtn: document.getElementById("exportPdfsBtn"),
+    exportBundleBtn: document.getElementById("exportBundleBtn"),
+    exportServerBtn: document.getElementById("exportServerBtn"),
     runOutcomeSummary: document.getElementById("runOutcomeSummary"),
     docSourceSelect: document.getElementById("docSourceSelect"),
     docSelect: document.getElementById("docSelect"),
@@ -1255,22 +1262,83 @@
       await selectSubmission(state.currentSubmission.submission_id);
     });
 
-    ui.exportBtn.addEventListener("click", async () => {
-      await flushPatch();
-      await flushNote();
-      try {
-        const result = await apiPost("/api/export", {});
-        const artifacts = result.artifacts || {};
-        const count = Object.keys(artifacts).length;
-        const reviewedFolder = artifacts["Reviewed PDFs folder"];
-        showToast(`Export complete — ${count} artifacts written.`, "success");
-        if (reviewedFolder) {
-          setStatus(`Reviewed PDFs: ${reviewedFolder}`);
-        }
-      } catch (e) {
-        showToast(`Export failed: ${e.message}`, "error");
+    ui.exportBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (ui.exportMenu) {
+        ui.exportMenu.classList.toggle("hidden");
       }
     });
+
+    document.addEventListener("click", (e) => {
+      if (ui.exportDropdown && !ui.exportDropdown.contains(e.target) && ui.exportMenu) {
+        ui.exportMenu.classList.add("hidden");
+      }
+    });
+
+    async function triggerExportDownload(endpoint, description) {
+      if (ui.exportMenu) {
+        ui.exportMenu.classList.add("hidden");
+      }
+      await flushPatch();
+      await flushNote();
+      showToast(`Preparing ${description} download…`, "info");
+      window.location.href = endpoint;
+    }
+
+    if (ui.exportCsvBtn) {
+      ui.exportCsvBtn.addEventListener("click", () => {
+        triggerExportDownload("/api/export/csv", "Brightspace CSV").catch((e) => {
+          showToast(`Export failed: ${e.message}`, "error");
+        });
+      });
+    }
+
+    if (ui.exportAuditBtn) {
+      ui.exportAuditBtn.addEventListener("click", () => {
+        triggerExportDownload("/api/export/audit", "Audit CSV").catch((e) => {
+          showToast(`Export failed: ${e.message}`, "error");
+        });
+      });
+    }
+
+    if (ui.exportPdfsBtn) {
+      ui.exportPdfsBtn.addEventListener("click", () => {
+        triggerExportDownload("/api/export/pdfs", "Reviewed PDFs ZIP").catch((e) => {
+          showToast(`Export failed: ${e.message}`, "error");
+        });
+      });
+    }
+
+    if (ui.exportBundleBtn) {
+      ui.exportBundleBtn.addEventListener("click", () => {
+        triggerExportDownload("/api/export/bundle", "Complete Export Bundle ZIP").catch((e) => {
+          showToast(`Export failed: ${e.message}`, "error");
+        });
+      });
+    }
+
+    if (ui.exportServerBtn) {
+      ui.exportServerBtn.addEventListener("click", async () => {
+        if (ui.exportMenu) {
+          ui.exportMenu.classList.add("hidden");
+        }
+        await flushPatch();
+        await flushNote();
+        try {
+          const result = await apiPost("/api/export", {});
+          const artifacts = result.artifacts || {};
+          const artifactLines = Object.entries(artifacts)
+            .map(([name, path]) => `• ${name}: ${path}`)
+            .join("\n");
+          showToast(`Export complete!\n${artifactLines}`, "success");
+          if (artifacts["Reviewed PDFs folder"]) {
+            setStatus(`Reviewed PDFs: ${artifacts["Reviewed PDFs folder"]}`);
+          }
+        } catch (e) {
+          showToast(`Export failed: ${e.message}`, "error");
+        }
+      });
+    }
 
     ui.reloadConfigBtn.addEventListener("click", async () => {
       await refreshRun();

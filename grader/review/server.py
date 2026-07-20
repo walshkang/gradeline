@@ -30,6 +30,42 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, self.api.get_matrix())
             return
 
+        if path == "/api/export/csv":
+            try:
+                body, filename, content_type = self.api.export_file("brightspace_grades_import_reviewed.csv")
+            except Exception as exc:  # noqa: BLE001
+                self._send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+            self._send_file_attachment(HTTPStatus.OK, body, filename, content_type)
+            return
+
+        if path == "/api/export/audit":
+            try:
+                body, filename, content_type = self.api.export_file("grading_audit_reviewed.csv")
+            except Exception as exc:  # noqa: BLE001
+                self._send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+            self._send_file_attachment(HTTPStatus.OK, body, filename, content_type)
+            return
+
+        if path == "/api/export/pdfs":
+            try:
+                body, filename = self.api.export_pdfs_zip()
+            except Exception as exc:  # noqa: BLE001
+                self._send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+            self._send_file_attachment(HTTPStatus.OK, body, filename, "application/zip")
+            return
+
+        if path == "/api/export/bundle":
+            try:
+                body, filename = self.api.export_bundle_zip()
+            except Exception as exc:  # noqa: BLE001
+                self._send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+            self._send_file_attachment(HTTPStatus.OK, body, filename, "application/zip")
+            return
+
         if path == "/api/submissions":
             status = first_query_value(query, "status")
             text_query = first_query_value(query, "q")
@@ -402,6 +438,21 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
 
     def _send_json_error(self, status: HTTPStatus, message: str) -> None:
         self._send_json(status, {"error": message})
+
+    def _send_file_attachment(
+        self,
+        status: HTTPStatus,
+        body: bytes,
+        filename: str,
+        content_type: str,
+    ) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.end_headers()
+        self.wfile.write(body)
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         return

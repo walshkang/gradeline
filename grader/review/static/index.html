@@ -18,7 +18,17 @@
           <button id="tabMatrixBtn" type="button" class="tab-btn">Matrix</button>
           <button id="tabSetupBtn" type="button" class="tab-btn">Setup</button>
         </div>
-        <button id="exportBtn" type="button" class="btn-primary">Export</button>
+        <div class="dropdown" id="exportDropdown">
+          <button id="exportBtn" type="button" class="btn-primary dropdown-toggle">Export ▾</button>
+          <div id="exportMenu" class="dropdown-menu hidden">
+            <button type="button" class="dropdown-item" id="exportCsvBtn">📥 Brightspace CSV</button>
+            <button type="button" class="dropdown-item" id="exportAuditBtn">📊 Audit CSV</button>
+            <button type="button" class="dropdown-item" id="exportPdfsBtn">📄 Reviewed PDFs (ZIP)</button>
+            <button type="button" class="dropdown-item" id="exportBundleBtn">📦 Complete Bundle (ZIP)</button>
+            <div class="dropdown-divider"></div>
+            <button type="button" class="dropdown-item" id="exportServerBtn">💾 Save Files to Server</button>
+          </div>
+        </div>
       </div>
     </header>
 

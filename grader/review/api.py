@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 import re
 import threading
+import zipfile
 from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
@@ -443,6 +445,41 @@ class ReviewApi:
     def export(self) -> dict[str, str]:
         artifacts = export_review_outputs(self.output_dir)
         return {name: str(path) for name, path in artifacts.items()}
+
+    def export_file(self, filename: str) -> tuple[bytes, str, str]:
+        self.export()
+        file_path = self.output_dir / "review" / filename
+        if not file_path.exists():
+            raise ReviewApiError(f"Exported file not found: {filename}")
+        content_type = "text/csv" if filename.endswith(".csv") else "application/octet-stream"
+        return file_path.read_bytes(), filename, content_type
+
+    def export_pdfs_zip(self) -> tuple[bytes, str]:
+        self.export()
+        pdfs_dir = self.output_dir / "review" / "reviewed_pdfs"
+        if not pdfs_dir.exists():
+            raise ReviewApiError("Reviewed PDFs directory does not exist.")
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for pdf_path in sorted(pdfs_dir.rglob("*.pdf")):
+                rel_path = pdf_path.relative_to(pdfs_dir)
+                zf.write(pdf_path, arcname=str(rel_path))
+        return buffer.getvalue(), "reviewed_pdfs.zip"
+
+    def export_bundle_zip(self) -> tuple[bytes, str]:
+        self.export()
+        review_dir = self.output_dir / "review"
+        if not review_dir.exists():
+            raise ReviewApiError("Review output directory does not exist.")
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file_path in sorted(review_dir.rglob("*")):
+                if file_path.is_file():
+                    rel_path = file_path.relative_to(review_dir)
+                    zf.write(file_path, arcname=str(rel_path))
+        return buffer.getvalue(), "export_bundle.zip"
 
     def resolve_pdf_path(self, submission_id: str, doc_idx: int, document_source: str | None = None) -> Path:
         submission = self._get_submission(submission_id)
