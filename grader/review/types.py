@@ -89,6 +89,9 @@ def normalize_coords(value: Any) -> list[float] | None:
     return [max(0.0, min(1000.0, y)), max(0.0, min(1000.0, x))]
 
 
+from ..cost import TokenUsage
+
+
 def question_result_to_payload(result: QuestionResult) -> dict[str, Any]:
     payload = {
         "id": result.id,
@@ -105,6 +108,8 @@ def question_result_to_payload(result: QuestionResult) -> dict[str, Any]:
         "grading_source": result.grading_source,
         "diagnostics_trace": list(result.diagnostics_trace) if result.diagnostics_trace else None,
     }
+    if result.token_usage is not None:
+        payload["token_usage"] = result.token_usage.to_dict()
     if result.sub_results:
         payload["sub_results"] = [question_result_to_payload(sr) for sr in result.sub_results]
     return payload
@@ -131,6 +136,9 @@ def question_result_from_payload(question_id: str, payload: dict[str, Any]) -> Q
             if isinstance(sr, dict)
         )
 
+    token_usage_raw = payload.get("token_usage")
+    token_usage = TokenUsage.from_dict(token_usage_raw) if isinstance(token_usage_raw, dict) else None
+
     return QuestionResult(
         id=qid,
         verdict=str(payload.get("verdict", "needs_review")).strip().lower(),
@@ -146,6 +154,7 @@ def question_result_from_payload(question_id: str, payload: dict[str, Any]) -> Q
         grading_source=str(payload.get("grading_source", "llm")).strip(),
         sub_results=sub_results,
         diagnostics_trace=tuple(payload.get("diagnostics_trace")) if payload.get("diagnostics_trace") else None,
+        token_usage=token_usage,
     )
 
 

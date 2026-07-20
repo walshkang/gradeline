@@ -600,6 +600,29 @@ class ReviewApi:
             summary["verdict_counts"] = verdict_counts
             summary["error_submissions"] = sorted(folder_errors.values(), key=lambda item: item["folder"])[:10]
 
+        total_input = 0
+        total_output = 0
+        total_cached = 0
+        total_cost = 0.0
+        if audit_rows:
+            for row in audit_rows:
+                total_input += coerce_int(row.get("input_tokens"), default=0)
+                total_output += coerce_int(row.get("output_tokens"), default=0)
+                total_cached += coerce_int(row.get("cached_tokens"), default=0)
+                try:
+                    total_cost += float(row.get("cost_usd", 0.0) or 0.0)
+                except (ValueError, TypeError):
+                    pass
+
+        sub_count = summary.get("submissions_processed", 0) or 1
+        summary["cost_summary"] = {
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output,
+            "total_cached_tokens": total_cached,
+            "total_cost_usd": round(total_cost, 6),
+            "avg_cost_per_student": round(total_cost / max(1, sub_count), 6) if sub_count > 0 else 0.0,
+        }
+
         if brightspace_rows:
             preferred_grade_column = str(args_snapshot.get("grade_column", "")).strip() or None
             grade_column = resolve_grade_column(brightspace_rows, preferred=preferred_grade_column)

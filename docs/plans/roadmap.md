@@ -28,9 +28,9 @@ This document is the single source of truth for all planned improvements. It mer
 | **3** | W3-CLI | Workflow CLI Decomposition | L | Pro | ✅ Done | Plan Phase 4 |
 | **3** | W3-CI | GitHub Actions CI | M | Flash | ✅ Done | Plan Phase 5 |
 | **3** | W3-HOUSE | Housekeeping (context.md, docs/) | S | Flash | ✅ Done | Plan Phase 6 |
-| **4** | W4-UPLOAD | Browser File Upload & Profile Setup | L | Pro | Todo | Plan Phase 7 |
+| **4** | W4-UPLOAD | Browser File Upload & Profile Setup | L | Pro | ✅ Done | Plan Phase 7 |
 | **4** | W4-EXPORT | Export Feedback & Browser Download | M | Flash | ✅ Done | Plan Phase 10 + Feedback #13 |
-| **4** | W4-COST | LLM Cost Breakdown Dashboard | M | Flash | Todo | Feedback #14 |
+| **4** | W4-COST | LLM Cost Breakdown Dashboard | M | Flash | ✅ Done | Feedback #14 |
 | **4** | W4-WORK | Regex Pre-Check `requires_work` Flag | S | Flash | Todo | Feedback #17 |
 | **4** | W4-JUDGE | Judge LLM Rounding Error & Partial Credit Audit | S | Flash | Todo | Feedback #20 |
 | **5** | W5-SSE | Server Grading + SSE Progress | L | Pro | Todo | Plan Phase 8 |

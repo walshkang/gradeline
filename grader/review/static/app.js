@@ -242,6 +242,19 @@
       lines.push(`Unmatched rows: ${unmatched}`);
     }
 
+    const cost = outcomes.cost_summary;
+    if (cost && (cost.total_cost_usd > 0 || cost.total_input_tokens > 0)) {
+      lines.push("");
+      lines.push("💰 LLM API Cost & Tokens:");
+      lines.push(`  Total Cost: $${Number(cost.total_cost_usd || 0).toFixed(4)}`);
+      lines.push(`  Avg / Student: $${Number(cost.avg_cost_per_student || 0).toFixed(4)}`);
+      lines.push(`  Input Tokens: ${Number(cost.total_input_tokens || 0).toLocaleString()}`);
+      lines.push(`  Output Tokens: ${Number(cost.total_output_tokens || 0).toLocaleString()}`);
+      if (cost.total_cached_tokens) {
+        lines.push(`  Cached Tokens: ${Number(cost.total_cached_tokens || 0).toLocaleString()}`);
+      }
+    }
+
     ui.runOutcomeSummary.textContent = lines.join("\n");
   }
 

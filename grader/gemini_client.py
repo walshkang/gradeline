@@ -13,6 +13,7 @@ from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .cost import TokenUsage, extract_token_usage
 from .streaming import StreamProgressParser
 from .types import JsonDict, QuestionResult, RubricConfig, TextBlock
 
@@ -156,7 +157,7 @@ class GeminiGrader:
             questions_to_grade=questions_to_grade,
         )
 
-        def invoke() -> JsonDict:
+        def invoke() -> tuple[JsonDict, Any]:
             self._acquire(self.model)
             response = self.client.models.generate_content(
                 model=self.model,
@@ -165,10 +166,12 @@ class GeminiGrader:
             )
             text = response_text(response)
             payload = parse_json_maybe_fenced(text)
-            return payload
+            return payload, response
 
-        payload = call_with_backoff(invoke, max_retries=self.max_retries)
-        normalized = normalize_model_response(payload, rubric)
+        payload, response = call_with_backoff(invoke, max_retries=self.max_retries)
+        token_usage = extract_token_usage(response, self.model)
+        payload["token_usage"] = token_usage.to_dict()
+        normalized = normalize_model_response(payload, rubric, token_usage=token_usage)
         self._set_cache(cache_key, payload)
         return normalized["questions"], normalized["global_flags"]
 
@@ -225,7 +228,7 @@ class GeminiGrader:
                 ttl_seconds=context_cache_ttl_seconds,
             )
 
-        def invoke() -> JsonDict:
+        def invoke() -> tuple[JsonDict, Any]:
             self._acquire(self.model)
             config: JsonDict = {
                 "response_mime_type": "application/json",
@@ -239,9 +242,11 @@ class GeminiGrader:
                 contents=[*files, prompt],
                 config=config,
             )
-            return structured_response_payload(response)
+            return structured_response_payload(response), response
 
-        payload = call_with_backoff(invoke, max_retries=self.max_retries)
+        payload, response = call_with_backoff(invoke, max_retries=self.max_retries)
+        token_usage = extract_token_usage(response, self.model)
+        payload["token_usage"] = token_usage.to_dict()
 
         # Simulate per-question grading progress after the full response is available.
         qs = questions_to_grade if questions_to_grade is not None else rubric.questions
@@ -255,7 +260,7 @@ class GeminiGrader:
                     pass
 
         payload["global_flags"] = merge_flags(payload.get("global_flags", []), cache_flags)
-        normalized = normalize_model_response(payload, rubric)
+        normalized = normalize_model_response(payload, rubric, token_usage=token_usage)
         self._set_cache(cache_key, payload)
         return normalized["questions"], normalized["global_flags"]
 
@@ -972,7 +977,10 @@ def aggregate_subpart_verdicts(sub_verdicts: list[str]) -> str:
     return "partial"
 
 
-def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDict:
+def normalize_model_response(payload: JsonDict, rubric: RubricConfig, token_usage: TokenUsage | None = None) -> JsonDict:
+    if token_usage is None and isinstance(payload.get("token_usage"), dict):
+        token_usage = TokenUsage.from_dict(payload.get("token_usage"))
+
     questions_raw = payload.get("questions")
     if not isinstance(questions_raw, list):
         raise ValueError("Gemini response must include 'questions' list.")
@@ -1012,6 +1020,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                     short_reason="",
                     detail_reason="",
                     evidence_quote="",
+                    token_usage=token_usage,
                 )
             )
             continue
@@ -1045,6 +1054,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                     page_number=page_number,
                     source_file=source_file,
                     block_id=block_id,
+                    token_usage=token_usage,
                 )
             )
             continue
@@ -1114,6 +1124,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                 page_number=parse_page_number(s.get("page_number") or s.get("page")),
                 source_file=str(s.get("source_file", "")).strip() or None,
                 block_id=str(s.get("block_id", "")).strip() or None,
+                token_usage=token_usage,
             )
             sub_question_results.append(sub_qr)
 
@@ -1131,6 +1142,7 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig) -> JsonDic
                 source_file=source_file,
                 block_id=block_id,
                 sub_results=tuple(sub_question_results) if sub_question_results else None,
+                token_usage=token_usage,
             )
         )
 

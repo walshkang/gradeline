@@ -58,6 +58,9 @@ class ExtractedPdf:
     ocr_char_count: int
 
 
+from .cost import TokenUsage
+
+
 @dataclass(frozen=True)
 class QuestionResult:
     id: str
@@ -75,7 +78,7 @@ class QuestionResult:
     grading_source: str = "llm"
     sub_results: tuple[QuestionResult, ...] | None = None  # Subpart breakdown
     diagnostics_trace: tuple[str, ...] | None = None
-
+    token_usage: TokenUsage | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +100,7 @@ class SubmissionResult:
     global_flags: list[str]
     block_registry: dict[str, TextBlock] = field(default_factory=dict)
     error: str | None = None
+    total_token_usage: TokenUsage | None = None
 
     def question_result_map(self) -> dict[str, QuestionResult]:
         return {result.id: result for result in self.question_results}

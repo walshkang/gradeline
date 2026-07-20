@@ -39,6 +39,10 @@ def write_grading_audit_csv(
                 "coords_x",
                 "placement_source",
                 "error",
+                "input_tokens",
+                "output_tokens",
+                "cached_tokens",
+                "cost_usd",
             ]
         )
         for result in results:
@@ -47,6 +51,7 @@ def write_grading_audit_csv(
                 for path in result.output_pdf_paths
             )
             for q in result.question_results:
+                t = q.token_usage
                 writer.writerow(
                     [
                         str(result.submission.folder_relpath),
@@ -70,10 +75,15 @@ def write_grading_audit_csv(
                         f"{q.coords[1]:.2f}" if q.coords else "",
                         q.placement_source or "",
                         result.error or "",
+                        t.input_tokens if t else 0,
+                        t.output_tokens if t else 0,
+                        t.cached_tokens if t else 0,
+                        f"{t.cost_usd:.6f}" if t else "0.000000",
                     ]
                 )
                 if q.sub_results:
                     for sub in q.sub_results:
+                        st = sub.token_usage or t
                         writer.writerow(
                             [
                                 str(result.submission.folder_relpath),
@@ -97,6 +107,10 @@ def write_grading_audit_csv(
                                 f"{sub.coords[1]:.2f}" if sub.coords else "",
                                 sub.placement_source or "",
                                 "",  # error
+                                st.input_tokens if st else 0,
+                                st.output_tokens if st else 0,
+                                st.cached_tokens if st else 0,
+                                f"{st.cost_usd:.6f}" if st else "0.000000",
                             ]
                         )
     return output_path

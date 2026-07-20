@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 
 from .config import load_rubric
+from .cost import extract_token_usage
 from .review.state import load_state, write_state_atomic, state_path_for_output
 from .workflow_profile import load_workflow_profile, get_project_root
 from .defaults import DEFAULT_MODEL, resolve_model
@@ -131,6 +132,7 @@ def run_judge(*, profile_spec: str) -> int:
                 )
             )
             
+            token_usage = extract_token_usage(response, model)
             payload = json.loads(response.text)
             critique_resp = JudgeCritiqueResponse.model_validate(payload)
             
@@ -155,7 +157,8 @@ def run_judge(*, profile_spec: str) -> int:
                     "critique": critique.critique,
                     "proposed_verdict": critique.proposed_verdict,
                     "proposed_reason": critique.proposed_reason,
-                    "needs_fix": critique.needs_fix
+                    "needs_fix": critique.needs_fix,
+                    "token_usage": token_usage.to_dict(),
                 }
             
             judged_count += 1

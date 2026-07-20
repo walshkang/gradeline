@@ -9,8 +9,9 @@
   - Completed Wave 1 (Touch-First UX split-screen, Coordinate Mapping for scans/rotation, PDF Annotation Overlap mitigation, and Reviewed State indicators in Matrix View).
   - Completed Wave 2 (Golden-Output integration testing, stateless Orchestrator modularization into `grading.py`/`preprocessing.py`, D2L metadata ZIP import exclusion, and CLI interactive bypass).
   - Completed Wave 3 (Workflow CLI decomposition, GitHub Actions CI pipeline setup, and documentation housekeeping).
+  - Completed Wave 4 Setup & Export (Browser File Upload & Profile Setup via `python-multipart`, Export Feedback & Browser Download via dynamic backend attachments).
   - Integrated sub-part grading calculations, YAML validator schemas, and judge LLM critique/automatic fixes recorded cleanly in `review_state.json`.
   - See [archive/stability-decomposition-browser-first.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/archive/stability-decomposition-browser-first.md) for historical details.
 
 ## Current Objective
-Executing Wave 4 of the [Gradeline Unified Roadmap](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md) (Browser File Upload & Profile Setup, Export Feedback & Browser Download, and LLM Cost Breakdown Dashboard).
+Executing the remainder of Wave 4 from the [Gradeline Unified Roadmap](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md) (LLM Cost Breakdown Dashboard, Regex Pre-Check flags, and Judge LLM Audit).
