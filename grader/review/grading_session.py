@@ -4,7 +4,7 @@ import json
 from typing import Any, Dict, Optional, Generator
 from ..ui import ConsoleUI, RunSummary
 from ..orchestrator import Orchestrator
-from ..workflow.profile_utils import build_grading_config
+
 
 class SSEProgressUI(ConsoleUI):
     def __init__(self, event_queue: queue.Queue):

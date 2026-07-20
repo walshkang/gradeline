@@ -15,7 +15,7 @@ from ..env import update_env_file
 from ..gemini_client import GeminiGrader
 from ..report import read_csv_rows, resolve_column_name
 from ..review.importer import ReviewInitError, initialize_review_state
-from ..review.server import run_review_server
+
 from ..review.state import state_path_for_output
 from ..prompts import (
     prompt_int,
