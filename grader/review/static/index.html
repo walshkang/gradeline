@@ -16,6 +16,7 @@
           <button id="tabReviewBtn" type="button" class="tab-btn active">Review</button>
           <button id="tabConfigBtn" type="button" class="tab-btn">Config</button>
           <button id="tabMatrixBtn" type="button" class="tab-btn">Matrix</button>
+          <button id="tabSetupBtn" type="button" class="tab-btn">Setup</button>
         </div>
         <button id="exportBtn" type="button" class="btn-primary">Export</button>
       </div>
@@ -279,6 +280,95 @@
         <button id="saveConfigBtn" type="button" class="btn-primary">Save Config</button>
       </div>
       <div id="configStatus" class="viewer-meta"></div>
+    </section>
+
+    <section id="setupPanel" class="setup-panel hidden">
+      <h2>Create or Edit Profile</h2>
+
+      <div class="config-section">
+        <h3>Assignment Information</h3>
+        <div class="config-grid">
+          <label>
+            Profile Name
+            <input id="setupProfileName" type="text" placeholder="e.g. hw1" />
+          </label>
+        </div>
+      </div>
+
+      <div class="config-section">
+        <h3>Upload Assets</h3>
+        <div class="upload-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="drop-zone" id="dropSubmissions" style="border: 2px dashed #ccc; padding: 2rem; text-align: center; cursor: pointer; border-radius: 4px;">
+            <p>Drag & Drop Submissions ZIP</p>
+            <input type="file" id="fileSubmissions" accept=".zip" style="display: none;" />
+            <div id="statusSubmissions" style="font-size: 0.8em; margin-top: 0.5rem;"></div>
+          </div>
+          <div class="drop-zone" id="dropSolutions" style="border: 2px dashed #ccc; padding: 2rem; text-align: center; cursor: pointer; border-radius: 4px;">
+            <p>Drag & Drop Solutions PDF</p>
+            <input type="file" id="fileSolutions" accept=".pdf" style="display: none;" />
+            <div id="statusSolutions" style="font-size: 0.8em; margin-top: 0.5rem;"></div>
+            <button type="button" id="btnGenerateRubric" style="margin-top: 1rem; display: none;" class="btn-secondary">Generate AI Rubric</button>
+          </div>
+          <div class="drop-zone" id="dropRubric" style="border: 2px dashed #ccc; padding: 2rem; text-align: center; cursor: pointer; border-radius: 4px;">
+            <p>Drag & Drop Rubric YAML</p>
+            <input type="file" id="fileRubric" accept=".yaml,.yml" style="display: none;" />
+            <div id="statusRubric" style="font-size: 0.8em; margin-top: 0.5rem;"></div>
+          </div>
+          <div class="drop-zone" id="dropGradesCsv" style="border: 2px dashed #ccc; padding: 2rem; text-align: center; cursor: pointer; border-radius: 4px;">
+            <p>Drag & Drop Brightspace CSV</p>
+            <input type="file" id="fileGradesCsv" accept=".csv" style="display: none;" />
+            <div id="statusGradesCsv" style="font-size: 0.8em; margin-top: 0.5rem;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="config-section">
+        <h3>Profile Settings</h3>
+        <div class="config-grid">
+          <label>
+            Model
+            <select id="setupModel">
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+              <option value="gemini-2.0-pro-exp-02-05">Gemini 2.0 Pro Experimental</option>
+              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+            </select>
+          </label>
+          <label>
+            Concurrency
+            <input id="setupConcurrency" type="number" min="1" max="20" value="4" />
+          </label>
+          <label>
+            Grade Column (from CSV)
+            <select id="setupGradeColumn">
+              <option value="">(Upload CSV first)</option>
+            </select>
+          </label>
+        </div>
+        <div class="config-grid" style="margin-top: 1rem;">
+          <label>
+            Check Plus Points
+            <input id="setupCheckPlus" type="text" value="1.0" />
+          </label>
+          <label>
+            Check Points
+            <input id="setupCheck" type="text" value="0.8" />
+          </label>
+          <label>
+            Check Minus Points
+            <input id="setupCheckMinus" type="text" value="0.5" />
+          </label>
+          <label>
+            Review Required Points
+            <input id="setupReviewRequired" type="text" value="0.0" />
+          </label>
+        </div>
+      </div>
+
+      <div class="config-actions">
+        <button id="saveProfileBtn" type="button" class="btn-primary">Save Profile</button>
+        <button id="saveAndGradeBtn" type="button" class="btn-primary" style="background-color: var(--green-600);">Save & Start Grading</button>
+      </div>
     </section>
 
     <div id="toastContainer" class="toast-container"></div>

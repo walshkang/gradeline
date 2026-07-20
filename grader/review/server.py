@@ -175,7 +175,183 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, {"artifacts": payload})
             return
 
+        if path == "/api/setup/upload":
+            parsed_form = self._read_multipart_body()
+            if not parsed_form:
+                return
+            fields, files = parsed_form
+            
+            profile = fields.get("profile", "").strip()
+            if not profile or not re.match(r"^[a-zA-Z0-9_-]+$", profile):
+                self._send_json_error(HTTPStatus.BAD_REQUEST, "Invalid profile name.")
+                return
+                
+            from grader.workflow.profile_utils import get_project_root
+            data_root = get_project_root() / "data"
+            profile_dir = data_root / profile
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            
+            import shutil
+            uploaded_metadata = {}
+            for field_name, file_info in files.items():
+                filename = file_info["filename"]
+                fileobj = file_info["file_object"]
+                fileobj.seek(0)
+                
+                if field_name == "submissions_zip" and filename.endswith(".zip"):
+                    zip_path = profile_dir / filename
+                    with open(zip_path, "wb") as out_f:
+                        shutil.copyfileobj(fileobj, out_f)
+                    
+                    from grader.workflow.import_cmd import _extract_brightspace_zip
+                    _extract_brightspace_zip(zip_path, profile, data_root)
+                    zip_path.unlink()
+                    uploaded_metadata["submissions_zip"] = True
+                
+                elif field_name == "solutions_pdf":
+                    dest = profile_dir / "solutions.pdf"
+                    with open(dest, "wb") as out_f:
+                        shutil.copyfileobj(fileobj, out_f)
+                    uploaded_metadata["solutions_pdf"] = True
+
+                elif field_name == "rubric_yaml":
+                    dest = profile_dir / "rubric.yaml"
+                    with open(dest, "wb") as out_f:
+                        shutil.copyfileobj(fileobj, out_f)
+                    uploaded_metadata["rubric_yaml"] = True
+
+                elif field_name == "grades_template_csv":
+                    dest = profile_dir / "grades.csv"
+                    with open(dest, "wb") as out_f:
+                        shutil.copyfileobj(fileobj, out_f)
+                    uploaded_metadata["grades_template_csv"] = True
+                    
+                    from grader.report import read_csv_rows
+                    try:
+                        _, headers = read_csv_rows(dest)
+                        uploaded_metadata["csv_headers"] = headers
+                    except Exception as exc:
+                        uploaded_metadata["csv_error"] = str(exc)
+                        
+            self._send_json(HTTPStatus.OK, {"status": "success", "uploaded": uploaded_metadata})
+            return
+
+        if path == "/api/setup/profile":
+            body = self._read_json_body()
+            if not body:
+                return
+                
+            profile = body.get("profile", "").strip()
+            if not profile or not re.match(r"^[a-zA-Z0-9_-]+$", profile):
+                self._send_json_error(HTTPStatus.BAD_REQUEST, "Invalid profile name.")
+                return
+
+            from grader.workflow.profile_utils import render_profile_toml, get_project_root
+            data_root = get_project_root() / "data"
+            profile_dir = data_root / profile
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                profile_text = render_profile_toml(
+                    submissions_dir=profile_dir / "submissions",
+                    solutions_pdf=profile_dir / "solutions.pdf",
+                    rubric_yaml=profile_dir / "rubric.yaml",
+                    grades_template_csv=profile_dir / "grades.csv",
+                    grade_column=body.get("grade_column", "Grade"),
+                    output_dir=get_project_root() / "outputs" / profile,
+                    host="127.0.0.1",
+                    port=8765,
+                    optional_grade_values={
+                        "model": body.get("model"),
+                        "concurrency": body.get("concurrency", 4),
+                        "check_plus_points": body.get("check_plus_points"),
+                        "check_points": body.get("check_points"),
+                        "check_minus_points": body.get("check_minus_points"),
+                        "review_required_points": body.get("review_required_points"),
+                    }
+                )
+                
+                profile_path = get_project_root() / "configs" / "profiles" / f"{profile}.toml"
+                profile_path.parent.mkdir(parents=True, exist_ok=True)
+                profile_path.write_text(profile_text, encoding="utf-8")
+                
+            except Exception as exc:
+                self._send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
+                return
+                
+            self._send_json(HTTPStatus.OK, {"status": "success", "profile": profile})
+            return
+
+        if path == "/api/setup/rubric/generate":
+            body = self._read_json_body()
+            if not body:
+                return
+            profile = body.get("profile", "").strip()
+            if not profile or not re.match(r"^[a-zA-Z0-9_-]+$", profile):
+                self._send_json_error(HTTPStatus.BAD_REQUEST, "Invalid profile name.")
+                return
+
+            from grader.workflow.quickstart import generate_rubric_draft_from_pdf
+            from grader.workflow.profile_utils import get_project_root
+            import yaml
+            
+            solutions_pdf = get_project_root() / "data" / profile / "solutions.pdf"
+            if not solutions_pdf.exists():
+                self._send_json_error(HTTPStatus.NOT_FOUND, "solutions.pdf not found. Please upload it first.")
+                return
+                
+            try:
+                draft_dict = generate_rubric_draft_from_pdf(solutions_pdf=solutions_pdf, profile_name=profile)
+                draft_yaml = yaml.safe_dump(draft_dict, sort_keys=False, allow_unicode=True)
+                
+                rubric_yaml_path = get_project_root() / "data" / profile / "rubric.yaml"
+                rubric_yaml_path.write_text(draft_yaml, encoding="utf-8")
+            except Exception as exc:
+                self._send_json_error(HTTPStatus.INTERNAL_SERVER_ERROR, f"Failed to generate rubric: {exc}")
+                return
+                
+            self._send_json(HTTPStatus.OK, {"status": "success", "yaml": draft_yaml})
+            return
+
         self._send_json_error(HTTPStatus.NOT_FOUND, f"Unknown path: {path}")
+
+    def _read_multipart_body(self) -> tuple[dict[str, str], dict[str, Any]] | None:
+        try:
+            from multipart.multipart import parse_form, Field, File
+        except ImportError:
+            self._send_json_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Multipart library missing.")
+            return None
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_json_error(HTTPStatus.BAD_REQUEST, "Invalid Content-Length header.")
+            return None
+
+        if length > 500 * 1024 * 1024:
+            self._send_json_error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Upload exceeds 500MB limit.")
+            return None
+
+        fields: dict[str, str] = {}
+        files: dict[str, Any] = {}
+
+        def on_field(f: Field):
+            name = f.field_name.decode("utf-8") if isinstance(f.field_name, bytes) else f.field_name
+            value = f.value.decode("utf-8") if isinstance(f.value, bytes) else f.value
+            fields[name] = value
+
+        def on_file(f: File):
+            name = f.field_name.decode("utf-8") if isinstance(f.field_name, bytes) else f.field_name
+            filename = f.file_name.decode("utf-8") if isinstance(f.file_name, bytes) else f.file_name
+            files[name] = {"filename": filename, "file_object": f.file_object}
+
+        try:
+            parse_form(dict(self.headers), self.rfile, on_field, on_file, chunk_size=1048576)
+        except Exception as exc:
+            self._send_json_error(HTTPStatus.BAD_REQUEST, f"Failed to parse multipart form: {exc}")
+            return None
+
+        return fields, files
 
     def _read_json_body(self) -> dict[str, Any] | None:
         try:

@@ -653,24 +653,6 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
         )
         return False
 
-    project_root = get_project_root()
-    cache_dir = project_root / ".grader_cache"
-
-    try:
-        resolved_model = resolve_model("rubric", DEFAULT_MODEL)
-        grader = GeminiGrader(api_key=api_key, model=resolved_model, cache_dir=cache_dir)
-    except ImportError:
-        styled_warning(
-            "Gemini client dependencies are missing. Install the 'google-genai' package "
-            "to enable AI-assisted rubric generation."
-        )
-        return False
-    except Exception as exc:  # noqa: BLE001
-        if isinstance(exc, (TypeError, NameError, AttributeError)):
-            raise
-        styled_error(f"Failed to initialize Gemini client: {exc}")
-        return False
-
     import subprocess
     import yaml
 
@@ -701,15 +683,15 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
             if _has_rich and sys.stdout.isatty():
                 console = Console()
                 with console.status("Generating rubric from solutions PDF..."):
-                    rubric_payload = grader.generate_rubric_draft(
+                    rubric_payload = generate_rubric_draft_from_pdf(
                         solutions_pdf=solutions_pdf,
-                        assignment_id=profile_name,
+                        profile_name=profile_name,
                     )
             else:
                 styled_info("Generating rubric from solutions PDF (this may take up to ~30 seconds)...")
-                rubric_payload = grader.generate_rubric_draft(
+                rubric_payload = generate_rubric_draft_from_pdf(
                     solutions_pdf=solutions_pdf,
-                    assignment_id=profile_name,
+                    profile_name=profile_name,
                 )
         except Exception as exc:  # noqa: BLE001
             if isinstance(exc, (TypeError, NameError, AttributeError)):
@@ -775,7 +757,12 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
                         temp_rubric_yaml.write_text(yaml_text, encoding="utf-8")
                         temp_rubric = load_rubric(temp_rubric_yaml)
                         
-                        grader_instance = grader
+                        resolved_model = resolve_model("rubric", DEFAULT_MODEL)
+                        grader_instance = GeminiGrader(
+                            api_key=api_key,
+                            model=resolved_model,
+                            cache_dir=project_root / ".grader_cache",
+                        )
                         proof_config = GradingConfig(
                             submissions_root=submissions_dir,
                             output_dir=temp_out_dir,
@@ -964,3 +951,25 @@ def maybe_generate_rubric_with_ai(*, solutions_pdf: Path, rubric_yaml: Path, pro
         return False
 
 
+def generate_rubric_draft_from_pdf(*, solutions_pdf: Path, profile_name: str) -> dict:
+    """Non-interactive core function to generate a draft rubric from a solutions PDF."""
+    api_key_env = "GEMINI_API_KEY"
+    api_key = os.getenv(api_key_env, "").strip()
+    if not api_key:
+        raise ValueError(f"{api_key_env} is not set. Configure your GenAI API key.")
+
+    project_root = get_project_root()
+    cache_dir = project_root / ".grader_cache"
+
+    try:
+        resolved_model = resolve_model("rubric", DEFAULT_MODEL)
+        grader = GeminiGrader(api_key=api_key, model=resolved_model, cache_dir=cache_dir)
+    except ImportError:
+        raise ImportError(
+            "Gemini client dependencies are missing. Install the 'google-genai' package."
+        )
+
+    return grader.generate_rubric_draft(
+        solutions_pdf=solutions_pdf,
+        assignment_id=profile_name,
+    )

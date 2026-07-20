@@ -386,7 +386,13 @@ def _extract_brightspace_zip(zip_path: Path, profile_name: str, data_root: Path)
 
     try:
         with zipfile.ZipFile(zip_path, "r") as archive:
-            archive.extractall(temp_root)
+            resolved_temp = temp_root.resolve()
+            for member in archive.infolist():
+                target_path = (temp_root / member.filename).resolve()
+                if not str(target_path).startswith(str(resolved_temp)):
+                    styled_warning(f"Skipping unsafe ZIP member (zip-slip): {member.filename}")
+                    continue
+                archive.extract(member, temp_root)
     except Exception as exc:  # noqa: BLE001
         styled_warning(f"Failed to extract ZIP {zip_path}: {exc}")
         return temp_root

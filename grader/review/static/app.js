@@ -22,9 +22,11 @@
     tabReviewBtn: document.getElementById("tabReviewBtn"),
     tabConfigBtn: document.getElementById("tabConfigBtn"),
     tabMatrixBtn: document.getElementById("tabMatrixBtn"),
+    tabSetupBtn: document.getElementById("tabSetupBtn"),
     reviewPanel: document.getElementById("reviewPanel"),
     configPanel: document.getElementById("configPanel"),
     matrixPanel: document.getElementById("matrixPanel"),
+    setupPanel: document.getElementById("setupPanel"),
     queueList: document.getElementById("queueList"),
     searchInput: document.getElementById("searchInput"),
     refreshBtn: document.getElementById("refreshBtn"),
@@ -146,14 +148,17 @@
     const reviewActive = tab === "review";
     const configActive = tab === "config";
     const matrixActive = tab === "matrix";
+    const setupActive = tab === "setup";
     
     ui.tabReviewBtn.classList.toggle("active", reviewActive);
     ui.tabConfigBtn.classList.toggle("active", configActive);
     if (ui.tabMatrixBtn) ui.tabMatrixBtn.classList.toggle("active", matrixActive);
+    if (ui.tabSetupBtn) ui.tabSetupBtn.classList.toggle("active", setupActive);
     
     ui.reviewPanel.classList.toggle("hidden", !reviewActive);
     ui.configPanel.classList.toggle("hidden", !configActive);
     if (ui.matrixPanel) ui.matrixPanel.classList.toggle("hidden", !matrixActive);
+    if (ui.setupPanel) ui.setupPanel.classList.toggle("hidden", !setupActive);
     
     if (matrixActive) {
       loadMatrix().catch(e => showToast(e.message, "error"));
@@ -1212,7 +1217,24 @@
   function bindEvents() {
     ui.tabReviewBtn.addEventListener("click", () => setTab("review"));
     ui.tabConfigBtn.addEventListener("click", () => setTab("config"));
-    if (ui.tabMatrixBtn) ui.tabMatrixBtn.addEventListener("click", () => setTab("matrix"));
+    if (ui.tabMatrixBtn) {
+      ui.tabMatrixBtn.addEventListener("click", () => {
+        setTab("matrix");
+      });
+    }
+
+    if (ui.tabSetupBtn) {
+      ui.tabSetupBtn.addEventListener("click", () => {
+        setTab("setup");
+      });
+    }
+
+    if (ui.debugOverlayToggle) {
+      ui.debugOverlayToggle.addEventListener("change", () => {
+        const question = getCurrentQuestion();
+        updateDebugOverlay(question?.final || null);
+      });
+    }
 
     if (ui.matrixSortSelect) ui.matrixSortSelect.addEventListener("change", renderMatrix);
     if (ui.matrixFilterToggle) ui.matrixFilterToggle.addEventListener("change", renderMatrix);
@@ -1527,14 +1549,158 @@
     });
   }
 
+  function initSetupUI() {
+    const profileInput = document.getElementById("setupProfileName");
+    const gradeColumnSelect = document.getElementById("setupGradeColumn");
+    const generateBtn = document.getElementById("btnGenerateRubric");
+    
+    const setupDropZones = [
+      { id: "dropSubmissions", fileId: "fileSubmissions", formKey: "submissions_zip" },
+      { id: "dropSolutions", fileId: "fileSolutions", formKey: "solutions_pdf" },
+      { id: "dropRubric", fileId: "fileRubric", formKey: "rubric_yaml" },
+      { id: "dropGradesCsv", fileId: "fileGradesCsv", formKey: "grades_template_csv" },
+    ];
+    
+    setupDropZones.forEach(zone => {
+      const dropEl = document.getElementById(zone.id);
+      const fileInput = document.getElementById(zone.fileId);
+      const statusEl = document.getElementById(zone.id.replace("drop", "status"));
+      if(!dropEl) return;
+      
+      dropEl.addEventListener("dragover", e => {
+        e.preventDefault();
+        dropEl.classList.add("dragover");
+      });
+      dropEl.addEventListener("dragleave", e => {
+        e.preventDefault();
+        dropEl.classList.remove("dragover");
+      });
+      dropEl.addEventListener("drop", e => {
+        e.preventDefault();
+        dropEl.classList.remove("dragover");
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          handleSetupUpload(zone, e.dataTransfer.files[0], dropEl, statusEl);
+        }
+      });
+      dropEl.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", () => {
+        if (fileInput.files.length > 0) {
+          handleSetupUpload(zone, fileInput.files[0], dropEl, statusEl);
+        }
+      });
+    });
+    
+    async function handleSetupUpload(zone, file, dropEl, statusEl) {
+      const profile = profileInput.value.trim();
+      if (!profile) {
+        showToast("Please enter a Profile Name first", "error");
+        return;
+      }
+      
+      statusEl.textContent = `Uploading ${file.name}...`;
+      const formData = new FormData();
+      formData.append("profile", profile);
+      formData.append(zone.formKey, file);
+      
+      try {
+        const res = await fetch("/api/setup/upload", { method: "POST", body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Upload failed");
+        
+        statusEl.textContent = `✓ Uploaded ${file.name}`;
+        dropEl.classList.add("success");
+        
+        if (zone.formKey === "grades_template_csv" && data.uploaded.csv_headers) {
+          gradeColumnSelect.innerHTML = "";
+          data.uploaded.csv_headers.forEach(h => {
+            const opt = document.createElement("option");
+            opt.value = h;
+            opt.textContent = h;
+            if (h.toLowerCase().includes("grade") || h.toLowerCase().includes("score")) {
+              opt.selected = true;
+            }
+            gradeColumnSelect.appendChild(opt);
+          });
+        }
+        
+        if (zone.formKey === "solutions_pdf") {
+          generateBtn.style.display = "inline-block";
+        }
+        
+        showToast(`Successfully uploaded ${zone.formKey}`, "success");
+      } catch (err) {
+        statusEl.textContent = `Error: ${err.message}`;
+        showToast(err.message, "error");
+      }
+    }
+    
+    if(generateBtn) {
+      generateBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const profile = profileInput.value.trim();
+        if (!profile) return;
+        
+        generateBtn.textContent = "Generating... (takes ~30s)";
+        generateBtn.disabled = true;
+        try {
+          await apiPost("/api/setup/rubric/generate", { profile });
+          showToast("Draft rubric generated & saved!", "success");
+          document.getElementById("dropRubric").classList.add("success");
+          document.getElementById("statusRubric").textContent = "✓ AI Rubric generated";
+        } catch(err) {
+          showToast(err.message, "error");
+        } finally {
+          generateBtn.textContent = "Generate AI Rubric";
+          generateBtn.disabled = false;
+        }
+      });
+    }
+    
+    const saveBtn = document.getElementById("saveProfileBtn");
+    if(saveBtn) {
+      saveBtn.addEventListener("click", async () => {
+        const profile = profileInput.value.trim();
+        if (!profile) {
+          showToast("Enter a profile name", "error"); return;
+        }
+        try {
+          await apiPost("/api/setup/profile", {
+            profile,
+            model: document.getElementById("setupModel").value,
+            concurrency: Number(document.getElementById("setupConcurrency").value),
+            grade_column: gradeColumnSelect.value,
+            check_plus_points: document.getElementById("setupCheckPlus").value,
+            check_points: document.getElementById("setupCheck").value,
+            check_minus_points: document.getElementById("setupCheckMinus").value,
+            review_required_points: document.getElementById("setupReviewRequired").value,
+          });
+          showToast("Profile saved!", "success");
+        } catch (err) {
+          showToast(err.message, "error");
+        }
+      });
+    }
+
+    const saveGradeBtn = document.getElementById("saveAndGradeBtn");
+    if(saveGradeBtn) {
+      saveGradeBtn.addEventListener("click", () => {
+          document.getElementById("saveProfileBtn").click();
+          showToast("Now run: ./gradeline quickstart --profile " + profileInput.value.trim(), "success");
+      });
+    }
+  }
+
   async function init() {
     bindEvents();
+    initSetupUI();
     setTab("review");
     await refreshRun();
     await refreshQueue();
     if (state.submissions.length > 0) {
       await selectSubmission(state.submissions[0].submission_id);
       renderQueue();
+    } else {
+      setTab("setup");
     }
   }
 
