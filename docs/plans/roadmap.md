@@ -31,10 +31,14 @@ This document is the single source of truth for all planned improvements. It mer
 | **4** | W4-UPLOAD | Browser File Upload & Profile Setup | L | Pro | Todo | Plan Phase 7 |
 | **4** | W4-EXPORT | Export Feedback & Browser Download | M | Flash | Todo | Plan Phase 10 + Feedback #13 |
 | **4** | W4-COST | LLM Cost Breakdown Dashboard | M | Flash | Todo | Feedback #14 |
+| **4** | W4-WORK | Regex Pre-Check `requires_work` Flag | S | Flash | Todo | Feedback #17 |
+| **4** | W4-JUDGE | Judge LLM Rounding Error & Partial Credit Audit | S | Flash | Todo | Feedback #20 |
 | **5** | W5-SSE | Server Grading + SSE Progress | L | Pro | Todo | Plan Phase 8 |
 | **5** | W5-ANNOT | PDF Annotation Editing (Option C) | L | Pro | Todo | Plan Phase 9 |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
+| **Backlog** | BL-VISION | Force Vision Extraction for Math | M | Flash | Backlog | Feedback #18 |
+| **Backlog** | BL-CRITERIA | Structured Scoring Criteria Schema | M | Pro | Backlog | Feedback #19 |
 
 ---
 
@@ -486,6 +490,93 @@ Files to modify:
 
 ---
 
+### W4-WORK: Regex Pre-Check `requires_work` Flag
+
+**Origin**: Feedback #17
+**Size**: Small (~1–2 hours) · **Tier**: Flash
+
+> [!IMPORTANT]
+> This closes a grading integrity gap where the regex pre-check auto-passes students who write only a final answer without showing required methodology. Per AGENTS.md: "Never assign a non-zero grade to a student with no submission match" — this extends that principle to methodology verification.
+
+<details>
+<summary>📋 Agent Prompt (click to expand)</summary>
+
+```
+Add a `requires_work` flag to the rubric schema so that regex pre-check matches on work-required questions still route to the Stage 2 LLM for methodology verification.
+
+Files to modify:
+- grader/types.py (QuestionRubric dataclass)
+- grader/precheck.py (regex_precheck function)
+- grader/grading.py (pass regex hint to LLM when requires_work skips precheck)
+
+## 1. Schema: add requires_work field
+In types.py, add `requires_work: bool = False` to the QuestionRubric dataclass.
+In config.py load_rubric(), parse `requires_work` from the YAML (default False).
+
+## 2. Pre-check: skip emission when requires_work is True
+In precheck.py regex_precheck(), when all patterns match but `question.requires_work` is True:
+- Do NOT add the question to the results dict (let it fall through to LLM grading).
+- Instead, return the matched evidence in a separate dict (e.g., `hints`) so the caller can pass it to the LLM as context.
+
+Update the function signature to return a tuple: `(results, hints)` where hints maps question_id → evidence_quote.
+
+## 3. Update callers
+In grading.py, update the call to regex_precheck to unpack both results and hints.
+When building the LLM grading prompt for a question that has a hint, prepend a note:
+"Note: The student's final answer appears to match the expected value ({evidence}). Focus your evaluation on whether the student showed the required methodology/setup."
+
+## 4. Update rubric YAML
+In configs/hw2.yaml, add `requires_work: true` to Problem 5 (expected value compensation).
+
+## Verification
+- Write a test in tests/test_precheck.py: a question with requires_work=True and matching expected_answers should NOT appear in prechecked results.
+- Write a test: a question with requires_work=False (default) and matching answers SHOULD still appear in prechecked results (no regression).
+- Run: PYTHONPATH=. .venv/bin/pytest tests/test_precheck.py -x -v
+```
+</details>
+
+---
+
+### W4-JUDGE: Judge LLM Rounding Error & Partial Credit Audit
+
+**Origin**: Feedback #20
+**Size**: Small (~1–2 hours) · **Tier**: Flash
+
+> [!IMPORTANT]
+> Per AGENTS.md, `rounding_error` verdicts are fully forgiven (scored 1.0). Without explicit judge scrutiny, the primary grader can over-assign this verdict as a safe default. This task adds guardrails to catch hallucinated rounding error and unsupported partial credit.
+
+<details>
+<summary>📋 Agent Prompt (click to expand)</summary>
+
+```
+Augment the Judge LLM prompt to explicitly scrutinize rounding_error and partial_credit verdicts.
+
+File to modify:
+- grader/judge.py (run_judge function, prompt construction)
+
+## 1. Expand the judge prompt
+At line 121 (the final instruction appended to prompt_parts), replace the existing instruction with an expanded version that includes:
+
+a) General instruction (existing): "Identify any grading mistakes. If the verdict is incorrect or partial, ensure a proposed_reason is provided. If you do not have a reason, fall back to the short_note_fail."
+
+b) Rounding error audit (new): "CRITICAL: For any question with verdict 'rounding_error', verify that the evidence_quote demonstrates a fundamentally correct method with only a minor arithmetic or rounding slip. If the evidence shows a wrong formula, missing setup, or conceptual error, propose verdict 'incorrect' or 'needs_review' with needs_fix=true. A rounding_error verdict is fully forgiven (scored 1.0), so false positives here directly inflate grades."
+
+c) Partial credit audit (new): "For any question with verdict 'partial', verify that the evidence_quote is non-empty and actually supports the logic_analysis. If the evidence_quote is empty, missing, or contradicts the claimed partial credit reasoning, set needs_fix=true and propose verdict 'needs_review'."
+
+d) Empty evidence audit (new): "For any non-correct verdict, if evidence_quote is blank or generic (e.g., 'N/A', 'not found'), flag it as needs_fix=true."
+
+## 2. No schema changes needed
+The existing JudgeQuestionCritique schema already supports proposed_verdict and needs_fix — the prompt changes alone are sufficient.
+
+## Verification
+- Run the judge on a completed grading run: ./gradeline judge --profile hw2
+- Inspect the updated review_state.json and verify that judge_critique entries for rounding_error verdicts include specific critique text about methodology verification.
+- Write a unit test in tests/test_judge_prompt.py that constructs a mock audit row with verdict='rounding_error' and empty evidence_quote, and verifies the prompt string contains the new rounding error audit instructions.
+```
+</details>
+
+---
+
 ## Wave 5 — Advanced Browser Grading
 
 ### W5-SSE: Server Grading + SSE Progress
@@ -540,3 +631,5 @@ Guardrails: Changing verdict to incorrect/partial must not allow empty short_rea
 |:---:|:---|:---:|:---|
 | BL-DOCX | Word/TXT/MD Solutions Keys Support | M | Lower friction for instructors. Requires adding `python-docx` dependency or similar. |
 | BL-SEARCH | Smart Candidate Search in Downloads | S | Sort by modified date, weight profile name matches higher. |
+| BL-VISION | Force Vision Extraction for Math | M | Bypass Tesseract entirely via `force_vision_extraction = true` profile flag. Mainly improves precheck/annotations in unified mode; critical for legacy mode math accuracy. |
+| BL-CRITERIA | Structured Scoring Criteria Schema | M | Optional `scoring_criteria` list alongside free-text `scoring_rules`. Adds precision but increases authoring burden — keep opt-in. |

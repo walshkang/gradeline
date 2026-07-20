@@ -145,4 +145,40 @@ This document records usability pain points and suggested feature improvements d
 * **Status/Roadmap**: *Active Feedback* - To be scoped (potentially as part of layout/spacing improvements).
 
 
+### 17. Regex Pre-Check Blind Spot for Work-Required Questions
+* **Issue**: The Stage 1.5 regex pre-check in `precheck.py` assigns `verdict="correct"` and bypasses the Stage 2 LLM entirely when `expected_answers` patterns match. For questions where `scoring_rules` require methodology/setup (e.g., Problem 5: "Must show setup summing Payout * P(X=x)"), a student who writes only the final answer gets auto-passed without work verification.
+* **Suggested Solution**:
+  * Add an optional `requires_work: true` flag to the rubric question schema (`QuestionRubric` in `types.py`).
+  * When `requires_work` is true and all regex patterns match, do **not** emit a prechecked result — let it fall through to the Stage 2 LLM for methodology verification.
+  * Optionally stash the regex match as a hint so the LLM knows the final answer is likely correct and can focus on evaluating the work shown.
+* **Status/Roadmap**: Addressed in Wave 4 (`W4-WORK` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
+
+
+### 18. Force Vision Extraction for Math-Heavy Assignments
+* **Issue**: Stage 1 extraction relies on Tesseract OCR with a Gemini vision fallback triggered only below a confidence threshold (`GEMINI_FALLBACK_CONF_THRESHOLD = 60.0`). Tesseract confidently misinterprets statistical formulas, fractions, and Greek letters (high confidence on garbled text), so the fallback never triggers. This degrades regex precheck accuracy and block registry quality.
+* **Impact**: Primarily affects regex precheck text quality and annotation placement in unified/agent modes (which already send PDFs directly to the vision model for grading). In legacy mode, directly affects grading accuracy.
+* **Suggested Solution**:
+  * Add a `force_vision_extraction = true` profile configuration option that bypasses Tesseract entirely and uses the Gemini vision extraction model for all pages.
+  * Useful for assignments containing heavy math notation, handwritten formulas, or statistical symbols.
+* **Status/Roadmap**: Placed in Backlog (`BL-VISION` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
+
+
+### 19. Structured Scoring Criteria in Rubric Schema
+* **Issue**: The `scoring_rules` field in rubric YAML files is free-text, which can lead to ambiguous LLM interpretation of partial credit thresholds and methodology requirements (e.g., Problem 7's conversational "If the student sets up correct hypergeometric formulas... award partial credit (0.5)").
+* **Suggested Solution**:
+  * Add an optional `scoring_criteria` list to the rubric question schema for discrete, structured evaluation criteria alongside the existing free-text `scoring_rules`.
+  * Each criterion would specify a requirement, weight, and partial credit condition as a strict checklist for the LLM.
+  * Keep the existing `scoring_rules` free-text field as the default; structured criteria is opt-in for questions where precision matters.
+* **Status/Roadmap**: Placed in Backlog (`BL-CRITERIA` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
+
+
+### 20. Judge LLM Audit for Rounding Error and Partial Credit Verdicts
+* **Issue**: The Stage 4 Judge LLM in `judge.py` critiques primary grader verdicts but has no explicit instructions to scrutinize `rounding_error` verdicts (which are fully forgiven at score 1.0) or validate that `evidence_quote` actually demonstrates correct methodology with a carried-forward arithmetic slip. The primary grader may over-assign `rounding_error` as a safe default to avoid triggering review.
+* **Suggested Solution**:
+  * Augment the judge prompt to explicitly instruct verification of `rounding_error` verdicts: the `evidence_quote` must demonstrate a correct method with an arithmetic slip, not a fundamentally flawed formula.
+  * Instruct the judge to flag `partial_credit` verdicts where the `evidence_quote` is empty or doesn't support the stated `logic_analysis`.
+  * Downgrade suspicious verdicts to `needs_review` rather than auto-correcting.
+* **Status/Roadmap**: Addressed in Wave 4 (`W4-JUDGE` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
+
+
 
