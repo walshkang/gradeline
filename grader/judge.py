@@ -13,9 +13,10 @@ from google.genai import types
 from .config import load_rubric
 from .cost import extract_token_usage
 from .review.state import load_state, write_state_atomic, state_path_for_output
-from .workflow_profile import load_workflow_profile, get_project_root
+from .workflow_profile import load_workflow_profile
+from .workflow_cli import get_project_root
 from .defaults import DEFAULT_MODEL, resolve_model
-from .ui import styled_info, styled_warning, styled_success, styled_error
+from .prompts import styled_info, styled_warning, styled_success, styled_error
 
 
 class JudgeQuestionCritique(BaseModel):
@@ -119,7 +120,12 @@ def run_judge(*, profile_spec: str) -> int:
         if not has_questions:
             continue
 
-        prompt_parts.append("Identify any grading mistakes. If the verdict is incorrect or partial, ensure a proposed_reason is provided. If you do not have a reason, fall back to the short_note_fail.")
+        prompt_parts.append(
+            "Identify any grading mistakes. If the verdict is incorrect or partial, ensure a proposed_reason is provided. If you do not have a reason, fall back to the short_note_fail.\n"
+            "CRITICAL: For any question with verdict 'rounding_error', verify that the evidence_quote demonstrates a fundamentally correct method with only a minor arithmetic or rounding slip. If the evidence shows a wrong formula, missing setup, or conceptual error, propose verdict 'incorrect' or 'needs_review' with needs_fix=true. A rounding_error verdict is fully forgiven (scored 1.0), so false positives here directly inflate grades.\n"
+            "For any question with verdict 'partial', verify that the evidence_quote is non-empty and actually supports the logic_analysis. If the evidence_quote is empty, missing, or contradicts the claimed partial credit reasoning, set needs_fix=true and propose verdict 'needs_review'.\n"
+            "For any non-correct verdict, if evidence_quote is blank or generic (e.g., 'N/A', 'not found'), flag it as needs_fix=true."
+        )
 
         try:
             response = client.models.generate_content(

@@ -32,7 +32,7 @@ This document is the single source of truth for all planned improvements. It mer
 | **4** | W4-EXPORT | Export Feedback & Browser Download | M | Flash | ✅ Done | Plan Phase 10 + Feedback #13 |
 | **4** | W4-COST | LLM Cost Breakdown Dashboard | M | Flash | ✅ Done | Feedback #14 |
 | **4** | W4-WORK | Regex Pre-Check `requires_work` Flag | S | Flash | ✅ Done | Feedback #17 |
-| **4** | W4-JUDGE | Judge LLM Rounding Error & Partial Credit Audit | S | Flash | Todo | Feedback #20 |
+| **4** | W4-JUDGE | Judge LLM Rounding Error & Partial Credit Audit | S | Flash | ✅ Done | Feedback #20 |
 | **5** | W5-SSE | Server Grading + SSE Progress | L | Pro | Todo | Plan Phase 8 |
 | **5** | W5-ANNOT | PDF Annotation Editing (Option C) | L | Pro | Todo | Plan Phase 9 |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
