@@ -328,6 +328,12 @@ class ReviewApi:
             if "reviewed_final" in payload:
                 final_payload["reviewed"] = bool(payload["reviewed_final"])
 
+            # Guardrail: Prevent empty short_reason for deductions
+            current_verdict = final_payload.get("verdict", "")
+            current_reason = final_payload.get("short_reason", "").strip()
+            if current_verdict in {"incorrect", "partial"} and not current_reason:
+                raise ReviewApiError(f"A short_reason is required when verdict is '{current_verdict}'.")
+
             question_payload["is_overridden"] = bool(compare_question_payloads(auto_payload, final_payload))
             question_payload["updated_at"] = utc_now_iso()
 

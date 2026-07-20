@@ -34,7 +34,7 @@ This document is the single source of truth for all planned improvements. It mer
 | **4** | W4-WORK | Regex Pre-Check `requires_work` Flag | S | Flash | ✅ Done | Feedback #17 |
 | **4** | W4-JUDGE | Judge LLM Rounding Error & Partial Credit Audit | S | Flash | ✅ Done | Feedback #20 |
 | **5** | W5-SSE | Server Grading + SSE Progress | L | Pro | ✅ Done | Plan Phase 8 |
-| **5** | W5-ANNOT | PDF Annotation Editing (Option C) | L | Pro | Todo | Plan Phase 9 |
+| **5** | W5-ANNOT | PDF Annotation Editing (Option C) | L | Pro | ✅ Done | Plan Phase 9 |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
 | **Backlog** | BL-VISION | Force Vision Extraction for Math | M | Flash | Backlog | Feedback #18 |

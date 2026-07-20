@@ -790,7 +790,59 @@
     return submission.questions?.[state.currentQuestionId] || null;
   }
 
+  function getVerdictIcon(verdict) {
+    const verdictIcons = {
+      correct: "✓",
+      rounding_error: "≈",
+      partial: "◐",
+      incorrect: "✗",
+      needs_review: "⟳"
+    };
+    return verdictIcons[verdict] || "⟳";
+  }
+
   function renderMarker() {
+    ui.imageWrap.querySelectorAll('.marker.inactive').forEach(el => el.remove());
+    const submission = state.currentSubmission;
+    if (!submission) {
+      ui.marker.hidden = true;
+      return;
+    }
+    const currentDocFilename = submission.documents?.[state.currentDocIdx]?.filename;
+    const questions = submission.questions || {};
+    const imgRect = ui.pageImage.getBoundingClientRect();
+    const wrapRect = ui.imageWrap.getBoundingClientRect();
+    if (!imgRect.width || !imgRect.height) {
+      ui.marker.hidden = true;
+      return;
+    }
+    
+    Object.entries(questions).forEach(([qId, qObj]) => {
+      if (qId === state.currentQuestionId) return;
+      const finalData = qObj.final || {};
+      const coords = finalData.coords;
+      const pageNum = finalData.page_number;
+      const sourceFile = finalData.source_file;
+      if (coords && coords.length === 2 && pageNum - 1 === state.currentPageIdx) {
+        if (!sourceFile || sourceFile === currentDocFilename) {
+          const m = document.createElement("div");
+          m.className = `marker inactive marker-${finalData.verdict || "needs_review"}`;
+          m.textContent = getVerdictIcon(finalData.verdict);
+          const y = Number(coords[0]);
+          const x = Number(coords[1]);
+          const px = (x / 1000) * imgRect.width;
+          const py = (y / 1000) * imgRect.height;
+          m.style.left = `${imgRect.left - wrapRect.left + px}px`;
+          m.style.top = `${imgRect.top - wrapRect.top + py}px`;
+          m.addEventListener("click", (e) => {
+            e.stopPropagation();
+            selectQuestion(qId);
+          });
+          ui.imageWrap.appendChild(m);
+        }
+      }
+    });
+
     const question = getCurrentQuestion();
     if (!question) {
       ui.marker.hidden = true;
@@ -799,15 +851,22 @@
     const coords = state.activeCoords || question.final?.coords;
     if (!coords || coords.length !== 2) {
       ui.marker.hidden = true;
+      if (ui.xCoordInput) ui.xCoordInput.value = "";
+      if (ui.yCoordInput) ui.yCoordInput.value = "";
       return;
     }
 
-    const imgRect = ui.pageImage.getBoundingClientRect();
-    const wrapRect = ui.imageWrap.getBoundingClientRect();
-    if (!imgRect.width || !imgRect.height) {
-      ui.marker.hidden = true;
-      return;
+    const verdict = question.final?.verdict || "needs_review";
+    ui.marker.className = `marker marker-${verdict}`;
+    
+    let iconSpan = ui.marker.querySelector('.marker-icon');
+    if (!iconSpan) {
+      iconSpan = document.createElement('span');
+      iconSpan.className = 'marker-icon';
+      ui.marker.insertBefore(iconSpan, ui.marker.firstChild);
     }
+    iconSpan.textContent = getVerdictIcon(verdict);
+    
     const y = Number(coords[0]);
     const x = Number(coords[1]);
     const px = (x / 1000) * imgRect.width;
@@ -815,6 +874,10 @@
     ui.marker.style.left = `${imgRect.left - wrapRect.left + px}px`;
     ui.marker.style.top = `${imgRect.top - wrapRect.top + py}px`;
     ui.marker.hidden = false;
+    
+    if (ui.xCoordInput) ui.xCoordInput.value = Math.round(x);
+    if (ui.yCoordInput) ui.yCoordInput.value = Math.round(y);
+    if (ui.markerLabel) ui.markerLabel.textContent = `Page ${state.currentPageIdx + 1}, (${Math.round(x)}, ${Math.round(y)})`;
   }
 
   function isDebugOverlayEnabled() {
@@ -1406,6 +1469,13 @@
 
     ui.verdictSelect.addEventListener("change", () => {
       const val = ui.verdictSelect.value;
+      const reason = ui.reasonInput ? ui.reasonInput.value.trim() : "";
+      if ((val === "incorrect" || val === "partial") && !reason) {
+        showToast("A short reason is required for incorrect or partial verdicts.", "error");
+        const question = getCurrentQuestion();
+        ui.verdictSelect.value = question?.final?.verdict || "needs_review";
+        return;
+      }
       queuePatch({ verdict_final: val }, 150);
       const buttons = document.querySelectorAll("#verdictButtonRow .verdict-btn");
       buttons.forEach((btn) => {
@@ -1421,6 +1491,12 @@
     verdictBtns.forEach((btn) => {
       btn.addEventListener("click", () => {
         const verdict = btn.dataset.verdict;
+        const reason = ui.reasonInput ? ui.reasonInput.value.trim() : "";
+        if ((verdict === "incorrect" || verdict === "partial") && !reason) {
+          showToast("A short reason is required for incorrect or partial verdicts.", "error");
+          return;
+        }
+        
         const question = getCurrentQuestion();
         if (question) {
           if (!question.final) {
@@ -1488,8 +1564,36 @@
     );
     ui.pageNumberInput.addEventListener("input", () => {
       const raw = ui.pageNumberInput.value.trim();
-      queuePatch({ page_final: raw ? Number(raw) : null }, 550);
+      const num = raw === "" ? null : Number(raw);
+      if (num !== null && (isNaN(num) || num < 1)) {
+        return;
+      }
+      queuePatch({ page_final: num }, 500);
+      const question = getCurrentQuestion();
+      if (question) {
+        question.final.page_number = num;
+      }
     });
+
+    if (ui.xCoordInput && ui.yCoordInput) {
+      const handleCoordInput = () => {
+        const x = parseFloat(ui.xCoordInput.value);
+        const y = parseFloat(ui.yCoordInput.value);
+        if (!isNaN(x) && !isNaN(y)) {
+          const coords = [Math.max(0, Math.min(1000, y)), Math.max(0, Math.min(1000, x))];
+          state.activeCoords = coords;
+          const question = getCurrentQuestion();
+          if (question) {
+            if (!question.final) question.final = {};
+            question.final.coords = coords;
+          }
+          renderMarker();
+          queuePatch({ coords_final: coords }, 250);
+        }
+      };
+      ui.xCoordInput.addEventListener("input", handleCoordInput);
+      ui.yCoordInput.addEventListener("input", handleCoordInput);
+    }
 
     if (ui.questionReviewedCheckbox) {
       ui.questionReviewedCheckbox.addEventListener("change", () => {

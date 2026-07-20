@@ -666,25 +666,97 @@ select {
 
 .marker {
   position: absolute;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: var(--accent);
-  color: transparent;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
   transform: translate(-50%, -50%);
-  cursor: grab;
-  border: 2.5px solid #fff;
+  cursor: pointer;
+  border: 2px solid #fff;
   box-shadow: 0 0 0 1px var(--accent), var(--shadow-md);
-  transition: transform 80ms ease;
+  transition: transform 80ms ease, opacity 150ms ease;
+  z-index: 10;
+}
+
+.marker::after {
+  content: "";
+  position: absolute;
+  top: -10px; right: -10px; bottom: -10px; left: -10px;
+  border-radius: 50%;
 }
 
 .marker:hover {
   transform: translate(-50%, -50%) scale(1.15);
+  z-index: 20;
 }
 
 .marker.dragging {
   cursor: grabbing;
   transform: translate(-50%, -50%) scale(1.2);
+  z-index: 20;
+}
+
+.marker.inactive {
+  opacity: 0.4;
+  z-index: 5;
+}
+
+.marker.inactive:hover {
+  opacity: 1;
+}
+
+.marker-correct, .marker-rounding_error {
+  background: var(--success);
+  box-shadow: 0 0 0 1px var(--success), var(--shadow-md);
+}
+.marker-incorrect {
+  background: var(--error);
+  box-shadow: 0 0 0 1px var(--error), var(--shadow-md);
+}
+.marker-partial {
+  background: var(--warning);
+  box-shadow: 0 0 0 1px var(--warning), var(--shadow-md);
+}
+.marker-needs_review {
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-md);
+}
+
+.marker-label {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 4px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.marker:not(.inactive) .marker-label {
+  opacity: 1;
+}
+
+@keyframes marker-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(26, 115, 232, 0.7); }
+  70% { box-shadow: 0 0 0 12px rgba(26, 115, 232, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(26, 115, 232, 0); }
+}
+
+.pulse-animation {
+  animation: marker-pulse 1.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .viewer-meta,

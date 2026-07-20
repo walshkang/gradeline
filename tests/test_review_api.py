@@ -135,6 +135,44 @@ class ReviewApiTests(unittest.TestCase):
             with self.assertRaises(ReviewApiError):
                 api.patch_question("sub-1", "a", {"source_file_final": "other.pdf"})
 
+    def test_patch_question_rejects_empty_short_reason_for_deductions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_dir = Path(tmp)
+            make_state(output_dir)
+            api = ReviewApi(output_dir)
+
+            with self.assertRaises(ReviewApiError) as ctx:
+                api.patch_question(
+                    "sub-1",
+                    "a",
+                    {
+                        "verdict_final": "incorrect",
+                        "short_reason_final": "   ",
+                    },
+                )
+            self.assertIn("A short_reason is required", str(ctx.exception))
+            
+            with self.assertRaises(ReviewApiError):
+                api.patch_question(
+                    "sub-1",
+                    "a",
+                    {
+                        "verdict_final": "partial",
+                        "short_reason_final": "",
+                    },
+                )
+            
+            # Should succeed if short_reason is provided
+            response = api.patch_question(
+                "sub-1",
+                "a",
+                {
+                    "verdict_final": "incorrect",
+                    "short_reason_final": "Missing variable",
+                },
+            )
+            self.assertEqual(response["question"]["final"]["short_reason"], "Missing variable")
+
     def test_patch_question_saves_reviewed_final(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             output_dir = Path(tmp)

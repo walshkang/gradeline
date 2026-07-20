@@ -82,7 +82,9 @@
             <div class="empty-state-text">Select a submission to view</div>
           </div>
           <img id="pageImage" alt="Submission page" style="display: none;" />
-          <div id="marker" class="marker" hidden>●</div>
+          <div id="marker" class="marker" hidden>
+            <div id="markerLabel" class="marker-label"></div>
+          </div>
         </div>
 
         <div id="viewerMeta" class="viewer-meta"></div>
@@ -162,6 +164,16 @@
             Page Number
             <input id="pageNumberInput" type="number" min="1" step="1" />
           </label>
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.4rem;">
+            <label style="flex: 1;">
+              X Coordinate
+              <input id="xCoordInput" type="number" min="0" max="1000" step="1" />
+            </label>
+            <label style="flex: 1;">
+              Y Coordinate
+              <input id="yCoordInput" type="number" min="0" max="1000" step="1" />
+            </label>
+          </div>
         </div>
 
         <div id="subpartsContainer" class="editor-section" style="display: none;">
