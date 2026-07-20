@@ -11,11 +11,13 @@ from urllib.parse import parse_qs, urlparse
 
 from .api import ReviewApi, ReviewApiError
 from .raster import parse_scale
+from .grading_session import GradingSessionManager
 
 
 class ReviewRequestHandler(BaseHTTPRequestHandler):
     api: ReviewApi
     static_root: Path
+    session_manager: GradingSessionManager
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -144,6 +146,26 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(image.png_bytes)
             return
 
+        if path == "/api/grade/status":
+            status = self.session_manager.get_status()
+            self._send_json(HTTPStatus.OK, status)
+            return
+
+        if path == "/api/grade/progress":
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            
+            try:
+                for event_bytes in self.session_manager.events_generator():
+                    self.wfile.write(event_bytes)
+                    self.wfile.flush()
+            except Exception:
+                pass
+            return
+
         self._serve_static(path)
 
     def do_PATCH(self) -> None:  # noqa: N802
@@ -209,6 +231,26 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
                 self._send_json_error(HTTPStatus.BAD_REQUEST, str(exc))
                 return
             self._send_json(HTTPStatus.OK, {"artifacts": payload})
+            return
+            
+        if path == "/api/grade/start":
+            body = self._read_json_body()
+            if not body:
+                return
+            profile = body.get("profile", "").strip()
+            if not profile:
+                self._send_json_error(HTTPStatus.BAD_REQUEST, "Missing profile.")
+                return
+            try:
+                self.session_manager.start_grading(profile)
+                self._send_json(HTTPStatus.OK, {"status": "started"})
+            except ValueError as e:
+                self._send_json_error(HTTPStatus.CONFLICT, str(e))
+            return
+
+        if path == "/api/grade/cancel":
+            self.session_manager.cancel()
+            self._send_json(HTTPStatus.OK, {"status": "cancelled"})
             return
 
         if path == "/api/setup/upload":
@@ -470,12 +512,14 @@ def run_review_server(output_dir: Path, host: str = "127.0.0.1", port: int = 876
 
     api = ReviewApi(output_dir)
     static_root = Path(__file__).parent / "static"
+    session_manager = GradingSessionManager()
 
     class BoundHandler(ReviewRequestHandler):
         pass
 
     BoundHandler.api = api
     BoundHandler.static_root = static_root
+    BoundHandler.session_manager = session_manager
 
     server = ThreadingHTTPServer((host, port), BoundHandler)
     styled_url("Review server running", f"http://{host}:{port}")

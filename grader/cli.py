@@ -83,7 +83,7 @@ def abort_preflight(exit_code: int, ui, diagnostics, output_dir: Path) -> int:
         pass
     return exit_code
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, ui_override: Any = None) -> int:
     load_dotenv_if_present()
     args = parse_args(argv if argv is not None else sys.argv[1:])
     args.model = resolve_model("grading", args.model)
@@ -98,7 +98,11 @@ def main(argv: list[str] | None = None) -> int:
         args.quiet = True
     if getattr(args, "quiet", False):
         args.plain = True
-    ui = create_console_ui(force_plain=args.plain or args.quiet, quiet=getattr(args, "quiet", False))
+    
+    if ui_override is not None:
+        ui = ui_override
+    else:
+        ui = create_console_ui(force_plain=args.plain or args.quiet, quiet=getattr(args, "quiet", False))
     ui.banner("Brightspace PDF Grader", subtitle=args_to_subtitle(args))
 
     diagnostics = DiagnosticsCollector(args_snapshot=serialize_cli_args(args))

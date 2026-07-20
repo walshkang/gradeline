@@ -1764,11 +1764,161 @@
 
     const saveGradeBtn = document.getElementById("saveAndGradeBtn");
     if(saveGradeBtn) {
-      saveGradeBtn.addEventListener("click", () => {
-          document.getElementById("saveProfileBtn").click();
-          showToast("Now run: ./gradeline quickstart --profile " + profileInput.value.trim(), "success");
+      saveGradeBtn.addEventListener("click", async () => {
+        const profile = profileInput.value.trim();
+        if (!profile) {
+          showToast("Enter a profile name", "error"); return;
+        }
+        
+        // First save the profile
+        try {
+          await apiPost("/api/setup/profile", {
+            profile,
+            model: document.getElementById("setupModel").value,
+            concurrency: Number(document.getElementById("setupConcurrency").value),
+            grade_column: gradeColumnSelect.value,
+            check_plus_points: document.getElementById("setupCheckPlus").value,
+            check_points: document.getElementById("setupCheck").value,
+            check_minus_points: document.getElementById("setupCheckMinus").value,
+            review_required_points: document.getElementById("setupReviewRequired").value,
+          });
+        } catch (err) {
+          showToast(`Save failed: ${err.message}`, "error");
+          return;
+        }
+
+        // Then start grading
+        try {
+          await apiPost("/api/grade/start", { profile });
+          startSseStream();
+        } catch (err) {
+          showToast(`Failed to start grading: ${err.message}`, "error");
+        }
       });
     }
+
+    // Modal UI elements
+    const gradingModal = document.getElementById("gradingProgressModal");
+    const gradingStatusText = document.getElementById("gradingStatusText");
+    const gradingProgressBar = document.getElementById("gradingProgressBar");
+    const gradingProgressDetails = document.getElementById("gradingProgressDetails");
+    const cancelGradingBtn = document.getElementById("cancelGradingBtn");
+    const closeGradingModalBtn = document.getElementById("closeGradingModalBtn");
+    
+    let eventSource = null;
+
+    function logProgress(msg) {
+      const div = document.createElement("div");
+      div.textContent = msg;
+      gradingProgressDetails.appendChild(div);
+      gradingProgressDetails.scrollTop = gradingProgressDetails.scrollHeight;
+    }
+
+    function startSseStream() {
+      gradingModal.classList.remove("hidden");
+      gradingStatusText.textContent = "Connecting...";
+      gradingProgressBar.style.width = "0%";
+      gradingProgressDetails.innerHTML = "";
+      cancelGradingBtn.style.display = "inline-block";
+      closeGradingModalBtn.style.display = "none";
+      
+      if (eventSource) {
+        eventSource.close();
+      }
+      
+      eventSource = new EventSource("/api/grade/progress");
+      
+      eventSource.onopen = () => {
+        gradingStatusText.textContent = "Grading in progress...";
+        logProgress("Connected to grading stream.");
+      };
+
+      eventSource.addEventListener("info", (e) => {
+        const data = JSON.parse(e.data);
+        logProgress(`[INFO] ${data.message}`);
+      });
+
+      eventSource.addEventListener("warning", (e) => {
+        const data = JSON.parse(e.data);
+        logProgress(`[WARN] ${data.message}`);
+      });
+
+      eventSource.addEventListener("error", (e) => {
+        const data = JSON.parse(e.data);
+        logProgress(`[ERROR] ${data.message}`);
+      });
+
+      eventSource.addEventListener("progress_start", (e) => {
+        const data = JSON.parse(e.data);
+        logProgress(`Grading batch of ${data.total} submissions started.`);
+      });
+
+      eventSource.addEventListener("progress", (e) => {
+        const data = JSON.parse(e.data);
+        if (data.status === "started") {
+          gradingStatusText.textContent = `Grading: ${data.folder_name} (${data.index}/${data.total})`;
+        } else if (data.status === "finished") {
+          logProgress(`Finished ${data.folder_name} -> ${data.band} (${data.elapsed_seconds || 0}s)`);
+          const pct = Math.round((data.index / data.total) * 100);
+          gradingProgressBar.style.width = `${pct}%`;
+        }
+      });
+
+      eventSource.addEventListener("status", (e) => {
+        const data = JSON.parse(e.data);
+        logProgress(data.message);
+      });
+
+      eventSource.addEventListener("complete", (e) => {
+        const data = JSON.parse(e.data);
+        logProgress(`[COMPLETE] ${data.message}`);
+        gradingStatusText.textContent = "Grading Completed!";
+        gradingProgressBar.style.width = "100%";
+        cancelGradingBtn.style.display = "none";
+        closeGradingModalBtn.style.display = "inline-block";
+        eventSource.close();
+        
+        // Refresh everything to show new grades
+        refreshRun();
+        refreshQueue();
+      });
+
+      eventSource.onerror = (e) => {
+        logProgress(`[CONNECTION ERROR] Stream disconnected.`);
+        eventSource.close();
+        cancelGradingBtn.style.display = "none";
+        closeGradingModalBtn.style.display = "inline-block";
+      };
+    }
+
+    if (cancelGradingBtn) {
+      cancelGradingBtn.addEventListener("click", async () => {
+        try {
+          await apiPost("/api/grade/cancel", {});
+          cancelGradingBtn.disabled = true;
+          cancelGradingBtn.textContent = "Cancelling...";
+          logProgress("Cancellation requested...");
+        } catch (err) {
+          showToast(`Cancel failed: ${err.message}`, "error");
+        }
+      });
+    }
+
+    if (closeGradingModalBtn) {
+      closeGradingModalBtn.addEventListener("click", () => {
+        gradingModal.classList.add("hidden");
+        // Ensure UI is refreshed if they closed without completion
+        refreshRun();
+        refreshQueue();
+      });
+    }
+
+    // Check if grading is already running when page loads
+    apiGet("/api/grade/status").then((status) => {
+      if (status.state === "running") {
+        startSseStream();
+      }
+    }).catch(() => {});
   }
 
   async function init() {
