@@ -15,6 +15,7 @@ class QuestionRubric:
     weight: float = 1.0
     anchor_tokens: list[str] = field(default_factory=list)
     expected_answers: list[str] = field(default_factory=list)
+    requires_work: bool = False
 
 
 @dataclass(frozen=True)

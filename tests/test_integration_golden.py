@@ -52,7 +52,7 @@ def test_regex_precheck_golden_output():
     sub_path = FIXTURE_DIR / "sample_submission.pdf"
     with tempfile.TemporaryDirectory() as tmpdir:
         extracted = extract_pdf_text(sub_path, temp_dir=Path(tmpdir))
-        results = regex_precheck(rubric, extracted.text)
+        results, _ = regex_precheck(rubric, extracted.text)
         
         assert "q1" in results
         assert results["q1"].verdict == "correct"

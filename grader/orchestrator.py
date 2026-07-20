@@ -978,28 +978,38 @@ class Orchestrator:
                     combined_text += item.text + "\n"
                     
                 # 3. Try regex precheck
-                q_result = regex_precheck(target_rubric, combined_text)
-                
+                precheck_results, hints = regex_precheck(mini_rubric, combined_text)
+                q_result = precheck_results.get(question_id)
+
                 # 4. Fallback to LLM if no regex match
                 if not q_result:
+                    regrade_rubric = mini_rubric
+                    if question_id in hints:
+                        note = (
+                            f"\nNote: The student's final answer appears to match the expected value ({hints[question_id]}). "
+                            "Focus your evaluation on whether the student showed the required methodology/setup."
+                        )
+                        hinted_target = replace(target_rubric, scoring_rules=target_rubric.scoring_rules + note)
+                        regrade_rubric = replace(mini_rubric, questions=[hinted_target])
+
                     if self.config.grading_mode == UNIFIED_MODE:
                         llm_results, _ = self.config.grader.grade_submission_unified(
                             submission_id=unit.folder_token,
                             pdf_paths=pdf_paths,
-                            rubric=mini_rubric,
+                            rubric=regrade_rubric,
                             solutions_pdf_path=self.config.solutions_pdf_path,
                         )
                     elif self.config.grading_mode == AGENT_MODE:
                         llm_results, _ = self.config.grader.grade_submission_agent(
                             submission_id=unit.folder_token,
                             pdf_paths=pdf_paths,
-                            rubric=mini_rubric,
+                            rubric=regrade_rubric,
                         )
                     else:
                         llm_results, _ = self.config.grader.grade_submission(
                             submission_id=unit.folder_token,
                             combined_text=combined_text,
-                            rubric=mini_rubric,
+                            rubric=regrade_rubric,
                             solutions_text=self.config.solutions_text or "",
                         )
                     if llm_results:

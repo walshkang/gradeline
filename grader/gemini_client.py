@@ -682,13 +682,21 @@ def build_unified_grading_prompt(
         student_section = "Student extracted text (may include OCR noise):\n" + combined_text[:12000]
 
     files_list = "\n".join(f"  - {path.name}" for path in pdf_paths)
+    specific_notes = []
+    if questions_to_grade is not None:
+        for q in qs:
+            if "Note: The student's final answer appears to match" in q.scoring_rules:
+                specific_notes.append(f"- Q{q.id}: {q.scoring_rules}")
+    notes_section = ("\nSpecific question guidelines:\n" + "\n".join(specific_notes) + "\n") if specific_notes else ""
+
     return (
         f"Submission ID: {submission_id}\n"
         f"Expected question IDs: {labels}\n"
         "If a question contains sub-parts, return each sub-part with id \"{parent_id}.{subpart}\" (e.g. \"4.a\", \"4.b\").\n"
         f"Attached student PDF files (use exact filenames for source_file):\n{files_list}\n"
         "Grade this submission exactly according to the cached rubric and master solution.\n"
-        f"{NUMERIC_EQUIVALENCE_RULE}\n\n"
+        f"{NUMERIC_EQUIVALENCE_RULE}\n"
+        f"{notes_section}\n"
         f"{student_section}"
     )
 

@@ -126,8 +126,18 @@ def grade_one_submission(
                 f"### FILE: {item.pdf_path.name}\n{item.text}" for item in extracted_for_precheck
             )
 
-    prechecked_results = regex_precheck(rubric, combined_text)
-    questions_to_grade = [q for q in rubric.questions if q.id not in prechecked_results]
+    prechecked_results, hints = regex_precheck(rubric, combined_text)
+    questions_to_grade = []
+    for q in rubric.questions:
+        if q.id in prechecked_results:
+            continue
+        if q.id in hints:
+            note = (
+                f"\nNote: The student's final answer appears to match the expected value ({hints[q.id]}). "
+                "Focus your evaluation on whether the student showed the required methodology/setup."
+            )
+            q = replace(q, scoring_rules=q.scoring_rules + note)
+        questions_to_grade.append(q)
 
     if dry_run:
         if status_update is not None:
@@ -324,7 +334,12 @@ def grade_one_submission(
             if dry_run:
                 trace = ("dry_run: skipped",)
             else:
-                precheck_status = "regex_precheck: no match" if q.expected_answers else "regex_precheck: skipped (no expected_answers)"
+                if q.id in hints:
+                    precheck_status = "regex_precheck: skipped (requires_work)"
+                elif q.expected_answers:
+                    precheck_status = "regex_precheck: no match"
+                else:
+                    precheck_status = "regex_precheck: skipped (no expected_answers)"
                 trace = (precheck_status, f"llm_grading: {grading_mode}")
 
             final_qr = QuestionResult(

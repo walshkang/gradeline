@@ -19,13 +19,14 @@ def test_regex_precheck_full_match():
     )
     combined_text = "The range is 493,000 to 557,000 as requested."
 
-    results = regex_precheck(rubric, combined_text)
+    results, hints = regex_precheck(rubric, combined_text)
     assert "q1" in results
     assert results["q1"].verdict == "correct"
     assert results["q1"].confidence == 1.0
     assert results["q1"].grading_source == "regex"
     assert results["q1"].short_reason == ""
     assert "493,000 to 557" in results["q1"].evidence_quote
+    assert not hints
 
 
 def test_regex_precheck_partial_match_fails():
@@ -45,8 +46,9 @@ def test_regex_precheck_partial_match_fails():
     )
     combined_text = "I am saying hello to you."
 
-    results = regex_precheck(rubric, combined_text)
+    results, hints = regex_precheck(rubric, combined_text)
     assert "q2" not in results
+    assert "q2" not in hints
 
 
 def test_regex_precheck_no_match():
@@ -66,8 +68,9 @@ def test_regex_precheck_no_match():
     )
     combined_text = "The range is 400,000 to 600,000 as requested."
 
-    results = regex_precheck(rubric, combined_text)
+    results, hints = regex_precheck(rubric, combined_text)
     assert "q3" not in results
+    assert "q3" not in hints
 
 
 def test_regex_precheck_no_expected_answers():
@@ -87,8 +90,9 @@ def test_regex_precheck_no_expected_answers():
     )
     combined_text = "This should just fall through to the LLM."
 
-    results = regex_precheck(rubric, combined_text)
+    results, hints = regex_precheck(rubric, combined_text)
     assert "q4" not in results
+    assert "q4" not in hints
 
 
 def test_regex_precheck_multiple_matches_all_success():
@@ -108,11 +112,60 @@ def test_regex_precheck_multiple_matches_all_success():
     )
     combined_text = "I am saying hello to the world."
 
-    results = regex_precheck(rubric, combined_text)
+    results, hints = regex_precheck(rubric, combined_text)
     assert "q5" in results
     assert results["q5"].verdict == "correct"
     assert "hello" in results["q5"].evidence_quote
     assert "world" in results["q5"].evidence_quote
+    assert not hints
+
+
+def test_regex_precheck_requires_work_true_skips_result_and_returns_hint():
+    rubric = RubricConfig(
+        assignment_id="hw1",
+        bands={},
+        questions=[
+            QuestionRubric(
+                id="q6",
+                label_patterns=[],
+                scoring_rules="Must show work.",
+                short_note_pass="",
+                short_note_fail="Check",
+                expected_answers=["167\\.78"],
+                requires_work=True,
+            )
+        ],
+    )
+    combined_text = "The final answer is 167.78."
+
+    results, hints = regex_precheck(rubric, combined_text)
+    assert "q6" not in results
+    assert "q6" in hints
+    assert hints["q6"] == "167.78"
+
+
+def test_regex_precheck_requires_work_false_default():
+    rubric = RubricConfig(
+        assignment_id="hw1",
+        bands={},
+        questions=[
+            QuestionRubric(
+                id="q7",
+                label_patterns=[],
+                scoring_rules="",
+                short_note_pass="",
+                short_note_fail="Check",
+                expected_answers=["167\\.78"],
+                requires_work=False,
+            )
+        ],
+    )
+    combined_text = "The final answer is 167.78."
+
+    results, hints = regex_precheck(rubric, combined_text)
+    assert "q7" in results
+    assert "q7" not in hints
+    assert results["q7"].verdict == "correct"
 
 
 def test_validate_expected_answers():
