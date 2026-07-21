@@ -128,6 +128,36 @@ class DraftRubricNormalizationTests(unittest.TestCase):
         cache_payload = rubric_to_cache_payload(rubric)
         self.assertEqual(cache_payload["questions"][0]["expected_answers"], ["493.*557"])
 
+    def test_load_rubric_accepts_str_and_path(self) -> None:
+        from pathlib import Path
+        import tempfile
+        from grader.config import load_rubric
+
+        rubric_content = """
+assignment_id: test_assignment
+scoring_mode: equal_weights
+partial_credit: 0.5
+bands:
+  check_plus_min: 0.9
+  check_min: 0.7
+questions:
+  - id: "1"
+    scoring_rules: "Rule 1"
+    short_note_pass: "OK"
+    short_note_fail: "Check"
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir) / "rubric.yaml"
+            tmp_path.write_text(rubric_content, encoding="utf-8")
+
+            # Load using Path
+            rubric_from_path = load_rubric(tmp_path)
+            self.assertEqual(rubric_from_path.assignment_id, "test_assignment")
+
+            # Load using str
+            rubric_from_str = load_rubric(str(tmp_path))
+            self.assertEqual(rubric_from_str.assignment_id, "test_assignment")
+
 
 if __name__ == "__main__":
     unittest.main()

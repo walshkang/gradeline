@@ -5,9 +5,10 @@ from pathlib import Path
 from .types import QuestionRubric, RubricConfig, ScoringCriterion
 
 
-def load_rubric(path: Path) -> RubricConfig:
+def load_rubric(path: Path | str) -> RubricConfig:
     import yaml  # Lazy import for friendlier CLI behavior before dependency install.
 
+    path = Path(path)
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("Rubric config must be a mapping.")

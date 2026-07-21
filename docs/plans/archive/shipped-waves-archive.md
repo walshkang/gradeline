@@ -1,6 +1,6 @@
-# Gradeline Shipped Waves Archive (Waves 1–5)
+# Gradeline Shipped Waves Archive (Waves 1–7)
 
-This document archives the detailed specifications and agent prompts for completed/shipped tasks (Waves 1 through 5).
+This document archives the detailed specifications and agent prompts for completed/shipped tasks (Waves 1 through 7).
 
 ---
 
@@ -612,5 +612,43 @@ Files to modify:
 ## Verification
 - Write unit tests in tests/test_scoring_criteria.py covering YAML parsing, invalid criteria validation, prompt formatting, cache payloads, review roundtrip serialization, and dynamic partial scoring with bounds-checked fallback.
 - Run: PYTHONPATH=. .venv/bin/pytest tests/test_scoring_criteria.py tests/test_rubric_normalization.py tests/test_judge_prompt.py tests/test_score.py -x -v
+```
+
+---
+
+## Wave 7 — Auto-Rubric Generation & Precision
+
+### W7-PROMPT: Rubric Gen Prompt v2 (Multi-Method & Decomposition)
+
+**Origin**: Reflection #1 (HW3 Rubric Evaluation / Feedback #21)
+**Size**: Small (~2–3 hours) · **Tier**: Flash
+
+```
+Enhance the AI rubric generation prompt in `grader/gemini_client.py` to handle solution variants and enforce sub-question atomicity.
+
+Files to modify:
+- grader/gemini_client.py (generate_rubric_draft_from_pdf prompt & system instruction)
+- tests/test_gemini_client.py (or unit tests for rubric generation prompt output parsing)
+
+## Key Requirements
+
+1. Multi-Method & Variation Expansion:
+   In the rubric generation prompt system instruction:
+   - Instruct the LLM to analyze the master solutions for potential numerical and methodological variations before writing `expected_answers`.
+   - Explicitly request listing variations in regexes:
+     * Format variations: percentages (e.g. 8.08%, 8.1%) vs decimals (0.0808, .0808, 0.081).
+     * Calculation method variations: e.g., Binomial exact vs. Normal approximation (with and without continuity correction).
+     * Precision variations: e.g., 2 decimal places vs 4 decimal places.
+
+2. Atomic Sub-Question Decomposition:
+   - Instruct the generator to automatically flatten composite multi-part questions (e.g. Q2 with parts a, b, c) into distinct, independent sub-question nodes (`2a`, `2b`, `2c`) with dedicated single-answer regexes.
+   - Enforce that each sub-question has its own atomic `expected_answers` list rather than combining multi-step regexes onto a single top-level question.
+
+3. Type Support Drive-By Fix:
+   - In `grader/config.py`, update `load_rubric(path: Path | str)` to convert `path` via `Path(path)` if a string is provided, preventing type errors when string paths are passed.
+
+## Verification
+- Run `pytest tests/test_rubric_normalization.py tests/test_gemini_contract.py`
+- Verify that `load_rubric("configs/hw3.yaml")` works cleanly with string input.
 ```
 

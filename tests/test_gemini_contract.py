@@ -27,6 +27,7 @@ from grader.gemini_client import (
     parse_coords_0_to_1000,
     match_subparts_to_parent,
     aggregate_subpart_verdicts,
+    build_rubric_draft_prompt,
 )
 from grader.types import QuestionRubric, RubricConfig, QuestionResult
 
@@ -630,6 +631,21 @@ class SubpartAggregationTests(unittest.TestCase):
         self.assertEqual(deserialized.sub_results[0].verdict, "correct")
         self.assertEqual(deserialized.sub_results[1].id, "1.b")
         self.assertEqual(deserialized.sub_results[1].verdict, "incorrect")
+
+    def test_build_rubric_draft_prompt_v2_requirements(self) -> None:
+        prompt = build_rubric_draft_prompt("hw3")
+        # 1. Multi-method & variation expansion
+        self.assertIn("MULTI-METHOD & VARIATION EXPANSION", prompt)
+        self.assertIn("percentages", prompt)
+        self.assertIn("decimals", prompt)
+        self.assertIn("Binomial exact", prompt)
+        self.assertIn("Normal approximation", prompt)
+        self.assertIn("Precision variations", prompt)
+
+        # 2. Atomic sub-question decomposition
+        self.assertIn("ATOMIC SUB-QUESTION DECOMPOSITION", prompt)
+        self.assertIn("flatten composite multi-part questions", prompt)
+        self.assertIn('"2a", "2b", "2c"', prompt)
 
 
 if __name__ == "__main__":

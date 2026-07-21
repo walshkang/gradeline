@@ -1,0 +1,227 @@
+assignment_id: "hw3_normal_and_binomial"
+scoring_mode: "equal_weights"
+partial_credit: 0.5
+
+# Grading scale out of 10 points based on percentage of correct questions
+bands:
+  "10": 0.85 # 85%+ (Lenient check plus/A)
+  "9": 0.70  # 70%+
+  "8": 0.55  # 55%+
+  "7": 0.40  # 40%+
+  "5": 0.00  # Default minimum score
+
+questions:
+  - id: "1"
+    weight: 1.0
+    label_patterns: ["Problem 1", "P1", "1)", "1.", "(1)", "Question 1"]
+    anchor_tokens: ["soda machine", "overflow only 1%"]
+    expected_answers:
+      - '\b11\.5[34]\d*\b'
+    scoring_rules: |
+      Correct average setting is μ ≈ 11.53 or 11.54 ounces.
+      
+      Derivation steps:
+      - 12 ounce cups overflow 1% of the time: P(X > 12) = 0.01.
+      - Z-score for top 1% (P(Z > z) = 0.01) is z ≈ 2.326 or 2.33.
+      - Equation: (12 - μ) / 0.2 = z.
+      - Solving for μ: μ = 12 - 0.2 * z.
+        - If using z = 2.3263: μ ≈ 11.535 (or 11.53)
+        - If using z = 2.33: μ ≈ 11.534 (or 11.53)
+        - If using z = 2.32: μ ≈ 11.536 (or 11.54)
+      
+      Grading details:
+      - Accept any answer between 11.53 and 11.54 ounces.
+      - If the student sets up the Z-score equation correctly but solves it incorrectly or uses the wrong Z-score (e.g., matching 1% incorrectly), award partial credit (0.5).
+    short_note_pass: "Correctly found the mean setting (μ ≈ 11.53 or 11.54 ounces) using the normal distribution."
+    short_note_fail: "Incorrect mean setting. Ensure the Z-score corresponding to a 1% overflow probability (z ≈ 2.33) is used to solve for μ."
+
+  - id: "2a"
+    weight: 1.0
+    label_patterns: ["Problem 2 A", "Problem 2a", "2a", "2.a", "2) A)", "2) a)", "2A", "2. A)", "2. A"]
+    anchor_tokens: ["annual stock returns", "exceed 30%"]
+    expected_answers:
+      - '\b0?\.080[78]\d*\b|\b8\.0[78]\d*\s*%'
+    scoring_rules: |
+      Correct probability that return exceeds 30% is P(X > 30%) ≈ 0.0808 (or 8.08%).
+      
+      Derivation steps:
+      - X ~ N(16%, (10%)^2).
+      - Z = (30% - 16%) / 10% = 1.4.
+      - P(X > 30%) = P(Z > 1.4) = 1 - Φ(1.4).
+      - From standard normal table: Φ(1.4) ≈ 0.9192.
+      - P(Z > 1.4) = 1 - 0.9192 = 0.0808 (or 8.08%).
+      
+      Grading details:
+      - Accept answers in decimal form (approx. 0.0808 or 0.081) or percentage form (approx. 8.08% or 8.1%).
+      - If the student calculated the correct Z-score of 1.4 but read the wrong tail probability (e.g. 0.9192) or made an arithmetic error, award partial credit (0.5).
+    short_note_pass: "Correct probability (approx. 8.08% or 0.0808) for return exceeding 30%."
+    short_note_fail: "Incorrect probability. Check the Z-score calculation (Z = 1.4) and ensure the upper tail probability is calculated."
+
+  - id: "2b"
+    weight: 1.0
+    label_patterns: ["Problem 2 B", "Problem 2b", "2b", "2.b", "2) B)", "2) b)", "2B", "2. B)", "2. B"]
+    anchor_tokens: ["annual stock returns", "will be negative"]
+    expected_answers:
+      - '\b0?\.054[89]\d*\b|\b5\.4[89]\d*\s*%'
+    scoring_rules: |
+      Correct probability that return is negative is P(X < 0) ≈ 0.0548 (or 5.48%).
+      
+      Derivation steps:
+      - X ~ N(16%, (10%)^2).
+      - Z = (0 - 16%) / 10% = -1.6.
+      - P(X < 0) = P(Z < -1.6) = Φ(-1.6).
+      - From standard normal table: Φ(-1.6) = 1 - Φ(1.6) ≈ 1 - 0.9452 = 0.0548 (or 5.48%).
+      
+      Grading details:
+      - Accept decimal form (approx. 0.0548 or 0.055) or percentage form (approx. 5.48% or 5.5%).
+      - If the student calculated the correct Z-score of -1.6 but read the wrong probability or made an arithmetic error, award partial credit (0.5).
+    short_note_pass: "Correct probability (approx. 5.48% or 0.0548) for a negative stock return."
+    short_note_fail: "Incorrect probability. Check the Z-score calculation (Z = -1.6) and read the lower tail probability."
+
+  - id: "2c"
+    weight: 1.0
+    label_patterns: ["Problem 2 C", "Problem 2c", "2c", "2.c", "2) C)", "2) c)", "2C", "2. C)", "2. C"]
+    anchor_tokens: ["annual stock returns", "between 6% and 14%"]
+    expected_answers:
+      - '\b0?\.262[01]\d*\b|\b26\.2[01]\d*\s*%'
+    scoring_rules: |
+      Correct probability that return is between 6% and 14% is P(6% < X < 14%) ≈ 0.2620 (or 26.2%).
+      
+      Derivation steps:
+      - X ~ N(16%, (10%)^2).
+      - Z1 = (6% - 16%) / 10% = -1.0.
+      - Z2 = (14% - 16%) / 10% = -0.2.
+      - P(-1.0 < Z < -0.2) = Φ(-0.2) - Φ(-1.0).
+      - Φ(-0.2) = 1 - Φ(0.2) ≈ 1 - 0.5793 = 0.4207.
+      - Φ(-1.0) = 1 - Φ(1.0) ≈ 1 - 0.8413 = 0.1587.
+      - P(-1.0 < Z < -0.2) = 0.4207 - 0.1587 = 0.2620 (or 26.2%).
+      
+      Grading details:
+      - Accept decimal form (approx. 0.262 or 0.2621) or percentage form (approx. 26.2% or 26.21%).
+      - If the student calculated the correct Z-scores of -1.0 and -0.2 but made an error finding the area between them, award partial credit (0.5).
+    short_note_pass: "Correct probability (approx. 26.2% or 0.262) for returns between 6% and 14%."
+    short_note_fail: "Incorrect probability. Check the Z-scores (Z1 = -1.0, Z2 = -0.2) and calculate the probability area between them."
+
+  - id: "3a"
+    weight: 1.0
+    label_patterns: ["Problem 3 A", "Problem 3a", "3a", "3.a", "3) A)", "3) a)", "3A", "3. A)", "3. A"]
+    anchor_tokens: ["daily returns on a portfolio", "positive for at least 70"]
+    expected_answers:
+      - '\b0?\.8[689]\d*\b|\b8[689]\b|\b8[689]\.\d*\s*%'
+    scoring_rules: |
+      This question requires calculating the probability of at least 70 positive return days out of 100.
+      
+      Derivation steps:
+      1. Single day return: Y ~ N(0.002, 0.003^2).
+         P(Y > 0) = P(Z > -0.6667) = P(Z < 0.6667) = Φ(0.6667).
+         - Exact value of single day probability p ≈ 0.7475.
+         - Using Z = 0.67: p ≈ 0.7486.
+         - Using Z = 0.66: p ≈ 0.7454.
+         Accept any single day probability around 0.745 to 0.749.
+      
+      2. 100 days return count: W ~ Binomial(100, p).
+         We want P(W >= 70).
+         
+         Possible Methods:
+         - Exact Binomial: P(W >= 70) ≈ 0.8907 (if p = 0.7475) or 0.8944 (if p = 0.7486).
+         - Normal Approximation with continuity correction:
+           Mean μ = 100 * p ≈ 74.75, Standard deviation σ = sqrt(100 * p * (1-p)) ≈ 4.3445.
+           Z = (69.5 - 74.75) / 4.3445 ≈ -1.2084 ≈ -1.21.
+           P(Z >= -1.21) ≈ 0.8869 (or 88.69%). (If using p = 0.7486, Z ≈ -1.24, P ≈ 0.8925).
+         - Normal Approximation without continuity correction:
+           Z = (70 - 74.75) / 4.3445 ≈ -1.093 ≈ -1.09.
+           P(Z >= -1.09) ≈ 0.8621 (or 86.21%). (If using p = 0.7486, Z ≈ -1.12, P ≈ 0.8686).
+           
+      Grading details:
+      - Accept any answer in the range of 0.86 to 0.90 (or 86% to 90%), depending on the method and rounding.
+      - If the student calculated the daily probability of a positive return correctly (around 0.745 to 0.749) but made a mistake on the binomial/normal approximation part, or vice-versa, award partial credit (0.5).
+    short_note_pass: "Correctly solved the two-step probability (daily positive return probability ≈ 74.8%, and probability of at least 70 positive days ≈ 86% to 90%)."
+    short_note_fail: "Incorrect probability. Calculate the daily positive return probability first (p ≈ 0.7475), and then use the Binomial distribution or Normal Approximation (μ ≈ 74.75, σ ≈ 4.34) to find P(W >= 70)."
+
+  - id: "3b"
+    weight: 1.0
+    label_patterns: ["Problem 3 B", "Problem 3b", "3b", "3.b", "3) B)", "3) b)", "3B", "3. B)", "3. B"]
+    anchor_tokens: ["daily returns on a portfolio", "average return", "exceeds 0.0025"]
+    expected_answers:
+      - '\b0?\.04[78]\d*\b|\b4\.[78]\d*\s*%'
+    scoring_rules: |
+      Correct probability that the average daily return exceeds 0.0025 is P(X_bar > 0.0025) ≈ 0.0478 (or 4.78%).
+      
+      Derivation steps:
+      - Sample mean X_bar ~ N(μ, σ^2 / n) = N(0.002, 0.003^2 / 100).
+      - Standard deviation of average return: σ_bar = 0.003 / sqrt(100) = 0.0003.
+      - Z = (0.0025 - 0.002) / 0.0003 = 0.0005 / 0.0003 = 1.6667.
+      - P(X_bar > 0.0025) = P(Z > 1.6667) = 1 - Φ(1.67).
+      - From standard normal table: Φ(1.67) ≈ 0.9525.
+      - P(Z > 1.67) = 1 - 0.9525 = 0.0475 (or 4.75%). (Precise Z = 1.6667 yields 0.0478 or 4.78%).
+      
+      Grading details:
+      - Accept answers around 0.0475 to 0.0485 (or 4.75% to 4.85%).
+      - If the student calculated standard error of the mean correctly (0.0003) and setup the Z-score equation, but got the final probability wrong due to Z-table lookup or basic arithmetic, award partial credit (0.5).
+      - If the student failed to divide the daily standard deviation by sqrt(100) (i.e. used σ = 0.003 instead of 0.0003), award no credit or at most 0.25 if some other relevant work is shown.
+    short_note_pass: "Correct probability (approx. 4.78% or 0.0478) for the sample average return."
+    short_note_fail: "Incorrect probability. Ensure the standard error is scaled by the square root of the sample size: σ_bar = σ / sqrt(n) = 0.0003, and check the resulting Z-score of 1.67."
+
+  - id: "4a"
+    weight: 1.0
+    label_patterns: ["Problem 4 A", "Problem 4a", "4a", "4.a", "4) A)", "4) a)", "4A", "4. A)", "4. A"]
+    anchor_tokens: ["credit card holders", "pay off their balances", "At least 375"]
+    expected_answers:
+      - '\b0?\.00[78]\d*\b|\b0?\.[78]\d*\s*%'
+    scoring_rules: |
+      This question asks for the probability that at least 375 out of 500 cardholders pay off their balances, where p = 0.70.
+      
+      Derivation steps:
+      - X ~ Binomial(500, 0.70).
+      - Mean μ = 500 * 0.70 = 350.
+      - Standard deviation σ = sqrt(500 * 0.70 * 0.30) = sqrt(105) ≈ 10.2470.
+      
+      Possible Methods:
+      - Normal Approximation with continuity correction:
+        We want P(X >= 374.5).
+        Z = (374.5 - 350) / 10.2470 = 24.5 / 10.2470 ≈ 2.3909 ≈ 2.39.
+        P(Z >= 2.39) = 1 - Φ(2.39) ≈ 1 - 0.9916 = 0.0084 (or 0.84%).
+      - Normal Approximation without continuity correction:
+        We want P(X >= 375).
+        Z = (375 - 350) / 10.2470 = 25 / 10.2470 ≈ 2.4397 ≈ 2.44.
+        P(Z >= 2.44) = 1 - Φ(2.44) ≈ 1 - 0.9927 = 0.0073 (or 0.73%).
+      - Exact Binomial: P(X >= 375) ≈ 0.0083 (or 0.83%).
+      
+      Grading details:
+      - Accept answers around 0.0073 to 0.0084 (or 0.73% to 0.84%).
+      - If the student setup the normal approximation with correct mean (350) and standard deviation (10.25) but made an arithmetic slip in Z-score calculation or table lookup, award partial credit (0.5).
+    short_note_pass: "Correct probability (approx. 0.83% or 0.84% with continuity correction) for at least 375 cardholders."
+    short_note_fail: "Incorrect probability. Check the normal approximation setup (μ = 350, σ ≈ 10.25) and ensure the correct Z-score (Z ≈ 2.39 or 2.44) is calculated."
+
+  - id: "4b"
+    weight: 1.0
+    label_patterns: ["Problem 4 B", "Problem 4b", "4b", "4.b", "4) B)", "4) b)", "4B", "4. B)", "4. B"]
+    anchor_tokens: ["credit card holders", "pay off their balances", "At least 365 but no more than 390"]
+    expected_answers:
+      - '\b0?\.07[1278]\d*\b|\b7\.[1278]\d*\s*%'
+    scoring_rules: |
+      This question asks for the probability that at least 365 but no more than 390 cardholders pay off their balances, i.e., P(365 <= X <= 390).
+      
+      Derivation steps:
+      - X ~ Binomial(500, 0.70) with μ = 350, σ ≈ 10.2470.
+      
+      Possible Methods:
+      - Normal Approximation with continuity correction:
+        We want P(364.5 <= X <= 390.5).
+        Z1 = (364.5 - 350) / 10.2470 ≈ 1.415.
+        Z2 = (390.5 - 350) / 10.2470 ≈ 3.952.
+        P(1.415 <= Z <= 3.952) = Φ(3.95) - Φ(1.42) ≈ 1.0000 - 0.9222 = 0.0778 (or 7.78%).
+        (Precise normal calculation gives ≈ 0.0785 or 7.85%).
+      - Normal Approximation without continuity correction:
+        We want P(365 <= X <= 390).
+        Z1 = (365 - 350) / 10.2470 ≈ 1.464 ≈ 1.46.
+        Z2 = (390 - 350) / 10.2470 ≈ 3.904 ≈ 3.90.
+        P(1.46 <= Z <= 3.90) = Φ(3.90) - Φ(1.46) ≈ 1.0000 - 0.9279 = 0.0721 (or 7.21%).
+        (Precise normal calculation gives ≈ 0.0716 or 7.16%).
+      - Exact Binomial: P(365 <= X <= 390) ≈ 0.0783 (or 7.83%).
+      
+      Grading details:
+      - Accept answers in the range of 0.071 to 0.079 (or 7.1% to 7.9%).
+      - If the student setup the range probability correctly but made an error in the Z-score calculation or area subtraction, award partial credit (0.5).
+    short_note_pass: "Correct probability (approx. 7.8% with continuity correction or 7.2% without) for 365 to 390 cardholders."
+    short_note_fail: "Incorrect probability. Check the normal approximation limits (Z1 ≈ 1.42 and Z2 ≈ 3.95) and compute the area between them."
