@@ -53,6 +53,7 @@ class GradeProfile:
     plain: bool = False
     diagnostics_file: Path | None = None
     annotation_font_size: float = 24.0
+    force_vision_extraction: bool = False
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,7 @@ ALLOWED_GRADE_KEYS = REQUIRED_GRADE_KEYS | {
     "plain",
     "diagnostics_file",
     "annotation_font_size",
+    "force_vision_extraction",
 }
 ALLOWED_REVIEW_KEYS = {"host", "port"}
 
@@ -121,7 +123,7 @@ PATH_GRADE_FIELDS = {
 }
 INT_GRADE_FIELDS = {"ocr_char_threshold", "context_cache_ttl_seconds", "concurrency"}
 FLOAT_GRADE_FIELDS = {"annotation_font_size"}
-BOOL_GRADE_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "extract_blocks", "plain"}
+BOOL_GRADE_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "extract_blocks", "plain", "force_vision_extraction"}
 STRING_GRADE_FIELDS = {
     "grade_column",
     "grading_mode",

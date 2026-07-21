@@ -68,6 +68,7 @@ def grade_one_submission(
                         gemini_api_key=gemini_api_key,
                         gemini_model=extraction_model,
                         rate_limiter=rate_limiter,
+                        force_vision=getattr(config, "force_vision_extraction", False),
                     )
                 except Exception as exc:  # noqa: BLE001
                     extraction_sources[pdf_path.name] = "error"
@@ -115,6 +116,7 @@ def grade_one_submission(
                             gemini_api_key=gemini_api_key,
                             gemini_model=extraction_model,
                             rate_limiter=rate_limiter,
+                            force_vision=getattr(config, "force_vision_extraction", False),
                         )
                         block_registry.update({b.id: b for b in pdf_extract.blocks})
                         extracted_for_precheck.append(pdf_extract)

@@ -41,7 +41,7 @@ This document is the single source of truth for all planned improvements. It mer
 | **4** | W4-JUDGE | Judge LLM Rounding Error & Partial Credit Audit | S | Flash | ✅ Done | Feedback #20 |
 | **5** | W5-SSE | Server Grading + SSE Progress | L | Pro | ✅ Done | Plan Phase 8 |
 | **5** | W5-ANNOT | PDF Annotation Editing (Option C) | L | Pro | ✅ Done | Plan Phase 9 |
-| **6** | W6-VISION | Force Vision Extraction for Math | S | Flash | Planned | Feedback #18 |
+| **6** | W6-VISION | Force Vision Extraction for Math | S | Flash | ✅ Done | Feedback #18 |
 | **6** | W6-CRITERIA | Structured Scoring Criteria Schema | M | Flash | Planned | Feedback #19 |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
@@ -51,100 +51,6 @@ This document is the single source of truth for all planned improvements. It mer
 ## Wave 6 — Extraction Quality & Rubric Precision
 
 These tasks improve grading accuracy for math-heavy and complex-rubric assignments. No architectural prerequisites — both are opt-in features that leave default behavior unchanged.
-
----
-
-### W6-VISION: Force Vision Extraction for Math
-
-**Origin**: Feedback #18
-**Size**: Small (~2–3 hours) · **Tier**: Flash
-
-> [!IMPORTANT]
-> Tesseract confidently misinterprets statistical formulas, fractions, and Greek letters (high confidence on garbled text), so the Gemini vision fallback in `extract.py` never triggers. This flag is the highest value-to-effort fix: it bypasses Tesseract entirely when the instructor knows the assignment is math-heavy.
-
-<details>
-<summary>📋 Agent Prompt (click to expand)</summary>
-
-```
-Add a `force_vision_extraction` profile configuration flag that bypasses Tesseract OCR entirely and uses Gemini vision extraction for all pages.
-
-Observed problem: Tesseract confidently garbles math symbols (Σ → E, √ → v, fractions → random digits) and reports high confidence (~80+), so the Gemini fallback at GEMINI_FALLBACK_CONF_THRESHOLD = 60.0 in extract.py never triggers. This degrades regex precheck accuracy and block registry quality for math-heavy assignments.
-
-Files to modify:
-- grader/workflow_profile.py (profile schema)
-- grader/extract.py (extraction logic)
-- grader/preprocessing.py (pass-through)
-- grader/grading.py (pass-through)
-- grader/orchestrator.py (pass-through from config)
-
-## 1. Profile schema: add force_vision_extraction
-In workflow_profile.py:
-- Add "force_vision_extraction" to ALLOWED_GRADE_KEYS (line ~83).
-- Add "force_vision_extraction" to BOOL_GRADE_FIELDS (line ~124).
-- In the GradeProfile dataclass or dict construction, default it to False.
-
-## 2. Extract: add force_vision parameter
-In extract.py, modify extract_pdf_text() signature:
-- Add parameter: `force_vision: bool = False`
-- After the native pdftotext fast-path (line ~142), add:
-  ```python
-  if force_vision and gemini_api_key:
-      ocr_blocks = _run_gemini_fallback(
-          pdf_path=pdf_path,
-          temp_dir=temp_dir,
-          api_key=gemini_api_key,
-          model=gemini_model,
-          rate_limiter=rate_limiter,
-      )
-  else:
-      # existing Tesseract OCR path
-      try:
-          ocr_blocks = run_ocr_all_pages(pdf_path, temp_dir=temp_dir)
-      except Exception:
-          ocr_blocks = []
-      if _needs_gemini_fallback(ocr_blocks) and gemini_api_key:
-          ocr_blocks = _run_gemini_fallback(...)
-  ```
-- Keep the native pdftotext fast-path intact — if the PDF has rich native text (>= ocr_char_threshold chars), there is no need for vision extraction even with force_vision=True.
-
-## 3. Thread through callers
-In preprocessing.py get_or_compute_preprocessing():
-- Pass `force_vision=getattr(config, "force_vision_extraction", False)` to extract_pdf_text().
-
-In grading.py grade_one_submission():
-- At both extract_pdf_text() call sites (lines ~64 and ~111), pass `force_vision=config.force_vision_extraction`.
-
-In orchestrator.py:
-- Ensure the config object passed to grading/preprocessing carries `force_vision_extraction` from the loaded profile.
-
-## 4. Cache key invalidation
-In preprocessing.py, the cache key is based on `pdf_hash + EXTRACTION_VERSION`. When force_vision is True, append "_fv" to the composite_key so cached Tesseract results are not reused:
-  ```python
-  composite_key = f"{pdf_hash}_{EXTRACTION_VERSION}"
-  if getattr(config, "force_vision_extraction", False):
-      composite_key += "_fv"
-  ```
-
-## 5. Profile TOML documentation
-Add a comment block to configs/defaults.toml:
-  ```toml
-  # force_vision_extraction = false  # Bypass Tesseract and use Gemini vision for OCR.
-                                      # Recommended for math-heavy or handwritten assignments
-                                      # where Tesseract confidently misreads formulas.
-  ```
-
-## Verification
-- Write a unit test in tests/test_extract.py:
-  - Mock _run_gemini_fallback and run_ocr_all_pages.
-  - Call extract_pdf_text with force_vision=True and verify run_ocr_all_pages is NOT called but _run_gemini_fallback IS called.
-  - Call with force_vision=False and verify the normal Tesseract path runs first.
-- Write a profile loading test in tests/test_workflow_profile.py:
-  - Create a TOML with force_vision_extraction = true.
-  - Load it and assert the field is True on the parsed profile.
-  - Create a TOML without the field and assert it defaults to False.
-- Run: PYTHONPATH=. .venv/bin/pytest tests/test_extract.py tests/test_workflow_profile.py -x -v
-```
-</details>
 
 ---
 

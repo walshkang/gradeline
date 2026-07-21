@@ -49,12 +49,13 @@ OPTIONAL_GRADE_FIELDS = (
     "plain",
     "diagnostics_file",
     "annotation_font_size",
+    "force_vision_extraction",
 )
 
 _OPTIONAL_PATH_FIELDS = {"temp_dir", "cache_dir", "diagnostics_file"}
 _OPTIONAL_INT_FIELDS = {"ocr_char_threshold", "context_cache_ttl_seconds"}
 _OPTIONAL_FLOAT_FIELDS = {"annotation_font_size"}
-_OPTIONAL_BOOL_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "plain"}
+_OPTIONAL_BOOL_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "plain", "force_vision_extraction"}
 _OPTIONAL_STRING_FIELDS = {
     "grading_mode",
     "model",

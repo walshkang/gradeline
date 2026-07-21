@@ -70,6 +70,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--plain", action="store_true")
     parser.add_argument("--diagnostics-file", type=Path, default=None)
     parser.add_argument("--annotation-font-size", type=float, default=DEFAULT_ANNOTATION_FONT_SIZE)
+    parser.add_argument("--force-vision-extraction", action="store_true", default=False, help="Bypass Tesseract OCR and use Gemini vision extraction directly.")
     return parser.parse_args(argv)
 
 
@@ -370,6 +371,7 @@ def main(argv: list[str] | None = None, ui_override: Any = None) -> int:
         json_output=getattr(args, "json_output", False),
         quiet=getattr(args, "quiet", False),
         cache_dir=args.cache_dir,
+        force_vision_extraction=getattr(args, "force_vision_extraction", False),
     )
 
     orchestrator = Orchestrator(config, ui)

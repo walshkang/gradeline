@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from unittest.mock import patch, MagicMock
 
 from grader.extract import parse_tsv_blocks, _needs_gemini_fallback
 from grader.ocr_gemini import _parse_json_array, _to_text_blocks
@@ -133,5 +135,69 @@ class ToTextBlocksTests(unittest.TestCase):
         self.assertEqual(blocks[0].top, 0.0)
 
 
+class ForceVisionExtractionTests(unittest.TestCase):
+    @patch("grader.extract.run_pdftotext", return_value="short")
+    @patch("grader.extract.run_ocr_all_pages")
+    @patch("grader.extract._run_gemini_fallback")
+    def test_force_vision_true_bypasses_tesseract(self, mock_fallback, mock_ocr, mock_pdftext) -> None:
+        from grader.extract import extract_pdf_text
+        mock_fallback.return_value = [
+            TextBlock(id="p1_b1", text="Vision Result", page=1, left=0, top=0, width=10, height=10, source="gemini_flash")
+        ]
+
+        result = extract_pdf_text(
+            pdf_path=Path("/fake/file.pdf"),
+            temp_dir=Path("/fake/tmp"),
+            ocr_char_threshold=200,
+            gemini_api_key="fake-key",
+            force_vision=True,
+        )
+
+        mock_ocr.assert_not_called()
+        mock_fallback.assert_called_once()
+        self.assertEqual(result.source, "gemini_flash")
+        self.assertEqual(result.text, "Vision Result")
+
+    @patch("grader.extract.run_pdftotext", return_value="short")
+    @patch("grader.extract.run_ocr_all_pages")
+    @patch("grader.extract._run_gemini_fallback")
+    def test_force_vision_false_uses_tesseract(self, mock_fallback, mock_ocr, mock_pdftext) -> None:
+        from grader.extract import extract_pdf_text
+        mock_ocr.return_value = [
+            TextBlock(id="p1_b1", text="Tesseract Result", page=1, left=0, top=0, width=10, height=10, source="tesseract_tsv", confidence=90.0)
+        ]
+
+        result = extract_pdf_text(
+            pdf_path=Path("/fake/file.pdf"),
+            temp_dir=Path("/fake/tmp"),
+            ocr_char_threshold=200,
+            gemini_api_key="fake-key",
+            force_vision=False,
+        )
+
+        mock_ocr.assert_called_once()
+        mock_fallback.assert_not_called()
+        self.assertEqual(result.source, "ocr")
+        self.assertEqual(result.text, "Tesseract Result")
+
+    @patch("grader.extract.run_pdftotext", return_value="A" * 300)
+    @patch("grader.extract.run_ocr_all_pages")
+    @patch("grader.extract._run_gemini_fallback")
+    def test_force_vision_with_rich_native_text_uses_pdftotext(self, mock_fallback, mock_ocr, mock_pdftext) -> None:
+        from grader.extract import extract_pdf_text
+        result = extract_pdf_text(
+            pdf_path=Path("/fake/file.pdf"),
+            temp_dir=Path("/fake/tmp"),
+            ocr_char_threshold=200,
+            gemini_api_key="fake-key",
+            force_vision=True,
+        )
+
+        mock_ocr.assert_not_called()
+        mock_fallback.assert_not_called()
+        self.assertEqual(result.source, "pdftotext")
+
+
 if __name__ == "__main__":
     unittest.main()
+

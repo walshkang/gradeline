@@ -11,7 +11,9 @@
   - Completed Wave 3 (Workflow CLI decomposition into `grader/workflow/`, GitHub Actions CI pipeline, and documentation housekeeping).
   - Completed Wave 4 (Browser File Upload & Profile Setup, Export Feedback & Download, LLM Cost Breakdown Dashboard, Regex Pre-Check `requires_work` flag, and Judge LLM Rounding Error/Partial Credit Audit).
   - Completed Wave 5 (Server Grading with SSE live progress in `grading_session.py`, Sidebar PDF Annotation Editing with multi-marker overlays).
+- **Extraction Quality & Rubric Precision (Wave 6 in Progress)**:
+  - Completed W6-VISION (Force Vision Extraction for Math — added `force_vision_extraction` profile flag and CLI override to bypass Tesseract and use Gemini vision directly on math-heavy assignments).
   - Detailed prompt specifications for all shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).
 
 ## Current Objective
-Executing **Wave 6** from the [Gradeline Unified Roadmap](docs/plans/roadmap.md) (W6-VISION: Force Vision Extraction for Math, and W6-CRITERIA: Structured Scoring Criteria Schema).
+Executing **Wave 6** from the [Gradeline Unified Roadmap](docs/plans/roadmap.md) (W6-CRITERIA: Structured Scoring Criteria Schema).

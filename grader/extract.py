@@ -135,6 +135,7 @@ def extract_pdf_text(
     gemini_api_key: str | None = None,
     gemini_model: str = "gemini-3.1-flash-lite",
     rate_limiter: Any | None = None,
+    force_vision: bool = False,
 ) -> ExtractedPdf:
     native_text = run_pdftotext(pdf_path)
     native_chars = non_whitespace_char_count(native_text)
@@ -149,14 +150,7 @@ def extract_pdf_text(
             ocr_char_count=0,
         )
 
-    try:
-        ocr_blocks = run_ocr_all_pages(pdf_path, temp_dir=temp_dir)
-    except Exception:
-        # OCR failures should not abort the whole grading run.
-        ocr_blocks = []
-
-    # Fall back to Gemini Flash if tesseract yielded nothing or low confidence.
-    if _needs_gemini_fallback(ocr_blocks) and gemini_api_key:
+    if force_vision and gemini_api_key:
         ocr_blocks = _run_gemini_fallback(
             pdf_path=pdf_path,
             temp_dir=temp_dir,
@@ -164,6 +158,22 @@ def extract_pdf_text(
             model=gemini_model,
             rate_limiter=rate_limiter,
         )
+    else:
+        try:
+            ocr_blocks = run_ocr_all_pages(pdf_path, temp_dir=temp_dir)
+        except Exception:
+            # OCR failures should not abort the whole grading run.
+            ocr_blocks = []
+
+        # Fall back to Gemini Flash if tesseract yielded nothing or low confidence.
+        if _needs_gemini_fallback(ocr_blocks) and gemini_api_key:
+            ocr_blocks = _run_gemini_fallback(
+                pdf_path=pdf_path,
+                temp_dir=temp_dir,
+                api_key=gemini_api_key,
+                model=gemini_model,
+                rate_limiter=rate_limiter,
+            )
 
     ocr_text = "\n".join(b.text for b in ocr_blocks)
     ocr_chars = non_whitespace_char_count(ocr_text)

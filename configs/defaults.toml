@@ -27,3 +27,7 @@ enabled = true
 ocr_char_threshold = "200"
 tesseract_dpi = "300"
 prefer_native = "True"
+# force_vision_extraction = false  # Bypass Tesseract and use Gemini vision for OCR.
+                                    # Recommended for math-heavy or handwritten assignments
+                                    # where Tesseract confidently misreads formulas.
+

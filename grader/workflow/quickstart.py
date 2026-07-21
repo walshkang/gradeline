@@ -123,6 +123,7 @@ CLI_FLAG_MAPPINGS: tuple[tuple[str, str], ...] = (
     ("dry_run", "--dry-run"),
     ("annotate_dry_run_marks", "--annotate-dry-run-marks"),
     ("plain", "--plain"),
+    ("force_vision_extraction", "--force-vision-extraction"),
 )
 
 QUICKSTART_FIELDS: tuple[QuickstartFieldSpec, ...] = (
@@ -159,12 +160,13 @@ OPTIONAL_GRADE_RENDER_ORDER: tuple[str, ...] = (
     "plain",
     "diagnostics_file",
     "annotation_font_size",
+    "force_vision_extraction",
 )
 
 _OPTIONAL_PATH_FIELDS = {"temp_dir", "cache_dir", "diagnostics_file"}
 _OPTIONAL_INT_FIELDS = {"ocr_char_threshold", "context_cache_ttl_seconds"}
 _OPTIONAL_FLOAT_FIELDS = {"annotation_font_size"}
-_OPTIONAL_BOOL_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "extract_blocks", "plain"}
+_OPTIONAL_BOOL_FIELDS = {"dry_run", "annotate_dry_run_marks", "context_cache", "extract_blocks", "plain", "force_vision_extraction"}
 _OPTIONAL_STRING_FIELDS = {
     "grading_mode",
     "provider",

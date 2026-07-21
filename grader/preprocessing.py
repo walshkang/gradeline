@@ -62,6 +62,8 @@ def get_or_compute_preprocessing(unit: Any, config, diagnostics) -> list[Extract
     pdf_paths = unit.pdf_paths
     pdf_hash = compute_submission_pdf_hash(pdf_paths)
     composite_key = f"{pdf_hash}_{EXTRACTION_VERSION}"
+    if getattr(config, "force_vision_extraction", False):
+        composite_key += "_fv"
     
     cache_dir = getattr(config, "cache_dir", Path(".grader_cache"))
     prep_cache_dir = cache_dir / "preprocessing"
@@ -86,6 +88,7 @@ def get_or_compute_preprocessing(unit: Any, config, diagnostics) -> list[Extract
                 gemini_api_key=config.gemini_api_key,
                 gemini_model=config.extraction_model,
                 rate_limiter=config.rate_limiter,
+                force_vision=getattr(config, "force_vision_extraction", False),
             )
         except Exception as exc:
             pdf_extract = ExtractedPdf(

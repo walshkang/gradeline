@@ -133,6 +133,28 @@ output_dir = "/tmp/out"
             self.assertTrue(profile.grade.context_cache)
             self.assertFalse(profile.grade.dry_run)
             self.assertFalse(profile.grade.plain)
+            self.assertFalse(profile.grade.force_vision_extraction)
+
+    def test_force_vision_extraction_parsed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            profile_path = root / ".manual_runs" / "profiles" / "a2.toml"
+            write_profile(
+                profile_path,
+                """
+[grade]
+submissions_dir = "/tmp/subs"
+solutions_pdf = "/tmp/solutions.pdf"
+rubric_yaml = "/tmp/rubric.yaml"
+grades_template_csv = "/tmp/template.csv"
+grade_column = "Assignment 2 Points Grade"
+output_dir = "/tmp/out"
+force_vision_extraction = true
+""",
+            )
+
+            profile = load_workflow_profile("a2", cwd=root)
+            self.assertTrue(profile.grade.force_vision_extraction)
 
 
 if __name__ == "__main__":
