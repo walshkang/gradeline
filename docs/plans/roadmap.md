@@ -45,6 +45,10 @@ This document is the single source of truth for all planned improvements. It mer
 | **6** | W6-CRITERIA | Structured Scoring Criteria Schema | M | Flash | ✅ Done | Feedback #19 |
 | **7** | W7-PROMPT | Rubric Gen Prompt v2 (Multi-Method & Decomposition) | S | Flash | ✅ Done | Feedback #21 |
 | **7** | W7-NUMERIC | Numeric Answer DSL (`expected_numeric`) | M | Flash | ✅ Done | Feedback #22 |
+| **8** | W8-CHECK | Pre-flight Rubric & Data Audit (`./gradeline check`) | S | Flash | Planned | Feedback Reflection |
+| **8** | W8-PROFILE | One-Command Profile Auto-Creation | S | Flash | Planned | Feedback Reflection |
+| **8** | W8-IMPORT | Smart Import & Solution/Roster Auto-Discovery | M | Flash | Planned | Feedback Reflection |
+| **8** | W8-STREAM | Real-time Structured Event Stream (`status.json`) | M | Flash | Planned | Feedback Reflection |
 | **Backlog** | BL-SEC | App Hardening & Security Auditing | M | Flash | ✅ Done | Security Audit |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
@@ -60,6 +64,30 @@ These tasks improve grading accuracy for math-heavy and complex-rubric assignmen
 ## Wave 7 — Auto-Rubric Generation & Precision
 
 These tasks enhance the AI rubric generation pipeline and simplify rubric authoring based on empirical grading reflection. (Both W7-PROMPT and W7-NUMERIC have been shipped; prompt details are archived in [shipped-waves-archive.md](archive/shipped-waves-archive.md)).
+
+---
+
+## Wave 8 — Workflow & CLI Streamlining
+
+These tasks eliminate manual setup friction, prevent invalid pipeline runs, and provide real-time observability.
+
+### Task Prompt: W8-CHECK — Pre-flight Rubric & Data Audit (`./gradeline check`)
+Add a zero-token CLI subcommand `./gradeline check --profile <profile>` that validates:
+- Rubric YAML fields (`anchor_tokens`, `expected_answers`, non-empty `short_note_fail` for all questions per Feedback Integrity rule).
+- Regex syntax compilation for `expected_answers` and `expected_numeric`.
+- Points math consistency across questions.
+- PDF file presence and basic header readability for all students in roster.
+
+### Task Prompt: W8-PROFILE — One-Command Profile Auto-Creation
+Expand profile resolution in `profile_utils.py` and `quickstart.py` to auto-emit `.manual_runs/profiles/<profile>.toml` pre-populated with standard defaults whenever a profile TOML is missing during `import` or `quickstart`. Inherits `DEFAULT_MODEL` per Config Hierarchy rule.
+
+### Task Prompt: W8-IMPORT — Smart Import & Solution/Roster Auto-Discovery
+Expand `grader/workflow/import_cmd.py` to:
+- Perform fuzzy candidate search for assignment solution PDFs (`<ASSIGNMENT>*.pdf`) in `./data/` or `~/Downloads` and auto-link as `solutions.pdf` with explicit logging.
+- Auto-synthesize a valid `grades.csv` adhering to Brightspace export format (`OrgDefinedId`, `Username`, `End-of-Line Indicator`) from Brightspace zip folder names (`ID-ID - Name`) or prior run rosters.
+
+### Task Prompt: W8-STREAM — Real-time Structured Event Stream (`status.json`)
+Modify `grader/orchestrator.py` to emit an atomic `status.json` file in the run directory (using `status.json.tmp` -> replace) detailing progress counters (`total`, `completed`, `in_progress`, `review_required_count`, `elapsed_seconds`).
 
 ---
 

@@ -18,6 +18,10 @@
   - Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).
 
 ## Current Objective
-Wave 7 and BL-SEC completed and verified! Next active tasks in the [Gradeline Unified Roadmap](docs/plans/roadmap.md) are backlog items (BL-DOCX: Word/TXT Solution Keys Support, BL-SEARCH: Smart Candidate Search in Downloads, BL-VISION-AUTO: Auto-Detect Math-Heavy Pages).
+Active objective is **Wave 8 — Workflow & CLI Streamlining** in the [Gradeline Unified Roadmap](docs/plans/roadmap.md):
+- `W8-CHECK`: Pre-flight Rubric & Data Audit (`./gradeline check`)
+- `W8-PROFILE`: One-Command Profile Auto-Creation
+- `W8-IMPORT`: Smart Import & Solution/Roster Auto-Discovery
+- `W8-STREAM`: Real-time Structured Event Stream (`status.json`)
 
 
