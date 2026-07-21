@@ -40,7 +40,7 @@ questions:
     label_patterns: ["Problem 2 A", "Problem 2a", "2a", "2.a", "2) A)", "2) a)", "2A", "2. A)", "2. A"]
     anchor_tokens: ["annual stock returns", "exceed 30%"]
     expected_answers:
-      - '\b0?\.080[78]\d*\b|\b8\.0[78]\d*\s*%'
+      - '\b0?\.080[78]\d*\b|\b8\.0[78]\d*\s*%|\b8\.0[78]\d*E-0?2\b'
     scoring_rules: |
       Correct probability that return exceeds 30% is P(X > 30%) ≈ 0.0808 (or 8.08%).
       
@@ -62,7 +62,7 @@ questions:
     label_patterns: ["Problem 2 B", "Problem 2b", "2b", "2.b", "2) B)", "2) b)", "2B", "2. B)", "2. B"]
     anchor_tokens: ["annual stock returns", "will be negative"]
     expected_answers:
-      - '\b0?\.054[89]\d*\b|\b5\.4[89]\d*\s*%'
+      - '\b0?\.054[89]\d*\b|\b5\.4[89]\d*\s*%|\b5\.4[89]\d*E-0?2\b'
     scoring_rules: |
       Correct probability that return is negative is P(X < 0) ≈ 0.0548 (or 5.48%).
       
@@ -83,7 +83,7 @@ questions:
     label_patterns: ["Problem 2 C", "Problem 2c", "2c", "2.c", "2) C)", "2) c)", "2C", "2. C)", "2. C"]
     anchor_tokens: ["annual stock returns", "between 6% and 14%"]
     expected_answers:
-      - '\b0?\.262[01]\d*\b|\b26\.2[01]\d*\s*%'
+      - '\b0?\.262[01]\d*\b|\b26\.2[01]\d*\s*%|\b2\.62[01]\d*E-0?1\b'
     scoring_rules: |
       Correct probability that return is between 6% and 14% is P(6% < X < 14%) ≈ 0.2620 (or 26.2%).
       
@@ -143,7 +143,7 @@ questions:
     label_patterns: ["Problem 3 B", "Problem 3b", "3b", "3.b", "3) B)", "3) b)", "3B", "3. B)", "3. B"]
     anchor_tokens: ["daily returns on a portfolio", "average return", "exceeds 0.0025"]
     expected_answers:
-      - '\b0?\.04[78]\d*\b|\b4\.[78]\d*\s*%'
+      - '\b0?\.04[78]\d*\b|\b4\.[78]\d*\s*%|\b4\.[78]\d*E-0?2\b'
     scoring_rules: |
       Correct probability that the average daily return exceeds 0.0025 is P(X_bar > 0.0025) ≈ 0.0478 (or 4.78%).
       
@@ -167,7 +167,7 @@ questions:
     label_patterns: ["Problem 4 A", "Problem 4a", "4a", "4.a", "4) A)", "4) a)", "4A", "4. A)", "4. A"]
     anchor_tokens: ["credit card holders", "pay off their balances", "At least 375"]
     expected_answers:
-      - '\b0?\.00[78]\d*\b|\b0?\.[78]\d*\s*%'
+      - '\b0?\.00[78]\d*\b|\b0?\.[78]\d*\s*%|\b[78]\.\d*E-0?3\b'
     scoring_rules: |
       This question asks for the probability that at least 375 out of 500 cardholders pay off their balances, where p = 0.70.
       
@@ -198,7 +198,7 @@ questions:
     label_patterns: ["Problem 4 B", "Problem 4b", "4b", "4.b", "4) B)", "4) b)", "4B", "4. B)", "4. B"]
     anchor_tokens: ["credit card holders", "pay off their balances", "At least 365 but no more than 390"]
     expected_answers:
-      - '\b0?\.07[1278]\d*\b|\b7\.[1278]\d*\s*%'
+      - '\b0?\.07[12789]\d*\b|\b7\.[12789]\d*\s*%|\b7\.[12789]\d*E-0?2\b'
     scoring_rules: |
       This question asks for the probability that at least 365 but no more than 390 cardholders pay off their balances, i.e., P(365 <= X <= 390).
       

@@ -52,6 +52,9 @@ def write_grading_audit_csv(
             )
             for q in result.question_results:
                 t = q.token_usage
+                q_logic = q.logic_analysis or ("Needs manual review." if q.verdict == "needs_review" else "")
+                q_short = q.short_reason or ("Needs review." if q.verdict == "needs_review" else "")
+                q_detail = q.detail_reason or ("Review required for final grade determination." if q.verdict == "needs_review" else "")
                 writer.writerow(
                     [
                         str(result.submission.folder_relpath),
@@ -65,9 +68,9 @@ def write_grading_audit_csv(
                         q.verdict,
                         q.grading_source,
                         f"{q.confidence:.2f}",
-                        q.logic_analysis,
-                        q.short_reason,
-                        q.detail_reason,
+                        q_logic,
+                        q_short,
+                        q_detail,
                         q.evidence_quote,
                         q.source_file or "",
                         q.page_number if q.page_number is not None else "",
@@ -84,6 +87,9 @@ def write_grading_audit_csv(
                 if q.sub_results:
                     for sub in q.sub_results:
                         st = sub.token_usage or t
+                        sub_logic = sub.logic_analysis or ("Needs manual review." if sub.verdict == "needs_review" else "")
+                        sub_short = sub.short_reason or ("Needs review." if sub.verdict == "needs_review" else "")
+                        sub_detail = sub.detail_reason or ("Review required for final grade determination." if sub.verdict == "needs_review" else "")
                         writer.writerow(
                             [
                                 str(result.submission.folder_relpath),
@@ -97,9 +103,9 @@ def write_grading_audit_csv(
                                 sub.verdict,
                                 f"sub_{sub.grading_source}",
                                 f"{sub.confidence:.2f}",
-                                sub.logic_analysis,
-                                sub.short_reason,
-                                sub.detail_reason,
+                                sub_logic,
+                                sub_short,
+                                sub_detail,
                                 sub.evidence_quote,
                                 sub.source_file or "",
                                 sub.page_number if sub.page_number is not None else "",

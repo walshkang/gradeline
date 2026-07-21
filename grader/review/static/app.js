@@ -61,6 +61,10 @@
     judgeCritiqueContainer: document.getElementById("judgeCritiqueContainer"),
     judgeCritiqueText: document.getElementById("judgeCritiqueText"),
     acceptJudgeFixBtn: document.getElementById("acceptJudgeFixBtn"),
+    suggestedGradeContainer: document.getElementById("suggestedGradeContainer"),
+    suggestedGradeText: document.getElementById("suggestedGradeText"),
+    suggestedReasonText: document.getElementById("suggestedReasonText"),
+    applySuggestionBtn: document.getElementById("applySuggestionBtn"),
     verdictSelect: document.getElementById("verdictSelect"),
     confidenceInput: document.getElementById("confidenceInput"),
     sourceFileSelect: document.getElementById("sourceFileSelect"),
@@ -613,6 +617,55 @@
       };
     } else {
       ui.judgeCritiqueContainer.style.display = "none";
+    }
+
+    // Suggested grade & rationale logic for questions needing review
+    let suggestedVerdict = null;
+    let suggestedReason = null;
+    if (question.judge_critique && question.judge_critique.proposed_verdict) {
+      suggestedVerdict = question.judge_critique.proposed_verdict;
+      suggestedReason = question.judge_critique.proposed_reason || question.judge_critique.critique;
+    } else if (finalData.verdict === "needs_review") {
+      const autoData = question.auto || {};
+      if (autoData.sub_results && autoData.sub_results.length > 0) {
+        const subVerdicts = autoData.sub_results.map(s => s.verdict).filter(v => v !== "needs_review");
+        if (subVerdicts.length > 0) {
+          suggestedVerdict = subVerdicts.includes("incorrect") ? "partial" : (subVerdicts.includes("partial") ? "partial" : "correct");
+          suggestedReason = autoData.sub_results.map(s => `[${s.id}] ${s.short_reason || s.verdict}`).join("; ");
+        }
+      }
+      if (!suggestedVerdict && autoData.short_reason && autoData.short_reason !== "Needs review.") {
+        suggestedReason = autoData.short_reason;
+      }
+    }
+
+    if (ui.suggestedGradeContainer) {
+      if (suggestedVerdict || (finalData.verdict === "needs_review" && suggestedReason)) {
+        ui.suggestedGradeContainer.style.display = "block";
+        const vDisplay = suggestedVerdict ? (suggestedVerdict.replace("_", " ").toUpperCase()) : "NEEDS REVIEW";
+        ui.suggestedGradeText.textContent = `Suggested Verdict: ${vDisplay}`;
+        ui.suggestedReasonText.textContent = suggestedReason || finalData.short_reason || "Check student submission against solution.";
+        ui.applySuggestionBtn.onclick = () => {
+          const targetVerdict = suggestedVerdict || "incorrect";
+          const targetReason = suggestedReason || finalData.short_reason || "";
+          ui.verdictSelect.value = targetVerdict;
+          ui.reasonInput.value = targetReason;
+          const buttons = document.querySelectorAll("#verdictButtonRow .verdict-btn");
+          buttons.forEach((btn) => {
+            if (btn.dataset.verdict === targetVerdict) {
+              btn.classList.add("active");
+            } else {
+              btn.classList.remove("active");
+            }
+          });
+          queuePatch({
+            verdict_final: targetVerdict,
+            short_reason_final: targetReason
+          }, 0);
+        };
+      } else {
+        ui.suggestedGradeContainer.style.display = "none";
+      }
     }
 
     ui.verdictSelect.value = finalData.verdict || "needs_review";

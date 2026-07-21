@@ -1057,14 +1057,15 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig, token_usag
 
         if raw is None and sub_items is None:
             # No match at all — flag for review
+            fallback_reason = question.short_note_fail or "Question omitted by model during grading."
             normalized_questions.append(
                 QuestionResult(
                     id=question.id,
                     verdict="needs_review",
                     confidence=0.0,
-                    logic_analysis="",
-                    short_reason="",
-                    detail_reason="",
+                    logic_analysis="The model did not return an explicit evaluation for this question node.",
+                    short_reason=fallback_reason,
+                    detail_reason="Manual review required to verify whether this answer is present in the submission.",
                     evidence_quote="",
                     token_usage=token_usage,
                 )
@@ -1215,9 +1216,9 @@ def normalize_feedback(
         first_sentence = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0].strip()
         cleaned = " ".join(first_sentence.split())
         lowered = cleaned.lower()
-        if lowered in {"n/a", "na", "none", "no reason provided by model."}:
+        if lowered in {"n/a", "na", "none", "no reason provided by model.", ""}:
             cleaned = ""
-        short_reason = clamp_short_reason(cleaned) if cleaned else "Needs review."
+        short_reason = clamp_short_reason(cleaned) if cleaned else (fallback_fail_note or "Needs review.")
         detail_reason = raw_detail_reason.strip() if raw_detail_reason else ""
         return short_reason, detail_reason
 

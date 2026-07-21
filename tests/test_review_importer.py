@@ -272,6 +272,79 @@ questions:
             self.assertEqual(sub_q["grading_source"], "sub_llm")
             self.assertEqual(sub_q["coords"], [130.0, 220.0])
 
+    def test_needs_review_populates_fallback_justifications(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_dir = root / "subs"
+            student_folder = submissions_dir / "123 - Jane Doe"
+            student_folder.mkdir(parents=True)
+            pdf_path = student_folder / "submission.pdf"
+            make_pdf(pdf_path)
+
+            output_dir = root / "out"
+            output_dir.mkdir()
+
+            rubric_yaml = root / "rubric.yaml"
+            rubric_yaml.write_text(
+                """
+assignment_id: a1
+bands:
+  check_plus_min: 0.9
+  check_min: 0.7
+questions:
+  - id: a
+    label_patterns: ["a)"]
+    scoring_rules: ""
+    short_note_pass: "ok"
+    short_note_fail: "check work for question a"
+""".strip(),
+                encoding="utf-8",
+            )
+
+            diagnostics = {
+                "run_id": "run123",
+                "args_snapshot": {
+                    "submissions_dir": str(submissions_dir),
+                    "rubric_yaml": str(rubric_yaml),
+                },
+            }
+            (output_dir / "grading_diagnostics.json").write_text(json.dumps(diagnostics), encoding="utf-8")
+
+            with (output_dir / "grading_audit.csv").open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(HEADERS)
+                writer.writerow(
+                    [
+                        "123 - Jane Doe",
+                        "Jane Doe",
+                        "1",
+                        "123 - Jane Doe/submission.pdf",
+                        "0.00",
+                        "REVIEW_REQUIRED",
+                        "",
+                        "a",
+                        "needs_review",
+                        "llm",
+                        "0.00",
+                        "",
+                        "",
+                        "submission.pdf",
+                        "1",
+                        "",
+                        "",
+                        "summary_fallback",
+                        "",
+                    ]
+                )
+
+            state_path = initialize_review_state(output_dir=output_dir, rubric_yaml=None)
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+            sub = next(iter(payload["submissions"].values()))
+            q_payload = sub["questions"]["a"]["final"]
+            self.assertEqual(q_payload["verdict"], "needs_review")
+            self.assertEqual(q_payload["short_reason"], "check work for question a")
+            self.assertEqual(q_payload["logic_analysis"], "Needs manual review.")
+
 
 if __name__ == "__main__":
     unittest.main()

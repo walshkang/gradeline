@@ -257,8 +257,9 @@ def grade_one_submission(
                     id=question.id,
                     verdict="needs_review",
                     confidence=0.0,
-                    logic_analysis="",
+                    logic_analysis=f"Grading execution encountered an error: {grading_error}",
                     short_reason=grading_error,
+                    detail_reason=question.short_note_fail or "Manual grading required due to execution error.",
                     evidence_quote="",
                 )
                 for question in rubric.questions
@@ -286,8 +287,9 @@ def grade_one_submission(
                     id=question.id,
                     verdict="needs_review",
                     confidence=0.0,
-                    logic_analysis="",
+                    logic_analysis=f"Grading execution encountered an error: {grading_error}",
                     short_reason=grading_error,
+                    detail_reason=question.short_note_fail or "Manual grading required due to execution error.",
                     evidence_quote="",
                 )
                 for question in rubric.questions
@@ -328,8 +330,9 @@ def grade_one_submission(
                     id=q.id,
                     verdict="needs_review",
                     confidence=0.0,
-                    logic_analysis="",
-                    short_reason="Question omitted by grader.",
+                    logic_analysis="Grading model did not return an explicit result for this question.",
+                    short_reason=q.short_note_fail or "Question omitted by grader.",
+                    detail_reason=q.short_note_fail or "Manual evaluation required.",
                     evidence_quote="",
                 )
 

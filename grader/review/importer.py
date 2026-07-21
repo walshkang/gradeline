@@ -62,7 +62,7 @@ def initialize_review_state(output_dir: Path, rubric_yaml: Path | None = None) -
     submissions: dict[str, dict[str, Any]] = {}
     for folder, folder_rows in sorted(grouped_rows.items(), key=lambda item: item[0].lower()):
         unit = resolve_submission_unit(folder=folder, rows=folder_rows, discovered_units=discovered_units, submissions_root=submissions_root)
-        submission_payload = build_submission_payload(unit=unit, rows=folder_rows)
+        submission_payload = build_submission_payload(unit=unit, rows=folder_rows, rubric=rubric)
         submissions[submission_payload["submission_id"]] = submission_payload
 
     now = utc_now_iso()
@@ -190,7 +190,7 @@ def infer_pdf_paths(
     return paths
 
 
-def build_submission_payload(unit: SubmissionUnit, rows: list[dict[str, str]]) -> dict[str, Any]:
+def build_submission_payload(unit: SubmissionUnit, rows: list[dict[str, str]], rubric: RubricConfig | None = None) -> dict[str, Any]:
     folder_key = str(unit.folder_relpath)
     submission_id = stable_submission_id(folder_key, unit.folder_token, unit.student_name)
 
@@ -213,7 +213,7 @@ def build_submission_payload(unit: SubmissionUnit, rows: list[dict[str, str]]) -
         question_id = str(row.get("question_id", "")).strip().lower()
         if not question_id:
             continue
-        auto_payload = row_to_question_payload(row)
+        auto_payload = row_to_question_payload(row, rubric=rubric)
         if auto_payload["verdict"] == "needs_review":
             has_needs_review = True
 
@@ -222,7 +222,7 @@ def build_submission_payload(unit: SubmissionUnit, rows: list[dict[str, str]]) -
         for s_row in subpart_rows:
             sub_id = str(s_row.get("question_id", "")).strip().lower()
             if match_subparts_to_parent(question_id, {"id": sub_id}):
-                subs.append(row_to_question_payload(s_row))
+                subs.append(row_to_question_payload(s_row, rubric=rubric))
 
         if subs:
             auto_payload["sub_results"] = subs
@@ -270,18 +270,36 @@ def build_submission_payload(unit: SubmissionUnit, rows: list[dict[str, str]]) -
     }
 
 
-def row_to_question_payload(row: dict[str, str]) -> dict[str, Any]:
+def row_to_question_payload(row: dict[str, str], rubric: RubricConfig | None = None) -> dict[str, Any]:
     y = parse_float(row.get("coords_y"), default=None)
     x = parse_float(row.get("coords_x"), default=None)
     coords = normalize_coords([y, x]) if (y is not None and x is not None) else None
 
+    qid = str(row.get("question_id", "")).strip().lower()
+    verdict = str(row.get("verdict", "needs_review")).strip().lower()
+    
+    q_rubric = next((q for q in rubric.questions if q.id.strip().lower() == qid), None) if rubric else None
+    fallback_fail = q_rubric.short_note_fail if q_rubric else "Needs review."
+
+    short_reason = str(row.get("reason", "")).strip()
+    if verdict == "needs_review" and (not short_reason or short_reason.lower() in {"n/a", "na", "none"}):
+        short_reason = fallback_fail or "Needs review."
+
+    logic_analysis = str(row.get("logic_analysis", "")).strip()
+    if verdict == "needs_review" and not logic_analysis:
+        logic_analysis = "Needs manual review."
+
+    detail_reason = str(row.get("detail_reason", "")).strip()
+    if verdict == "needs_review" and not detail_reason:
+        detail_reason = "Review required for final grade determination."
+
     question_result = QuestionResult(
-        id=str(row.get("question_id", "")).strip().lower(),
-        verdict=str(row.get("verdict", "needs_review")).strip().lower(),
+        id=qid,
+        verdict=verdict,
         confidence=parse_float(row.get("confidence"), default=0.0) or 0.0,
-        logic_analysis=str(row.get("logic_analysis", "")),
-        short_reason=str(row.get("reason", "")),
-        detail_reason=str(row.get("detail_reason", "")),
+        logic_analysis=logic_analysis,
+        short_reason=short_reason,
+        detail_reason=detail_reason,
         evidence_quote=str(row.get("evidence_quote", "")),
         coords=(coords[0], coords[1]) if coords else None,
         page_number=parse_int(row.get("page_number"), default=None),

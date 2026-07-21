@@ -13,6 +13,8 @@
   - Completed Wave 5 (Server Grading with SSE live progress in `grading_session.py`, Sidebar PDF Annotation Editing with multi-marker overlays).
 - **Auto-Rubric Generation & Precision (Wave 7 Shipped)**:
   - Completed W7-PROMPT (Rubric Gen Prompt v2 for multi-method variation expansion and atomic sub-question decomposition + string path support in `load_rubric`).
+- **Review Server & Audit Justification Fix**:
+  - Resolved missing justifications (`logic_analysis`, `short_reason`, `detail_reason`) and missing suggested grades/verdicts for `needs_review` questions across primary model response normalization, fallback error handling, audit CSV generation, review state import, and review server UI rendering (including a new Suggested Grade & Rationale banner with 1-click apply).
 - **App Hardening & Security Auditing (BL-SEC Shipped)**:
   - Completed static analysis setup (`bandit`, `pip-audit`), strict path traversal guards (`validate_safe_path`), and untrusted prompt isolation XML wrappers across grading and judging prompt templates.
   - Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).

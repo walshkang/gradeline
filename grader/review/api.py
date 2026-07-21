@@ -173,13 +173,16 @@ class ReviewApi:
             cells = {}
             for q_id in question_ids:
                 q_payload = questions.get(q_id, {})
-                final_payload = q_payload.get("final", {})
+                final_payload = q_payload.get("final", {}) if isinstance(q_payload.get("final"), dict) else {}
+                judge_critique = q_payload.get("judge_critique")
                 cells[q_id] = {
                     "verdict": final_payload.get("verdict", "needs_review"),
                     "confidence": final_payload.get("confidence", 0.0),
                     "grading_source": final_payload.get("grading_source", ""),
                     "evidence_quote": final_payload.get("evidence_quote", ""),
                     "logic_analysis": final_payload.get("logic_analysis", ""),
+                    "short_reason": final_payload.get("short_reason", ""),
+                    "judge_critique": judge_critique,
                     "reviewed": bool(final_payload.get("reviewed", False)),
                 }
 

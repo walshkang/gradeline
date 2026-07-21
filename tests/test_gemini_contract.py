@@ -69,7 +69,7 @@ class GeminiContractTests(unittest.TestCase):
         self.assertEqual(by_id["a"].short_reason, "")
         self.assertEqual(by_id["b"].verdict, "partial")
         self.assertEqual(by_id["c"].verdict, "needs_review")
-        self.assertEqual(by_id["c"].short_reason, "")
+        self.assertEqual(by_id["c"].short_reason, "check")
         self.assertEqual(normalized["global_flags"], ["flag1"])
 
     def test_reason_postprocessing_uses_sentence_and_fallbacks(self) -> None:
