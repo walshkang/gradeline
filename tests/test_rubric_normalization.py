@@ -158,7 +158,101 @@ questions:
             rubric_from_str = load_rubric(str(tmp_path))
             self.assertEqual(rubric_from_str.assignment_id, "test_assignment")
 
+    def test_expected_numeric_compilation_decimals_and_percentages(self) -> None:
+        from pathlib import Path
+        import tempfile
+        import re
+        from grader.config import load_rubric
+
+        rubric_content = """
+assignment_id: test_numeric
+scoring_mode: equal_weights
+partial_credit: 0.5
+bands:
+  check_plus_min: 0.9
+  check_min: 0.7
+questions:
+  - id: "q1"
+    scoring_rules: "Rule 1"
+    short_note_pass: "OK"
+    short_note_fail: "Check"
+    expected_numeric:
+      value: 0.0808
+      tolerance: 0.001
+      allow_percent: true
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir) / "rubric.yaml"
+            tmp_path.write_text(rubric_content, encoding="utf-8")
+            rubric = load_rubric(tmp_path)
+
+            q1 = rubric.questions[0]
+            self.assertIsNotNone(q1.expected_numeric)
+            self.assertEqual(q1.expected_numeric.value, 0.0808)
+            self.assertEqual(q1.expected_numeric.tolerance, 0.001)
+            self.assertTrue(q1.expected_numeric.allow_percent)
+
+            # Test compiled regexes against candidate student answers
+            # Should match standard decimals (0.0808, .0808, 0.081, 0.080)
+            sample_answers = ["0.0808", ".0808", "0.081", "0.080", "8.08%", "8.1%"]
+            for sample in sample_answers:
+                matched = any(re.search(pat, sample, re.IGNORECASE) for pat in q1.expected_answers)
+                self.assertTrue(matched, f"Expected sample answer '{sample}' to match compiled regexes: {q1.expected_answers}")
+
+    def test_expected_numeric_coexists_with_expected_answers(self) -> None:
+        from pathlib import Path
+        import tempfile
+        from grader.config import load_rubric
+
+        rubric_content = """
+assignment_id: test_coexist
+scoring_mode: equal_weights
+partial_credit: 0.5
+bands:
+  check_plus_min: 0.9
+  check_min: 0.7
+questions:
+  - id: "q1"
+    scoring_rules: "Rule 1"
+    short_note_pass: "OK"
+    short_note_fail: "Check"
+    expected_numeric:
+      value: 167.78
+      tolerance: 0.05
+      allow_percent: false
+    expected_answers:
+      - "exact_string_match"
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir) / "rubric.yaml"
+            tmp_path.write_text(rubric_content, encoding="utf-8")
+            rubric = load_rubric(tmp_path)
+
+            q1 = rubric.questions[0]
+            self.assertIn("exact_string_match", q1.expected_answers)
+            # Percentage forms should not be included since allow_percent is False
+            for pat in q1.expected_answers:
+                self.assertNotIn("%", pat)
+
+    def test_normalize_draft_rubric_payload_preserves_expected_numeric(self) -> None:
+        payload = {
+            "assignment_id": "test",
+            "questions": [
+                {
+                    "id": "1",
+                    "scoring_rules": "r1",
+                    "expected_numeric": {"value": 42.5, "tolerance": 0.5, "allow_percent": True},
+                }
+            ],
+        }
+        normalized = normalize_draft_rubric_payload(payload, assignment_id="fallback")
+        q = normalized["questions"][0]
+        self.assertIn("expected_numeric", q)
+        self.assertEqual(q["expected_numeric"]["value"], 42.5)
+        self.assertEqual(q["expected_numeric"]["tolerance"], 0.5)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

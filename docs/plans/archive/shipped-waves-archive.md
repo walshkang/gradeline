@@ -652,3 +652,49 @@ Files to modify:
 - Verify that `load_rubric("configs/hw3.yaml")` works cleanly with string input.
 ```
 
+---
+
+### W7-NUMERIC: Numeric Answer DSL (`expected_numeric`)
+
+**Origin**: Reflection #2 (HW3 Rubric Evaluation / Feedback #22)
+**Size**: Medium (~4–5 hours) · **Tier**: Flash
+
+```
+Implement a high-level `expected_numeric` syntax in rubric YAML to automatically compile numeric value ranges into hardened regexes.
+
+Files to modify:
+- grader/types.py (QuestionRubric schema)
+- grader/config.py (Rubric loader & validator)
+- grader/workflow/profile_utils.py (YAML generator templates)
+- tests/test_rubric_normalization.py
+
+## Key Requirements
+
+1. YAML Schema Extension:
+   Allow questions in rubric YAML to specify an `expected_numeric` dictionary:
+   expected_numeric:
+     value: 0.0808
+     tolerance: 0.001
+     allow_percent: true  # optional, default true
+
+2. Automatic Regex Compilation:
+   In `load_rubric()` in `grader/config.py`:
+   - If `expected_numeric` is present, derive the bounds `[min_val, max_val] = [value - tolerance, value + tolerance]`.
+   - Programmatically compile regex patterns enforcing word boundaries `\b` and supporting:
+     * Standard decimal forms (e.g., `0.0808`, `.0808`, `0.081`, `0.080`).
+     * Optional leading zeros and trailing precision options.
+     * Percentage forms if `allow_percent` is True (e.g., `8.08%`, `8.1%`).
+   - Append compiled regexes into `question.expected_answers` so existing `regex_precheck` logic consumes them seamlessly with zero changes to precheck execution.
+
+3. Backward Compatibility:
+   - Retain full support for raw `expected_answers` string lists. Both `expected_numeric` and `expected_answers` can coexist or be used independently.
+
+4. Validation & Guardrails:
+   - Pass compiled regexes through `validate_expected_answers()` to ensure compiled numeric patterns don't collide with question labels or miss word boundaries.
+
+## Verification
+- Add unit tests in `tests/test_rubric_normalization.py` testing `expected_numeric` compilation for decimals, percentages, and tolerances.
+- Run `PYTHONPATH=. .venv/bin/pytest tests/test_rubric_normalization.py tests/test_precheck.py`.
+```
+
+

@@ -44,7 +44,8 @@ This document is the single source of truth for all planned improvements. It mer
 | **6** | W6-VISION | Force Vision Extraction for Math | S | Flash | ✅ Done | Feedback #18 |
 | **6** | W6-CRITERIA | Structured Scoring Criteria Schema | M | Flash | ✅ Done | Feedback #19 |
 | **7** | W7-PROMPT | Rubric Gen Prompt v2 (Multi-Method & Decomposition) | S | Flash | ✅ Done | Feedback #21 |
-| **7** | W7-NUMERIC | Numeric Answer DSL (`expected_numeric`) | M | Flash | Planned | Feedback #22 |
+| **7** | W7-NUMERIC | Numeric Answer DSL (`expected_numeric`) | M | Flash | ✅ Done | Feedback #22 |
+| **Backlog** | BL-SEC | App Hardening & Security Auditing | M | Flash | Backlog | Security Audit |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
 
@@ -58,52 +59,7 @@ These tasks improve grading accuracy for math-heavy and complex-rubric assignmen
 
 ## Wave 7 — Auto-Rubric Generation & Precision
 
-These tasks enhance the AI rubric generation pipeline and simplify rubric authoring based on empirical grading reflection. (W7-PROMPT prompt details are archived in [shipped-waves-archive.md](archive/shipped-waves-archive.md)).
-
----
-
-### W7-NUMERIC: Numeric Answer DSL (`expected_numeric`)
-
-**Origin**: Reflection #2 (HW3 Rubric Evaluation / Feedback #22)
-**Size**: Medium (~4–5 hours) · **Tier**: Flash
-
-```
-Implement a high-level `expected_numeric` syntax in rubric YAML to automatically compile numeric value ranges into hardened regexes.
-
-Files to modify:
-- grader/types.py (QuestionRubric schema)
-- grader/config.py (Rubric loader & validator)
-- grader/workflow/profile_utils.py (YAML generator templates)
-- tests/test_rubric_normalization.py
-
-## Key Requirements
-
-1. YAML Schema Extension:
-   Allow questions in rubric YAML to specify an `expected_numeric` dictionary:
-   expected_numeric:
-     value: 0.0808
-     tolerance: 0.001
-     allow_percent: true  # optional, default true
-
-2. Automatic Regex Compilation:
-   In `load_rubric()` in `grader/config.py`:
-   - If `expected_numeric` is present, derive the bounds `[min_val, max_val] = [value - tolerance, value + tolerance]`.
-   - Programmatically compile regex patterns enforcing word boundaries `\b` and supporting:
-     * Standard decimal forms (e.g., `0.0808`, `.0808`, `0.081`, `0.080`).
-     * Optional leading zeros and trailing precision options.
-     * Percentage forms if `allow_percent` is True (e.g., `8.08%`, `8.1%`).
-   - Append compiled regexes into `question.expected_answers` so existing `regex_precheck` logic consumes them seamlessly with zero changes to precheck execution.
-
-3. Backward Compatibility:
-   - Retain full support for raw `expected_answers` string lists. Both `expected_numeric` and `expected_answers` can coexist or be used independently.
-
-4. Validation & Guardrails:
-   - Pass compiled regexes through `validate_expected_answers()` to ensure compiled numeric patterns don't collide with question labels or miss word boundaries.
-
-## Verification
-- Add unit tests in `tests/test_rubric_normalization.py` testing `expected_numeric` compilation for decimals, percentages, and tolerances.
-- Run `PYTHONPATH=. .venv/bin/pytest tests/test_rubric_normalization.py tests/test_precheck.py`.
-```
+These tasks enhance the AI rubric generation pipeline and simplify rubric authoring based on empirical grading reflection. (Both W7-PROMPT and W7-NUMERIC have been shipped; prompt details are archived in [shipped-waves-archive.md](archive/shipped-waves-archive.md)).
 
 ---
 
@@ -113,6 +69,7 @@ Files to modify:
 
 | Task ID | Title | Size | Notes |
 |:---:|:---|:---:|:---|
+| BL-SEC | App Hardening & Security Auditing | M | Automated static analysis (`bandit`, `pip-audit`), strict path traversal guards, and untrusted data prompt isolation. |
 | BL-DOCX | Word/TXT/MD Solutions Keys Support | M | Lower friction for instructors. (Note: Student submission DOCX conversion already exists in `discovery.py`; this task is specifically for converting/parsing solution keys). |
 | BL-SEARCH | Smart Candidate Search in Downloads | S | Sort by modified date, weight profile name matches higher. |
 | BL-VISION-AUTO | Auto-Detect Math-Heavy Pages | M | Heuristic to detect Tesseract gibberish on math content and selectively re-extract via Gemini. Follow-up to W6-VISION — the flag becomes a hard override, the heuristic becomes the smart default. |

@@ -1496,6 +1496,21 @@ def normalize_draft_rubric_payload(payload: JsonDict, assignment_id: str) -> Jso
                             c_dict["partial_if"] = sc_p
                         scoring_criteria_list.append(c_dict)
 
+        raw_expected_numeric = item.get("expected_numeric")
+        expected_numeric_dict: dict[str, Any] | None = None
+        if isinstance(raw_expected_numeric, dict) and "value" in raw_expected_numeric:
+            try:
+                en_val = float(raw_expected_numeric["value"])
+                en_tol = float(raw_expected_numeric.get("tolerance", 0.0))
+                en_pct = bool(raw_expected_numeric.get("allow_percent", True))
+                expected_numeric_dict = {
+                    "value": en_val,
+                    "tolerance": en_tol,
+                    "allow_percent": en_pct,
+                }
+            except (TypeError, ValueError):
+                expected_numeric_dict = None
+
         q_dict: dict[str, Any] = {
             "id": qid,
             "label_patterns": label_patterns,
@@ -1506,6 +1521,8 @@ def normalize_draft_rubric_payload(payload: JsonDict, assignment_id: str) -> Jso
             "anchor_tokens": anchor_tokens,
             "expected_answers": expected_answers,
         }
+        if expected_numeric_dict is not None:
+            q_dict["expected_numeric"] = expected_numeric_dict
         if scoring_criteria_list:
             q_dict["scoring_criteria"] = scoring_criteria_list
 

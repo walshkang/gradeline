@@ -11,10 +11,12 @@
   - Completed Wave 3 (Workflow CLI decomposition into `grader/workflow/`, GitHub Actions CI pipeline, and documentation housekeeping).
   - Completed Wave 4 (Browser File Upload & Profile Setup, Export Feedback & Download, LLM Cost Breakdown Dashboard, Regex Pre-Check `requires_work` flag, and Judge LLM Rounding Error/Partial Credit Audit).
   - Completed Wave 5 (Server Grading with SSE live progress in `grading_session.py`, Sidebar PDF Annotation Editing with multi-marker overlays).
-- **Auto-Rubric Generation & Precision (Wave 7 In Progress)**:
+- **Auto-Rubric Generation & Precision (Wave 7 Shipped)**:
   - Completed W7-PROMPT (Rubric Gen Prompt v2 for multi-method variation expansion and atomic sub-question decomposition + string path support in `load_rubric`).
+  - Completed W7-NUMERIC (Numeric Answer DSL `expected_numeric` for automatic regex compilation of decimal variations, tolerances, and percentages).
   - Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).
 
 ## Current Objective
-Wave 7 in progress! `W7-PROMPT` completed and verified. Next up: `W7-NUMERIC` (Numeric Answer DSL `expected_numeric`) in the [Gradeline Unified Roadmap](docs/plans/roadmap.md).
+Wave 7 completed and verified! Next active tasks in the [Gradeline Unified Roadmap](docs/plans/roadmap.md) are backlog items (BL-SEC: App Hardening & Security Auditing, BL-DOCX: Word/TXT Solution Keys Support, BL-SEARCH: Smart Candidate Search).
+
 

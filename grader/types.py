@@ -13,6 +13,13 @@ class ScoringCriterion:
 
 
 @dataclass(frozen=True)
+class ExpectedNumeric:
+    value: float
+    tolerance: float = 0.0
+    allow_percent: bool = True
+
+
+@dataclass(frozen=True)
 class QuestionRubric:
     id: str
     label_patterns: list[str]
@@ -24,6 +31,8 @@ class QuestionRubric:
     expected_answers: list[str] = field(default_factory=list)
     requires_work: bool = False
     scoring_criteria: list[ScoringCriterion] = field(default_factory=list)
+    expected_numeric: ExpectedNumeric | None = None
+
 
 
 @dataclass(frozen=True)

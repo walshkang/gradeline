@@ -346,3 +346,44 @@ def test_precheck_optimizes_llm_grading():
         assert q_map["q2"].diagnostics_trace == ("regex_precheck: skipped (no expected_answers)", "llm_grading: legacy")
 
 
+def test_regex_precheck_with_expected_numeric_rubric():
+    from pathlib import Path
+    import tempfile
+    from grader.config import load_rubric
+
+    rubric_content = """
+assignment_id: hw_numeric
+scoring_mode: equal_weights
+partial_credit: 0.5
+bands:
+  check_plus_min: 0.9
+  check_min: 0.7
+questions:
+  - id: "q1"
+    scoring_rules: "Rule 1"
+    short_note_pass: "OK"
+    short_note_fail: "Check"
+    expected_numeric:
+      value: 0.0808
+      tolerance: 0.001
+      allow_percent: true
+"""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir) / "rubric.yaml"
+        tmp_path.write_text(rubric_content, encoding="utf-8")
+        rubric = load_rubric(tmp_path)
+
+    text_dec = "The calculated probability is 0.0808 in this question."
+    results_dec, hints_dec = regex_precheck(rubric, text_dec)
+    assert "q1" in results_dec
+    assert results_dec["q1"].verdict == "correct"
+    assert results_dec["q1"].grading_source == "regex"
+
+    text_pct = "The answer is 8.08%."
+    results_pct, hints_pct = regex_precheck(rubric, text_pct)
+    assert "q1" in results_pct
+    assert results_pct["q1"].verdict == "correct"
+    assert results_pct["q1"].grading_source == "regex"
+
+
+
