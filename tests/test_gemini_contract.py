@@ -72,6 +72,21 @@ class GeminiContractTests(unittest.TestCase):
         self.assertEqual(by_id["c"].short_reason, "check")
         self.assertEqual(normalized["global_flags"], ["flag1"])
 
+    def test_normalize_response_canonical_id_matching(self) -> None:
+        rubric = make_rubric()
+        payload = {
+            "student_submission_id": "x",
+            "questions": [
+                {"id": "2.a", "verdict": "correct", "confidence": 1.0, "short_reason": "ok", "evidence_quote": "e1"},
+                {"id": "2.b", "verdict": "correct", "confidence": 0.95, "short_reason": "ok", "evidence_quote": "e2"},
+            ],
+            "global_flags": [],
+        }
+        normalized = normalize_model_response(payload, rubric)
+        by_id = {item.id: item for item in normalized["questions"]}
+        self.assertEqual(by_id["a"].verdict, "correct")
+        self.assertEqual(by_id["b"].verdict, "correct")
+
     def test_reason_postprocessing_uses_sentence_and_fallbacks(self) -> None:
         rubric = make_rubric()
         payload = {

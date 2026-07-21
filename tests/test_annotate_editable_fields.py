@@ -387,6 +387,67 @@ class EditableAnnotationTests(unittest.TestCase):
                 contents = [annot.info.get("content", "") for annot in annots]
                 self.assertIn("✓ Qa", contents)
 
+    def test_dark_background_annotation_box_is_opaque_and_padded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            submissions_root = root / "subs"
+            folder_name = "804 - DarkStudent"
+            folder_path = submissions_root / folder_name
+            folder_path.mkdir(parents=True, exist_ok=True)
+            pdf_path = folder_path / "dark_submission.pdf"
+
+            # Create a PDF page with a dark/black background
+            doc = fitz.open()
+            page = doc.new_page()
+            page.draw_rect(page.rect, color=(0, 0, 0), fill=(0, 0, 0))
+            page.insert_text((72, 120), "a)", fontsize=12, color=(1, 1, 1))
+            doc.save(pdf_path)
+            doc.close()
+
+            submission = SubmissionUnit(
+                folder_path=folder_path,
+                folder_relpath=Path(folder_name),
+                folder_token="804",
+                student_name=folder_name,
+                pdf_paths=[pdf_path],
+            )
+            rubric = make_rubric("a")
+            question_results = [
+                QuestionResult(
+                    id="a",
+                    verdict="incorrect",
+                    confidence=0.9,
+                    short_reason="Invalid step in proof",
+                    logic_analysis="",
+                    evidence_quote="...",
+                )
+            ]
+            output_dir = root / "out"
+
+            output_paths, _ = annotate_submission_pdfs(
+                submission=submission,
+                rubric=rubric,
+                question_results=question_results,
+                output_dir=output_dir,
+                submissions_root=submissions_root,
+                final_band="CHECK_MINUS",
+                dry_run=False,
+                annotate_dry_run_marks=False,
+            )
+
+            with fitz.open(output_paths[0]) as doc_annotated:
+                page = doc_annotated[0]
+                annots = list(page.annots() or [])
+                self.assertGreaterEqual(len(annots), 1)
+                mark_annot = next(
+                    annot for annot in annots
+                    if (annot.info.get("subject", "")).startswith("question_mark|q=a|")
+                )
+                # Opacity should be 1.0 or -1 (PyMuPDF default for 100% opaque box background fill)
+                self.assertIn(mark_annot.opacity, (1.0, -1))
+                # Ensure height includes padding so text descenders aren't cut off
+                self.assertGreaterEqual(mark_annot.rect.height, 35.0)
+
 
 if __name__ == "__main__":
     unittest.main()

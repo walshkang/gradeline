@@ -935,6 +935,23 @@ def build_rubric_lines(rubric: RubricConfig, *, questions: list[QuestionRubric] 
     return lines
 
 
+def canonical_id(qid: str) -> str:
+    """Canonicalize a question ID by stripping prefixes, whitespace, and punctuation.
+
+    Examples:
+      '2.a' -> '2a'
+      '2-a' -> '2a'
+      'Q2.a' -> '2a'
+      'question 3' -> '3'
+    """
+    s = str(qid).strip().lower()
+    for prefix in ("question ", "question", "q.", "q"):
+        if s.startswith(prefix) and len(s) > len(prefix) and (s[len(prefix)].isdigit() or s[len(prefix)] in ".-_ "):
+            s = s[len(prefix):].strip()
+            break
+    return re.sub(r"[^a-z0-9]", "", s)
+
+
 def match_subparts_to_parent(parent_id: str, raw_item: dict) -> bool:
     """Return True if raw_item represents a sub-part of parent_id.
 
@@ -957,8 +974,8 @@ def match_subparts_to_parent(parent_id: str, raw_item: dict) -> bool:
             raw = raw[len(prefix):].lstrip()
             break
 
-    if raw == parent:
-        return True  # Exact match (not a sub-part, but a direct hit)
+    if raw == parent or (canonical_id(raw) and canonical_id(raw) == canonical_id(parent)):
+        return True  # Exact or canonical match
 
     # 2. Check if raw starts with parent followed by a separator (e.g., "1.a" or "1a")
     if raw.startswith(parent):
@@ -1032,17 +1049,21 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig, token_usag
         raise ValueError("Gemini response must include 'questions' list.")
 
     question_map: dict[str, JsonDict] = {}
+    canonical_map: dict[str, JsonDict] = {}
     for item in questions_raw:
         if isinstance(item, dict) and "id" in item:
             qid = str(item["id"]).strip().lower()
             question_map[qid] = item
+            cid = canonical_id(qid)
+            if cid and cid not in canonical_map:
+                canonical_map[cid] = item
 
     # Group sub-question IDs under their rubric parent ID
     parent_subparts: dict[str, list[JsonDict]] = {}
     for question in rubric.questions:
         parent_id = question.id.strip().lower()
-        if parent_id in question_map:
-            continue  # Direct match exists, no need to search sub-parts
+        if parent_id in question_map or canonical_id(parent_id) in canonical_map:
+            continue  # Direct or canonical match exists, no need to search sub-parts
         subs = []
         for raw_id, raw_item in question_map.items():
             if match_subparts_to_parent(parent_id, raw_item):
@@ -1052,8 +1073,9 @@ def normalize_model_response(payload: JsonDict, rubric: RubricConfig, token_usag
 
     normalized_questions: list[QuestionResult] = []
     for question in rubric.questions:
-        raw = question_map.get(question.id)
-        sub_items = parent_subparts.get(question.id.strip().lower())
+        qid_lower = question.id.strip().lower()
+        raw = question_map.get(qid_lower) or canonical_map.get(canonical_id(question.id))
+        sub_items = parent_subparts.get(qid_lower)
 
         if raw is None and sub_items is None:
             # No match at all — flag for review

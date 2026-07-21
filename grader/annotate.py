@@ -578,7 +578,9 @@ def build_annotation_subject(kind: str, **parts: str | int | float) -> str:
 
 
 def estimate_text_width(text: str, fontsize: float, minimum: float = 80.0) -> float:
-    return max(minimum, (len(text) + 2) * fontsize * 0.58)
+    lines = text.splitlines() or [text]
+    max_len = max(len(line) for line in lines)
+    return max(minimum, (max_len + 4) * fontsize * 0.58)
 
 
 def text_annotation_rect_from_baseline(
@@ -592,24 +594,30 @@ def text_annotation_rect_from_baseline(
     import fitz
 
     rotation = getattr(page, "rotation", 0)
+    lines = text.splitlines() or [text]
+    num_lines = len(lines)
+
     width = min(
         estimate_text_width(text=text, fontsize=fontsize, minimum=min_width),
         max(24.0, page.rect.width - 8.0),
     )
-    # FreeText annotations render with extra inner padding in Preview.
-    height = max(20.0, fontsize + 12.0)
+    # Provide generous height including top/bottom padding + per-line height
+    # so descenders (g, p, q, y) and bottom lines are never cut off.
+    line_height = fontsize * 1.35
+    padding = 18.0
+    height = max(24.0, num_lines * line_height + padding)
 
     if rotation != 0:
         p_rot = fitz.Point(x, y) * page.rotation_matrix
         x0_rot = clamp(p_rot.x, 4.0, max(4.0, page.rect.width - width - 4.0))
-        y0_rot = clamp(p_rot.y - fontsize, 4.0, max(4.0, page.rect.height - height - 4.0))
+        y0_rot = clamp(p_rot.y - fontsize - 8.0, 4.0, max(4.0, page.rect.height - height - 4.0))
         rect_rot = fitz.Rect(x0_rot, y0_rot, x0_rot + width, y0_rot + height)
         rect_unrot = rect_rot * (~page.rotation_matrix)
         rect_unrot.normalize()
         return rect_unrot
     else:
         x0 = clamp(x, 4.0, max(4.0, page.rect.width - width - 4.0))
-        y0 = clamp(y - fontsize, 4.0, max(4.0, page.rect.height - height - 4.0))
+        y0 = clamp(y - fontsize - 8.0, 4.0, max(4.0, page.rect.height - height - 4.0))
         return fitz.Rect(x0, y0, x0 + width, y0 + height)
 
 
@@ -653,6 +661,7 @@ def add_movable_freetext_annotation(
     import fitz
 
     # Create FreeText annotation. PyMuPDF sets the content and default appearance.
+    # Note: We keep richtext=False because richtext=True overrides text_color to default black in many viewers.
     annot = page.add_freetext_annot(
         rect=rect,
         text=text,
@@ -660,13 +669,14 @@ def add_movable_freetext_annotation(
         fontname="Helv",
         text_color=color,
         fill_color=fill_color,
-        border_color=border_color,
-        border_width=1 if border_color is not None else 0,
-        richtext=True if border_color is not None else False,
+        border_color=None,
+        border_width=0,
+        richtext=False,
     )
     if fill_color is not None:
         try:
-            annot.set_opacity(0.9)
+            # Set opacity to 1.0 (opaque) so dark/black page backgrounds don't bleed through and ruin text contrast.
+            annot.set_opacity(1.0)
         except AttributeError:
             pass
     # Set metadata. We skip 'content' here as it's already set by add_freetext_annot;
@@ -684,7 +694,7 @@ def add_movable_freetext_annotation(
         fontsize=fontsize,
         fontname="Helv",
         text_color=color,
-        border_color=border_color,
+        border_color=None,
         fill_color=fill_color,
     )
 
