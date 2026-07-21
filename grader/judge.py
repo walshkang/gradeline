@@ -106,16 +106,26 @@ def run_judge(*, profile_spec: str) -> int:
             
             has_questions = True
             q_rubric = questions_dict[q_id]
-            prompt_parts.append(
-                f"Question ID: {q_id}\n"
-                f"Scoring Rules: {q_rubric.scoring_rules}\n"
-                f"Short Note Fail: {q_rubric.short_note_fail}\n"
-                f"Verdict Given: {row.get('verdict')}\n"
-                f"Logic Analysis: {row.get('logic_analysis')}\n"
-                f"Evidence Quote: {row.get('evidence_quote')}\n"
-                f"Detail Reason: {row.get('detail_reason')}\n"
-                "---\n"
-            )
+            q_parts = [
+                f"Question ID: {q_id}\n",
+                f"Scoring Rules: {q_rubric.scoring_rules}\n",
+            ]
+            if q_rubric.scoring_criteria:
+                q_parts.append("Scoring Criteria:\n")
+                for i, sc in enumerate(q_rubric.scoring_criteria, 1):
+                    sc_line = f"  {i}. [weight={sc.weight}] {sc.requirement}"
+                    if sc.partial_if:
+                        sc_line += f" — Partial if: {sc.partial_if}"
+                    q_parts.append(sc_line + "\n")
+            q_parts.extend([
+                f"Short Note Fail: {q_rubric.short_note_fail}\n",
+                f"Verdict Given: {row.get('verdict')}\n",
+                f"Logic Analysis: {row.get('logic_analysis')}\n",
+                f"Evidence Quote: {row.get('evidence_quote')}\n",
+                f"Detail Reason: {row.get('detail_reason')}\n",
+                "---\n",
+            ])
+            prompt_parts.append("".join(q_parts))
 
         if not has_questions:
             continue
@@ -123,7 +133,7 @@ def run_judge(*, profile_spec: str) -> int:
         prompt_parts.append(
             "Identify any grading mistakes. If the verdict is incorrect or partial, ensure a proposed_reason is provided. If you do not have a reason, fall back to the short_note_fail.\n"
             "CRITICAL: For any question with verdict 'rounding_error', verify that the evidence_quote demonstrates a fundamentally correct method with only a minor arithmetic or rounding slip. If the evidence shows a wrong formula, missing setup, or conceptual error, propose verdict 'incorrect' or 'needs_review' with needs_fix=true. A rounding_error verdict is fully forgiven (scored 1.0), so false positives here directly inflate grades.\n"
-            "For any question with verdict 'partial', verify that the evidence_quote is non-empty and actually supports the logic_analysis. If the evidence_quote is empty, missing, or contradicts the claimed partial credit reasoning, set needs_fix=true and propose verdict 'needs_review'.\n"
+            "For any question with verdict 'partial', verify that the evidence_quote is non-empty and actually supports the logic_analysis. Where Scoring Criteria are listed, verify that met/unmet claims in logic_analysis are actually supported by the evidence_quote. If the evidence_quote is empty, missing, or contradicts the claimed partial credit criteria, set needs_fix=true and propose verdict 'needs_review'.\n"
             "For any non-correct verdict, if evidence_quote is blank or generic (e.g., 'N/A', 'not found'), flag it as needs_fix=true."
         )
 

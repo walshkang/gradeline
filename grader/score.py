@@ -1,6 +1,5 @@
-from __future__ import annotations
-
-from .types import GradeResult, QuestionResult, RubricConfig
+import re
+from .types import GradeResult, QuestionResult, RubricConfig, ScoringCriterion
 
 
 VERDICT_TO_SCORE = {
@@ -10,6 +9,46 @@ VERDICT_TO_SCORE = {
     "incorrect": 0.0,
     "needs_review": 0.0,
 }
+
+
+def compute_criteria_partial_score(
+    logic_analysis: str,
+    criteria: list[ScoringCriterion],
+    fallback: float,
+) -> float:
+    if not criteria or not logic_analysis:
+        return fallback
+
+    total_weight = sum(sc.weight for sc in criteria)
+    if total_weight <= 0:
+        return fallback
+
+    met_indices: set[int] = set()
+
+    # Pattern 1: Explicit list preceding "met" (e.g. "Criteria 1, 3 met", "Criteria 1 and 2 met")
+    for match in re.finditer(
+        r"(?:criteria|criterion)?\s*([0-9\s,and&]+)\s*met\b",
+        logic_analysis,
+        flags=re.IGNORECASE,
+    ):
+        num_str = match.group(1)
+        for num in re.findall(r"\b\d+\b", num_str):
+            met_indices.add(int(num))
+
+    # Pattern 2: Individual item matches like "Criterion 1: met" or "Criterion 1 is met"
+    for match in re.finditer(
+        r"\b(?:criterion|criteria)\s*(\d+)\s*(?:is|was|[:=])?\s*met\b",
+        logic_analysis,
+        flags=re.IGNORECASE,
+    ):
+        met_indices.add(int(match.group(1)))
+
+    valid_met = {idx for idx in met_indices if 1 <= idx <= len(criteria)}
+    if not valid_met:
+        return fallback
+
+    earned_weight = sum(criteria[idx - 1].weight for idx in valid_met)
+    return earned_weight / total_weight
 
 
 def score_submission(
@@ -32,7 +71,14 @@ def score_submission(
 
         base_score = VERDICT_TO_SCORE.get(verdict, 0.0)
         if verdict == "partial":
-            base_score = rubric.partial_credit
+            if question.scoring_criteria and result:
+                base_score = compute_criteria_partial_score(
+                    logic_analysis=result.logic_analysis,
+                    criteria=question.scoring_criteria,
+                    fallback=rubric.partial_credit,
+                )
+            else:
+                base_score = rubric.partial_credit
         per_question_scores[question.id] = base_score
 
         total_weight += question.weight

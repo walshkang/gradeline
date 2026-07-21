@@ -19,6 +19,13 @@ questions:
     short_note_fail: "Needs revision."
     expected_answers: [] # (Optional) Regex patterns to auto-approve correct answers (e.g., ["493.*557"])
     weight: 1.0
+    # (Optional) Discrete criteria checklist for structured partial credit evaluation:
+    scoring_criteria:
+      - requirement: "Correct formula setup or model specification"
+        weight: 1.0
+        partial_if: "Formula written correctly with minor variable substitution error"
+      - requirement: "Accurate arithmetic and final numerical value"
+        weight: 1.0
   - id: "b"
     label_patterns: ["b)", "b.", "(b)"]
     anchor_tokens: ["b)", "b.", "(b)"]

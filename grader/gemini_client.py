@@ -57,6 +57,12 @@ class UnifiedSubmissionResponse(BaseModel):
     global_flags: list[str] = Field(default_factory=list)
 
 
+class DraftScoringCriterion(BaseModel):
+    requirement: str
+    weight: float | None = 1.0
+    partial_if: str | None = None
+
+
 class DraftRubricQuestion(BaseModel):
     """Structured rubric question schema used for AI-assisted rubric generation."""
 
@@ -72,6 +78,7 @@ class DraftRubricQuestion(BaseModel):
     short_note_fail: str | None = None
     anchor_tokens: list[str] | None = None
     expected_answers: list[str] | None = None
+    scoring_criteria: list[DraftScoringCriterion] | None = None
 
 
 class DraftRubricBands(BaseModel):
@@ -744,12 +751,13 @@ def build_rubric_draft_prompt(assignment_id: str) -> str:
         "- For questions where the expected answer is a single numeric value, percentage, short\n"
         "  formula, or brief token (e.g. \"0.853\", \"493,557\", \"reject H0\"), populate the\n"
         "  expected_answers field with one or more regex patterns that would match a correct student\n"
-        "  answer. Use patterns like [\"\\\\b0\\\\.85[0-9]*\\\\b\"], [\"493.*557\"], or [\"reject.*H0\"].\n"
+        "  answer. Use patterns like [\"\\\\b0\\\\.114[4]?\\\\b\"], [\"493.*557\"], or [\"reject.*H0\"].\n"
         "  These patterns enable deterministic grading that bypasses the LLM entirely.\n"
         "  CRITICAL REGEX RULES:\n"
         "  1. Enforce word boundaries on all numeric values (e.g. use '\\\\b124\\\\b' or '\\\\b-10\\\\b', not '124' or '-10') to prevent matching partial numbers (like matching '-10' in '-100' or '21' in '2021').\n"
         "  2. Bypass single-digit regexes: NEVER use raw single digits (e.g. '1', '2', '0') as expected_answers because they will collide with question labels, page numbers, and dates. Route these through LLM grading by leaving expected_answers empty.\n"
         "  3. Smart Float Matching: If a float has repeating or trailing digits (e.g. '0.1144'), generate patterns with optional precision boundaries, such as '\\\\b0\\\\.114[4]?\\\\b' instead of simple truncations.\n"
+        "- For complex, multi-step, or setup-heavy questions, evaluate if structured scoring criteria are beneficial. If so, populate `scoring_criteria` with discrete requirement checklist items (requirement, weight, optional partial_if condition). For simple direct-answer questions, leave `scoring_criteria` empty or omitted.\n"
         "- For open-ended, multi-sentence, or interpretive questions, leave expected_answers as an\n"
         "  empty list []. Only populate it when a short, verifiable answer exists.\n"
         "- When constructing regex patterns, be tolerant of minor formatting differences: allow\n"
@@ -893,7 +901,20 @@ def build_rubric_lines(rubric: RubricConfig, *, questions: list[QuestionRubric] 
     qs = questions if questions is not None else rubric.questions
     for question in qs:
         labels = ", ".join(question.label_patterns) if question.label_patterns else f"{question.id})"
-        lines.append(f"- Q{question.id}: labels=[{labels}] rule={question.scoring_rules}")
+        q_line = f"- Q{question.id}: labels=[{labels}] rule={question.scoring_rules}"
+        if question.scoring_criteria:
+            c_lines = ["\n  Structured Scoring Criteria (evaluate each independently):"]
+            for i, sc in enumerate(question.scoring_criteria, 1):
+                c_str = f"    {i}. [weight={sc.weight}] {sc.requirement}"
+                if sc.partial_if:
+                    c_str += f" — Partial credit if: {sc.partial_if}"
+                c_lines.append(c_str)
+            c_lines.append(
+                "    Score this question as the weighted sum of met criteria. "
+                "In your logic_analysis, explicitly state which criteria were met/unmet (e.g. 'Criteria 1,3 met; Criterion 2 unmet')."
+            )
+            q_line += "\n".join(c_lines)
+        lines.append(q_line)
     return lines
 
 
@@ -1449,18 +1470,37 @@ def normalize_draft_rubric_payload(payload: JsonDict, assignment_id: str) -> Jso
         else:
             expected_answers = []
 
-        normalized_questions.append(
-            {
-                "id": qid,
-                "label_patterns": label_patterns,
-                "scoring_rules": scoring_rules,
-                "short_note_pass": short_note_pass,
-                "short_note_fail": short_note_fail,
-                "weight": weight_val,
-                "anchor_tokens": anchor_tokens,
-                "expected_answers": expected_answers,
-            }
-        )
+        raw_scoring_criteria = item.get("scoring_criteria")
+        scoring_criteria_list: list[dict[str, Any]] = []
+        if isinstance(raw_scoring_criteria, list):
+            for sc in raw_scoring_criteria:
+                if isinstance(sc, dict):
+                    req = str(sc.get("requirement") or "").strip()
+                    if req:
+                        try:
+                            sc_w = float(sc.get("weight", 1.0))
+                        except (TypeError, ValueError):
+                            sc_w = 1.0
+                        sc_p = str(sc.get("partial_if") or "").strip()
+                        c_dict: dict[str, Any] = {"requirement": req, "weight": sc_w}
+                        if sc_p:
+                            c_dict["partial_if"] = sc_p
+                        scoring_criteria_list.append(c_dict)
+
+        q_dict: dict[str, Any] = {
+            "id": qid,
+            "label_patterns": label_patterns,
+            "scoring_rules": scoring_rules,
+            "short_note_pass": short_note_pass,
+            "short_note_fail": short_note_fail,
+            "weight": weight_val,
+            "anchor_tokens": anchor_tokens,
+            "expected_answers": expected_answers,
+        }
+        if scoring_criteria_list:
+            q_dict["scoring_criteria"] = scoring_criteria_list
+
+        normalized_questions.append(q_dict)
 
     # Renormalize weights so they sum to 1.0 (if possible) while preserving ratios.
     total_weight = sum(float(q.get("weight", 0.0)) for q in normalized_questions)
@@ -1668,6 +1708,14 @@ def rubric_to_cache_payload(rubric: RubricConfig) -> JsonDict:
                 "weight": question.weight,
                 "anchor_tokens": question.anchor_tokens,
                 "expected_answers": question.expected_answers,
+                "scoring_criteria": [
+                    {
+                        "requirement": sc.requirement,
+                        "weight": sc.weight,
+                        "partial_if": sc.partial_if,
+                    }
+                    for sc in question.scoring_criteria
+                ],
             }
             for question in rubric.questions
         ],

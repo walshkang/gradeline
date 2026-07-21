@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..types import QuestionResult, QuestionRubric, RubricConfig
+from ..types import QuestionResult, QuestionRubric, RubricConfig, ScoringCriterion
 
 SCHEMA_VERSION = 1
 VERDICT_VALUES = {"correct", "partial", "rounding_error", "incorrect", "needs_review"}
@@ -41,6 +41,18 @@ def rubric_from_dict(payload: dict[str, Any]) -> RubricConfig:
     for item in payload.get("questions", []):
         if not isinstance(item, dict):
             continue
+        sc_list: list[ScoringCriterion] = []
+        for sc in item.get("scoring_criteria", []):
+            if isinstance(sc, dict):
+                sc_req = str(sc.get("requirement", "")).strip()
+                if sc_req:
+                    sc_list.append(
+                        ScoringCriterion(
+                            requirement=sc_req,
+                            weight=float(sc.get("weight", 1.0)),
+                            partial_if=str(sc.get("partial_if", "")).strip(),
+                        )
+                    )
         questions.append(
             QuestionRubric(
                 id=str(item.get("id", "")).strip().lower(),
@@ -50,6 +62,9 @@ def rubric_from_dict(payload: dict[str, Any]) -> RubricConfig:
                 short_note_fail=str(item.get("short_note_fail", "Check")),
                 weight=float(item.get("weight", 1.0)),
                 anchor_tokens=[str(v) for v in item.get("anchor_tokens", [])],
+                expected_answers=[str(v) for v in item.get("expected_answers", [])],
+                requires_work=bool(item.get("requires_work", False)),
+                scoring_criteria=sc_list,
             )
         )
 

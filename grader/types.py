@@ -6,6 +6,13 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class ScoringCriterion:
+    requirement: str
+    weight: float = 1.0
+    partial_if: str = ""
+
+
+@dataclass(frozen=True)
 class QuestionRubric:
     id: str
     label_patterns: list[str]
@@ -16,6 +23,7 @@ class QuestionRubric:
     anchor_tokens: list[str] = field(default_factory=list)
     expected_answers: list[str] = field(default_factory=list)
     requires_work: bool = False
+    scoring_criteria: list[ScoringCriterion] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

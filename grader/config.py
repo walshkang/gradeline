@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .types import QuestionRubric, RubricConfig
+from .types import QuestionRubric, RubricConfig, ScoringCriterion
 
 
 def load_rubric(path: Path) -> RubricConfig:
@@ -22,8 +22,32 @@ def load_rubric(path: Path) -> RubricConfig:
     for item in questions_raw:
         if not isinstance(item, dict):
             raise ValueError("Each rubric question must be an object.")
+        q_id = str(item["id"]).strip().lower()
+
+        scoring_criteria_raw = item.get("scoring_criteria", [])
+        scoring_criteria: list[ScoringCriterion] = []
+        if isinstance(scoring_criteria_raw, list):
+            for sc in scoring_criteria_raw:
+                if not isinstance(sc, dict):
+                    raise ValueError(f"Each scoring_criteria entry in question '{q_id}' must be a mapping.")
+                req = str(sc.get("requirement", "")).strip()
+                if not req:
+                    raise ValueError(f"Scoring criterion in question '{q_id}' has an empty requirement.")
+                try:
+                    weight_val = float(sc.get("weight", 1.0))
+                except (TypeError, ValueError):
+                    weight_val = 1.0
+                partial_if_val = str(sc.get("partial_if", "")).strip()
+                scoring_criteria.append(
+                    ScoringCriterion(
+                        requirement=req,
+                        weight=weight_val,
+                        partial_if=partial_if_val,
+                    )
+                )
+
         q_rubric = QuestionRubric(
-            id=str(item["id"]).strip().lower(),
+            id=q_id,
             label_patterns=[str(v) for v in item.get("label_patterns", [])],
             scoring_rules=str(item.get("scoring_rules", "")).strip(),
             short_note_pass=str(item.get("short_note_pass", "OK")).strip(),
@@ -32,6 +56,7 @@ def load_rubric(path: Path) -> RubricConfig:
             anchor_tokens=[str(v) for v in item.get("anchor_tokens", [])],
             expected_answers=[str(v) for v in item.get("expected_answers", [])],
             requires_work=bool(item.get("requires_work", False)),
+            scoring_criteria=scoring_criteria,
         )
         if not q_rubric.short_note_fail or q_rubric.short_note_fail == "Check":
             warnings.warn(

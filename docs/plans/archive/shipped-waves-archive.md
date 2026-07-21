@@ -589,3 +589,28 @@ Add a comment block to configs/defaults.toml:
 - Run: PYTHONPATH=. .venv/bin/pytest tests/test_extract.py tests/test_workflow_profile.py -x -v
 ```
 
+---
+
+### W6-CRITERIA: Structured Scoring Criteria Schema
+
+**Origin**: Feedback #19
+**Size**: Medium (~4–6 hours) · **Tier**: Flash
+
+```
+Add an optional `scoring_criteria` list to the rubric question schema for discrete, structured evaluation criteria alongside the existing free-text `scoring_rules`.
+
+Observed problem: The `scoring_rules` field is free-text, which can lead to ambiguous LLM interpretation of partial credit thresholds and methodology requirements. For example, "If the student sets up correct hypergeometric formulas but makes an arithmetic error, award partial credit (0.5)" — the LLM might award 0.5 for one formula right and one wrong, or for the right family but wrong parameters.
+
+Files to modify:
+- grader/types.py (new dataclass + field on QuestionRubric)
+- grader/config.py (parse from YAML)
+- grader/gemini_client.py (inject into grading prompt, draft rubric generation & cache payload)
+- grader/judge.py (include in judge context & audit)
+- grader/review/types.py (serialize for review UI)
+- grader/score.py (compute weighted criteria partial credit with bounds fallback)
+
+## Verification
+- Write unit tests in tests/test_scoring_criteria.py covering YAML parsing, invalid criteria validation, prompt formatting, cache payloads, review roundtrip serialization, and dynamic partial scoring with bounds-checked fallback.
+- Run: PYTHONPATH=. .venv/bin/pytest tests/test_scoring_criteria.py tests/test_rubric_normalization.py tests/test_judge_prompt.py tests/test_score.py -x -v
+```
+
