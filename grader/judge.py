@@ -12,6 +12,7 @@ from google.genai import types
 
 from .config import load_rubric
 from .cost import extract_token_usage
+from .security import sanitize_prompt_data, wrap_untrusted_prompt_context
 from .review.state import load_state, write_state_atomic, state_path_for_output
 from .workflow_profile import load_workflow_profile
 from .workflow_cli import get_project_root
@@ -117,11 +118,13 @@ def run_judge(*, profile_spec: str) -> int:
                     if sc.partial_if:
                         sc_line += f" — Partial if: {sc.partial_if}"
                     q_parts.append(sc_line + "\n")
+            evidence_raw = str(row.get('evidence_quote') or '')
+            evidence_wrapped = wrap_untrusted_prompt_context("student_evidence", evidence_raw) if evidence_raw else "N/A"
             q_parts.extend([
                 f"Short Note Fail: {q_rubric.short_note_fail}\n",
                 f"Verdict Given: {row.get('verdict')}\n",
                 f"Logic Analysis: {row.get('logic_analysis')}\n",
-                f"Evidence Quote: {row.get('evidence_quote')}\n",
+                f"Evidence Quote:\n{evidence_wrapped}\n",
                 f"Detail Reason: {row.get('detail_reason')}\n",
                 "---\n",
             ])

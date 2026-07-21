@@ -13,10 +13,11 @@
   - Completed Wave 5 (Server Grading with SSE live progress in `grading_session.py`, Sidebar PDF Annotation Editing with multi-marker overlays).
 - **Auto-Rubric Generation & Precision (Wave 7 Shipped)**:
   - Completed W7-PROMPT (Rubric Gen Prompt v2 for multi-method variation expansion and atomic sub-question decomposition + string path support in `load_rubric`).
-  - Completed W7-NUMERIC (Numeric Answer DSL `expected_numeric` for automatic regex compilation of decimal variations, tolerances, and percentages).
+- **App Hardening & Security Auditing (BL-SEC Shipped)**:
+  - Completed static analysis setup (`bandit`, `pip-audit`), strict path traversal guards (`validate_safe_path`), and untrusted prompt isolation XML wrappers across grading and judging prompt templates.
   - Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).
 
 ## Current Objective
-Wave 7 completed and verified! Next active tasks in the [Gradeline Unified Roadmap](docs/plans/roadmap.md) are backlog items (BL-SEC: App Hardening & Security Auditing, BL-DOCX: Word/TXT Solution Keys Support, BL-SEARCH: Smart Candidate Search).
+Wave 7 and BL-SEC completed and verified! Next active tasks in the [Gradeline Unified Roadmap](docs/plans/roadmap.md) are backlog items (BL-DOCX: Word/TXT Solution Keys Support, BL-SEARCH: Smart Candidate Search in Downloads, BL-VISION-AUTO: Auto-Detect Math-Heavy Pages).
 
 

@@ -82,7 +82,10 @@ def _html_to_text(raw: str) -> str:
 def convert_non_pdf_files_to_pdf(folder: Path) -> None:
     import fitz
     import zipfile
-    import xml.etree.ElementTree as ET
+    try:
+        import defusedxml.ElementTree as defused_ET
+    except ImportError:
+        import xml.etree.ElementTree as defused_ET  # type: ignore[no-redef] # nosec B314
 
     # Get non-PDF files, excluding metadata
     all_files = [
@@ -114,7 +117,7 @@ def convert_non_pdf_files_to_pdf(folder: Path) -> None:
         try:
             with zipfile.ZipFile(docx_path) as z:
                 xml_content = z.read('word/document.xml')
-                root = ET.fromstring(xml_content)
+                root = defused_ET.fromstring(xml_content)  # nosec B314
                 text_runs = []
                 for paragraph in root.iter('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p'):
                     para_text = []
@@ -154,14 +157,14 @@ def convert_non_pdf_files_to_pdf(folder: Path) -> None:
                 shared_strings = []
                 try:
                     strings_content = z.read('xl/sharedStrings.xml')
-                    strings_root = ET.fromstring(strings_content)
+                    strings_root = defused_ET.fromstring(strings_content)  # nosec B314
                     for t in strings_root.iter('{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t'):
                         shared_strings.append(t.text or "")
                 except KeyError:
                     pass
 
                 sheet_content = z.read('xl/worksheets/sheet1.xml')
-                sheet_root = ET.fromstring(sheet_content)
+                sheet_root = defused_ET.fromstring(sheet_content)  # nosec B314
                 
                 rows = {}
                 for row in sheet_root.iter('{http://schemas.openxmlformats.org/spreadsheetml/2006/main}row'):

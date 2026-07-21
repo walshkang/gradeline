@@ -26,7 +26,7 @@ def utc_now_iso() -> str:
 
 def stable_submission_id(folder_relpath: str, folder_token: str, student_name: str) -> str:
     norm = "|".join([folder_relpath.strip(), folder_token.strip(), student_name.strip()])
-    digest = hashlib.sha1(norm.encode("utf-8")).hexdigest()[:10]  # noqa: S324
+    digest = hashlib.sha256(norm.encode("utf-8")).hexdigest()[:10]
     slug = re.sub(r"[^a-z0-9]+", "-", folder_relpath.lower()).strip("-")
     slug = slug[:50] if slug else "submission"
     return f"{slug}-{digest}"

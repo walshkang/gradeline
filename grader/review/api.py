@@ -13,6 +13,7 @@ from typing import Any
 
 from ..audit import analyze_grading_audit
 from ..score import score_submission
+from ..security import SecurityError, validate_safe_path
 from .exporter import export_review_outputs
 from .raster import RasterImageCache
 from .state import (
@@ -453,8 +454,12 @@ class ReviewApi:
         return {name: str(path) for name, path in artifacts.items()}
 
     def export_file(self, filename: str) -> tuple[bytes, str, str]:
+        base_dir = self.output_dir / "review"
+        try:
+            file_path = validate_safe_path(base_dir / filename, base_dir)
+        except SecurityError as exc:
+            raise ReviewApiError(f"Invalid export file path: {filename}") from exc
         self.export()
-        file_path = self.output_dir / "review" / filename
         if not file_path.exists():
             raise ReviewApiError(f"Exported file not found: {filename}")
         content_type = "text/csv" if filename.endswith(".csv") else "application/octet-stream"

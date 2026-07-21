@@ -94,13 +94,13 @@ def cache_key(
             file_token,
         ]
     )
-    return hashlib.sha1(seed.encode("utf-8")).hexdigest()  # noqa: S324
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
 
 def fingerprint_path(pdf_path: Path) -> str:
     stat = pdf_path.stat()
     raw = f"{pdf_path}:{stat.st_size}:{stat.st_mtime_ns}"
-    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]  # noqa: S324
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
 def render_page_png(*, pdf_path: Path, page_idx: int, scale: float) -> RasterImage:
@@ -123,7 +123,7 @@ def render_page_png(*, pdf_path: Path, page_idx: int, scale: float) -> RasterIma
         matrix = fitz.Matrix(scale, scale)
         pix = page.get_pixmap(matrix=matrix, alpha=False)
         png_bytes = pix.tobytes("png")
-        etag_seed = hashlib.sha1(png_bytes).hexdigest()  # noqa: S324
+        etag_seed = hashlib.sha256(png_bytes).hexdigest()
         meta = RasterMeta(
             page_width_pt=float(page.rect.width),
             page_height_pt=float(page.rect.height),

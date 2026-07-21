@@ -697,4 +697,33 @@ Files to modify:
 - Run `PYTHONPATH=. .venv/bin/pytest tests/test_rubric_normalization.py tests/test_precheck.py`.
 ```
 
+---
+
+### BL-SEC: App Hardening & Security Auditing
+
+**Origin**: Security Audit
+**Size**: Medium (~3–4 hours) · **Tier**: Flash
+
+```
+Implement application hardening and automated security auditing across Gradeline.
+
+Files modified/created:
+- grader/security.py (NEW: validate_safe_path, sanitize_prompt_data, wrap_untrusted_prompt_context)
+- grader/review/server.py (Strict static path traversal defense using validate_safe_path)
+- grader/review/api.py (Strict export_file path traversal defense)
+- grader/gemini_client.py (Untrusted data prompt isolation using <student_submission_text> XML tags)
+- grader/judge.py (Untrusted evidence quote prompt isolation using <student_evidence> XML tags)
+- grader/review/raster.py & grader/review/types.py (Replace SHA-1 with SHA-256 for non-cryptographic hashing)
+- grader/discovery.py (defusedxml integration for safe XML parsing)
+- requirements-dev.txt (Added bandit>=1.7.0, pip-audit>=2.7.0)
+- .github/workflows/test.yml (Integrated bandit AST scan and pip-audit CVE check)
+- tests/test_security.py (NEW: Unit tests for path traversal defense and prompt isolation)
+
+## Verification
+- Run `PYTHONPATH=. .venv/bin/python -m pytest tests/ -x -q --ignore=tests/test_review_ui.py`
+- Run `.venv/bin/bandit -r grader/ -ll` (Clean output: 0 high, 0 medium issues)
+- Run `.venv/bin/pip-audit --desc on`
+```
+
+
 

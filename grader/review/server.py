@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from ..security import SecurityError, validate_safe_path
 from .api import ReviewApi, ReviewApiError
 from .raster import parse_scale
 from .grading_session import GradingSessionManager
@@ -450,12 +451,18 @@ class ReviewRequestHandler(BaseHTTPRequestHandler):
 
     def _serve_static(self, request_path: str) -> None:
         if request_path in {"", "/"}:
-            file_path = self.static_root / "index.html"
+            raw_path = self.static_root / "index.html"
         elif request_path.startswith("/static/"):
             rel = request_path.removeprefix("/")
-            file_path = self.static_root / rel.replace("static/", "", 1)
+            raw_path = self.static_root / rel.replace("static/", "", 1)
         else:
-            file_path = self.static_root / "index.html"
+            raw_path = self.static_root / "index.html"
+
+        try:
+            file_path = validate_safe_path(raw_path, self.static_root)
+        except SecurityError:
+            self.send_error(HTTPStatus.FORBIDDEN, "Access forbidden.")
+            return
 
         if not file_path.exists() or not file_path.is_file():
             self.send_error(HTTPStatus.NOT_FOUND, "File not found.")
