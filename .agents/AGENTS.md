@@ -24,3 +24,10 @@
 
 ## Additional Scoring Rules
 - `rounding_error` verdicts must be fully forgiven and scored identically to `correct` (1.0).
+
+## Plan & Roadmap Protocol (MUST)
+- Upon completing and verifying a task, update its status to `✅ Done` in `docs/plans/roadmap.md`.
+- Move completed task prompt blocks from `docs/plans/roadmap.md` into `docs/plans/archive/shipped-waves-archive.md` to keep context windows lean.
+- Update `context.md` to reflect newly completed features and current active objectives.
+
+
