@@ -386,8 +386,69 @@ def resolve_model_location(
     # Reject coordinates suspiciously close to the corner — likely a model default/guess.
     if y_norm < 5.0 and x_norm < 5.0:
         return None
-    x = clamp((x_norm / 1000.0) * page.rect.width, 4.0, max(4.0, page.rect.width - 4.0))
-    y = clamp((y_norm / 1000.0) * page.rect.height, 4.0, max(4.0, page.rect.height - 4.0))
+
+    abs_y = (y_norm / 1000.0) * page.rect.height
+    abs_x = (x_norm / 1000.0) * page.rect.width
+
+    # When block_registry is present, attempt to re-anchor coords to the nearest matching OCR block
+    if block_registry:
+        CIRCLED_DIGITS = {"1": "①", "2": "②", "3": "③", "4": "④", "5": "⑤", "6": "⑥", "7": "⑦", "8": "⑧", "9": "⑨", "10": "⑩"}
+        qid = str(result.id).strip()
+        sub_letter = qid[-1].lower() if len(qid) > 1 and qid[-1].isalpha() else ""
+        parent_num = qid[:-1] if sub_letter else qid
+        pnum = page_idx + 1
+
+        # Locate parent header block if present
+        parent_b = None
+        circled_p = CIRCLED_DIGITS.get(parent_num, "")
+        pats = []
+        if circled_p:
+            pats.append(re.escape(circled_p))
+        pats.extend([
+            rf"(?:^|\s)problem\s*{re.escape(parent_num)}\b",
+            rf"(?:^|\s)question\s*{re.escape(parent_num)}\b",
+            rf"(?:^|\s)q\.?\s*{re.escape(parent_num)}\b",
+            rf"^\s*{re.escape(parent_num)}\.(?!\d)",
+            rf"^\s*{re.escape(parent_num)}[\)\:]",
+        ])
+        for b in block_registry.values():
+            text = b.text.strip()
+            for p in pats:
+                if re.search(p, text, re.IGNORECASE):
+                    parent_b = b
+                    break
+            if parent_b:
+                break
+
+        candidates = []
+        for b in block_registry.values():
+            if parent_b:
+                if b.page < parent_b.page:
+                    continue
+                if b.page == parent_b.page and b.top < parent_b.top - 5.0:
+                    continue
+            elif b.page != pnum:
+                continue
+
+            text = b.text.strip().lower()
+            is_sub_match = sub_letter and (text.startswith(f"{sub_letter})") or text.startswith(f"{sub_letter}.") or text.startswith(f"({sub_letter})") or text.startswith(f"{qid.lower()}") or text.startswith(f"{parent_num}.{sub_letter}"))
+            is_parent_match = (parent_b and b.id == parent_b.id)
+
+            if is_sub_match or is_parent_match:
+                dist = abs(b.top - abs_y)
+                prio = 3 if is_sub_match else 1
+                candidates.append((prio, dist, b))
+
+        if candidates:
+            candidates.sort(key=lambda c: (-c[0], c[1]))
+            matched_b = candidates[0][2]
+            abs_x = max(15.0, matched_b.left - 10.0)
+            abs_y = matched_b.top
+            page_idx = matched_b.page - 1
+            page = doc[page_idx]
+
+    x = clamp(abs_x, 4.0, max(4.0, page.rect.width - 4.0))
+    y = clamp(abs_y, 4.0, max(4.0, page.rect.height - 4.0))
     point_rot = fitz.Point(x, y)
     rotation = getattr(page, "rotation", 0)
     if rotation != 0:

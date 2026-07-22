@@ -21,12 +21,16 @@
 - **Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).**
 
 ## Current Objective
-Active objective is completing remaining **Wave 8 — Workflow & CLI Streamlining** tasks in the [Gradeline Unified Roadmap](docs/plans/roadmap.md):
+Active objective is completing remaining **Wave 8 — Workflow & CLI Streamlining** tasks and preparing for **Wave 9 — Codebase Modularization & Refactoring** in the [Gradeline Unified Roadmap](docs/plans/roadmap.md):
 - `W8-CHECK`: Pre-flight Rubric & Data Audit (`./gradeline check`)
 - `W8-PROFILE`: One-Command Profile Auto-Creation
 - `W8-IMPORT`: Smart Import & Solution/Roster Auto-Discovery
 - `W8-STREAM`: Real-time Structured Event Stream (`status.json`)
+- `W9-REFACTOR-ANNOT`: PDF Annotator & Placement Engine Refactoring (Phase 1)
+- `W9-REFACTOR-GEMINI`: Gemini LLM Client & Resilience Decomposition (Phase 2)
+- `W9-REFACTOR-MONOLITH`: Pipeline Orchestrator & CLI Subcommand Decomposition (Phase 3)
 
 ## Next Strategic Direction (Professor Web Workstation & UX)
 - **Intuitive Web App for Non-Tech Professors**: Building out the Review Server into a self-describing workstation with opt-in instructions and unobtrusive autosave visual feedback (`BL-SAVED-ANIM`).
 - **Unified Web Workstation Vision (`BL-WEB-WORKSTATION`)**: Expanding the web interface to eventually cover assignment ingestion and auto-rubric creation, giving non-tech professors a single browser workstation for the entire assignment grading lifecycle.
+

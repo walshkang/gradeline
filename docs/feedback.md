@@ -197,13 +197,29 @@ This document records usability pain points and suggested feature improvements d
 * **Status/Roadmap**: Placed in Backlog (`BL-WEB-WORKSTATION` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
 
 
-### 23. Inaccurate Annotation Placement on Handwritten/Scanned Image PDFs
-* **Issue**: Visual annotations (badges like `[4a ✓]`) on scanned image PDFs (e.g. Aaron Gurley, Aldo Arossa) were often placed on incorrect pages or overlaying math equations. PyMuPDF's `page.search_for` returns 0 matches for scanned image PDFs (which lack embedded digital fonts), causing `find_anchor_in_doc` to fall back to a naive `page_idx = q_num - 1` formula and proportional Y coordinates. Additionally, centering coordinates (`x = left + width/2`) placed badges directly on top of student mathematical formulas.
-* **Impact**: Badges appeared on wrong pages (e.g., Aldo's 2a on Page 1 forced onto Page 2) or landed mid-equation in the space of other questions (Aaron's 4a/4b).
-* **Suggested Solution**:
-  * In `find_anchor_in_doc`, when PyMuPDF text search yields 0 matches, search the OCR `block_registry` (from Gemini Flash vision) for anchor tokens, sub-question markers (`a)`, `b)`), and parent question boundaries (`①`, `②`, `③`, `④`).
-  * Re-anchor sub-questions to their starting line marker block if `block_id` points to downstream math steps.
-  * Shift badge horizontal placement to `x = max(15.0, block.left - 10.0)` so annotations sit cleanly in the left margin without overlaying text.
-  * Refine LLM system instructions in `gemini_client.py` to set `block_id` to the starting line block of the response.
-* **Status/Roadmap**: ✅ Completed in Wave 8 (`W8-SCAN-ANCHOR` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
+### 24. Monolithic File Architectures & Architectural Refactoring Opportunities
+* **Issue**: As feature sets have expanded (subpart markers, OCR block anchoring, resilience retries, CLI wizard steps, multi-stage pipeline orchestration), several key files in `grader/` have grown overloaded and monolithic:
+  1. `grader/annotate.py` (1,246 lines): Blends pure location discovery algorithms with PyMuPDF drawing/bounding geometry and top-level submission rendering loops.
+  2. `grader/gemini_client.py` (1,814 lines): Combines API transport execution, Pydantic structured output schemas, exponential backoff retries, and token cost tracking.
+  3. `grader/orchestrator.py` (1,181 lines) & `grader/workflow_cli.py` (1,206 lines): Merge end-to-end pipeline execution and CLI command dispatchers into multi-hundred-line functions.
+* **Suggested Solution**: 
+  Implement a 3-Phase Modularization Plan:
+  * **Phase 1 (`W9-REFACTOR-ANNOT`)**: Split `annotate.py` into pure logic `location_resolver.py`, PyMuPDF wrapper `pdf_renderer.py`, high-level `annotator.py`, and an `AnnotationSession` dataclass for state management.
+  * **Phase 2 (`W9-REFACTOR-GEMINI`)**: Split `gemini_client.py` into `gemini_schemas.py` (data contracts), `gemini_resilience.py` (retries/rate limiting), and core transport client.
+  * **Phase 3 (`W9-REFACTOR-MONOLITH`)**: Extract `orchestrator.py` stage handlers (`stages/precheck_stage.py`, `stages/grading_stage.py`, etc.) and `workflow_cli.py` command modules.
+* **Status/Roadmap**: Planned in Wave 9 (`W9-REFACTOR-ANNOT`, `W9-REFACTOR-GEMINI`, `W9-REFACTOR-MONOLITH` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
 
+
+### 23. Scanned PDF OCR Anchor Lookup & Left Margin Alignment
+* **Issue**: On scanned handwritten assignments, vision LLM `coords` guesses or missing explicit question labels led to default top-of-page stacked annotations or annotations placed directly over handwritten math formulas (e.g. Aaron Gurley, Aldo Arossa).
+* **Root Cause Analysis**:
+  1. `block_registry` from preprocessing OCR cache was not passed or was empty in orchestrator and review exporter.
+  2. OCR candidate searches lacked parent question boundary lower-bounding, causing Question 4 subpart anchors to match Question 3 blocks in upper page regions.
+  3. `4.34 = σ` float strings matched regex pattern `4.` for Question 4 parent headers.
+* **Fix**:
+  1. Integrated OCR `block_registry` fallback search in `find_anchor_in_doc` and `resolve_model_location`.
+  2. Enforced parent header location detection (`parent_b`) and lower-bounded page/y-coordinate block filtering so subparts cannot match prior question blocks.
+  3. Refined parent header regex with negative lookahead `rf"^\s*{parent_id}\.(?!\d)"` to ignore floating-point values.
+  4. Moved annotation badge positioning to the left margin (`x = max(15.0, block.left - 10.0)`), leaving handwritten math completely unobstructed.
+  5. Ensured `block_registry` is preserved across orchestrator execution and review state export.
+* **Status/Roadmap**: ✅ Shipped in Wave 8 (`W8-SCAN-ANCHOR` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).

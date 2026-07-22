@@ -161,11 +161,29 @@ def build_submission_result(
     output_pdf_paths: list[Path] = []
     annotation_error: str | None = None
     if unit.pdf_paths and submissions_root.exists():
+        block_registry: dict[str, Any] = {}
+        cache_dir = Path(".grader_cache/preprocessing")
+        if cache_dir.exists():
+            import json as _json
+            from ..types import TextBlock
+            for cf in cache_dir.glob("*_v1.json"):
+                try:
+                    cdata = _json.loads(cf.read_text(encoding="utf-8"))
+                    if cdata and isinstance(cdata, list) and "blocks" in cdata[0]:
+                        pdf_name = cdata[0].get("pdf_path", "")
+                        if any(p.name == Path(pdf_name).name for p in unit.pdf_paths):
+                            for item in cdata:
+                                for b in item.get("blocks", []):
+                                    block_registry[b["id"]] = TextBlock(**b)
+                except Exception:
+                    pass
+
         try:
             output_pdf_paths, question_results = annotate_submission_pdfs(
                 submission=unit,
                 rubric=rubric,
                 question_results=question_results,
+                block_registry=block_registry,
                 output_dir=reviewed_pdf_root,
                 submissions_root=submissions_root,
                 final_band=grade_result.band,

@@ -370,6 +370,9 @@ class Orchestrator:
                 progress_callback=grading_progress,
                 pre_extracted=pre_extracted,
             )
+            if pre_extracted and not result.block_registry:
+                block_map = {b.id: b for item in pre_extracted for b in item.blocks}
+                result = replace(result, block_registry=block_map)
         except DailyLimitExhausted:
             raise
         except Exception as exc:

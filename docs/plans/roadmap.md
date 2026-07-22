@@ -51,6 +51,9 @@ This document is the single source of truth for all planned improvements. It mer
 | **8** | W8-STREAM | Real-time Structured Event Stream (`status.json`) | M | Flash | Planned | Feedback Reflection |
 | **8** | **W8-AUDIT** | **PDF Annotation Engine Overhaul & `./gradeline audit-pdf`** | **M** | **Flash** | ✅ Done | Feedback #9, #10, #16 |
 | **8** | **W8-SCAN-ANCHOR** | **Scanned PDF OCR Anchor Lookup & Margin Alignment** | **M** | **Flash** | ✅ Done | Feedback #23 |
+| **9** | W9-REFACTOR-ANNOT | PDF Annotator & Placement Engine Refactoring (Phase 1) | L | Pro | Planned | Feedback #24 |
+| **9** | W9-REFACTOR-GEMINI | Gemini LLM Client & Resilience Decomposition (Phase 2) | L | Pro | Planned | Feedback #24 |
+| **9** | W9-REFACTOR-MONOLITH | Pipeline Orchestrator & CLI Decomposition (Phase 3) | L | Pro | Planned | Feedback #24 |
 | **Backlog** | BL-SEC | App Hardening & Security Auditing | M | Flash | ✅ Done | Security Audit |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
@@ -92,6 +95,28 @@ Expand `grader/workflow/import_cmd.py` to:
 Modify `grader/orchestrator.py` to emit an atomic `status.json` file in the run directory (using `status.json.tmp` -> replace) detailing progress counters (`total`, `completed`, `in_progress`, `review_required_count`, `elapsed_seconds`).
 
 ---
+
+## Wave 9 — Codebase Modularization & Refactoring
+
+These tasks decompose high-complexity monoliths (`annotate.py`, `gemini_client.py`, `orchestrator.py`, `workflow_cli.py`) into single-responsibility modules to simplify unit testing, state management, and long-term maintainability.
+
+### Task Prompt: W9-REFACTOR-ANNOT — PDF Annotator & Placement Engine Refactoring (Phase 1)
+Decompose `grader/annotate.py` (1,246 lines) into modular sub-packages while preserving existing public function signatures:
+- **`location_resolver.py`**: Pure placement strategy functions (`resolve_model_location`, `find_anchor_in_doc`, OCR block heuristics, token matching, `clean_subpart_label()`, module-level `CIRCLED_DIGITS`). Zero `fitz` dependency for fast unit testing.
+- **`pdf_renderer.py`**: Drawing & PyMuPDF operations (`insert_mark`, `add_movable_freetext_annotation`, `find_non_overlapping_rect`, `is_dark_background`).
+- **`annotator.py`**: High-level orchestrator function `annotate_submission_pdfs` decomposed into pipeline helpers (`_annotate_single_pdf`, `_append_unresolved_summary`).
+- **`AnnotationSession` Dataclass**: Encapsulate tracking dictionaries and sets (`placed_rects`, `rendered`, `rendered_subparts`, `placement_details`) into a cohesive state dataclass.
+
+### Task Prompt: W9-REFACTOR-GEMINI — Gemini LLM Client & Resilience Decomposition (Phase 2)
+Decompose `grader/gemini_client.py` (1,814 lines) into single-responsibility modules:
+- **`gemini_schemas.py`**: Pydantic models, JSON schema definitions, and structured output contract helpers for primary grading, judge feedback, and rubric generation.
+- **`gemini_resilience.py`**: Rate limiting, quota tracking, exponential backoff retries, and error mapping logic.
+- **`gemini_client.py`**: Clean, lightweight transport API client orchestrating request execution and schema parsing.
+
+### Task Prompt: W9-REFACTOR-MONOLITH — Pipeline Orchestrator & CLI Subcommand Decomposition (Phase 3)
+Decompose `orchestrator.py` (1,181 lines) and `workflow_cli.py` (1,206 lines):
+- **`grader/stages/`**: Modularize `orchestrator.py` into pipeline stages (`precheck_stage.py`, `grading_stage.py`, `audit_stage.py`, `annotation_stage.py`).
+- **`grader/workflow/commands/`**: Extract CLI subcommands from `workflow_cli.py` into dedicated subcommand modules.
 
 ---
 
