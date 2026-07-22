@@ -725,5 +725,27 @@ Files modified/created:
 - Run `.venv/bin/pip-audit --desc on`
 ```
 
+---
+
+### W8-AUDIT: PDF Annotation Engine Overhaul & `./gradeline audit-pdf`
+
+**Origin**: Feedback #9, #10, #16
+**Size**: Medium (~4–6 hours) · **Tier**: Flash
+
+```
+Overhaul grader/annotate.py, grader/review/exporter.py, and add ./gradeline audit-pdf CLI subcommand to eliminate PDF visual annotation defects across student output PDFs.
+
+Files modified/created:
+- grader/annotate.py (Scanned PDF text density classifier, zero-overlap spacing, strict canvas clamping, upward/leftward search loops, rendered subpart tracking)
+- grader/workflow/audit_pdf.py (NEW: Zero-token visual annotation diagnostic suite)
+- grader/workflow_cli.py (Exposed ./gradeline audit-pdf subcommand)
+- tests/test_annotate.py (NEW: Unit tests for zero overlap, canvas clamping, scanned PDF text density, and multiline wrapping)
+
+## Verification
+- Run `.venv/bin/python -m pytest tests/test_annotate.py`
+- Run `.venv/bin/python -m grader.workflow.audit_pdf outputs`
+```
+
+
 
 

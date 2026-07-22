@@ -334,6 +334,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     clear_run_parser.add_argument("--profile", required=True)
 
+    audit_pdf_parser = subparsers.add_parser(
+        "audit-pdf",
+        help="Run zero-token visual annotation health check across output PDFs.",
+    )
+    audit_pdf_parser.add_argument("output_dir", nargs="?", default="outputs", help="Output directory to audit.")
+
     return parser
 
 
@@ -664,6 +670,11 @@ def main(argv: list[str] | None = None) -> int:
                 
                 from .judge import run_judge
                 exit_code = run_judge(profile_spec=profile)
+            elif command == "audit-pdf":
+                out_path = Path(getattr(args, "output_dir", "outputs") or "outputs")
+                from .workflow.audit_pdf import audit_pdf_outputs
+                res = audit_pdf_outputs(out_path)
+                exit_code = 1 if (res.get("oob_defects", 0) > 0 or res.get("overlap_defects", 0) > 0) else 0
             else:
                 styled_error("Unknown command.")
                 return 2

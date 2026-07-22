@@ -15,12 +15,12 @@
   - Completed W7-PROMPT (Rubric Gen Prompt v2 for multi-method variation expansion and atomic sub-question decomposition + string path support in `load_rubric`).
 - **Review Server & Audit Justification Fix**:
   - Resolved missing justifications (`logic_analysis`, `short_reason`, `detail_reason`) and missing suggested grades/verdicts for `needs_review` questions across primary model response normalization, fallback error handling, audit CSV generation, review state import, and review server UI rendering (including a new Suggested Grade & Rationale banner with 1-click apply).
-- **App Hardening & Security Auditing (BL-SEC Shipped)**:
-  - Completed static analysis setup (`bandit`, `pip-audit`), strict path traversal guards (`validate_safe_path`), and untrusted prompt isolation XML wrappers across grading and judging prompt templates.
-  - Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).
+- **Workflow, CLI Streamlining & Annotation Reliability (Wave 8 Progress)**:
+  - Completed `W8-AUDIT` (PDF Visual Annotation Engine Overhaul & Zero-Token `./gradeline audit-pdf` Diagnostic Suite). Fixed OOB bleeding, page 1 summary note overlap, scanned PDF text density anchors, and subpart resolution tracking across 292 student output PDFs.
+- **Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).**
 
 ## Current Objective
-Active objective is **Wave 8 — Workflow & CLI Streamlining** in the [Gradeline Unified Roadmap](docs/plans/roadmap.md):
+Active objective is completing remaining **Wave 8 — Workflow & CLI Streamlining** tasks in the [Gradeline Unified Roadmap](docs/plans/roadmap.md):
 - `W8-CHECK`: Pre-flight Rubric & Data Audit (`./gradeline check`)
 - `W8-PROFILE`: One-Command Profile Auto-Creation
 - `W8-IMPORT`: Smart Import & Solution/Roster Auto-Discovery

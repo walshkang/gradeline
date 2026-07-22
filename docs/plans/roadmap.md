@@ -49,6 +49,7 @@ This document is the single source of truth for all planned improvements. It mer
 | **8** | W8-PROFILE | One-Command Profile Auto-Creation | S | Flash | Planned | Feedback Reflection |
 | **8** | W8-IMPORT | Smart Import & Solution/Roster Auto-Discovery | M | Flash | Planned | Feedback Reflection |
 | **8** | W8-STREAM | Real-time Structured Event Stream (`status.json`) | M | Flash | Planned | Feedback Reflection |
+| **8** | **W8-AUDIT** | **PDF Annotation Engine Overhaul & `./gradeline audit-pdf`** | **M** | **Flash** | ✅ Done | Feedback #9, #10, #16 |
 | **Backlog** | BL-SEC | App Hardening & Security Auditing | M | Flash | ✅ Done | Security Audit |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
@@ -67,9 +68,9 @@ These tasks enhance the AI rubric generation pipeline and simplify rubric author
 
 ---
 
-## Wave 8 — Workflow & CLI Streamlining
+## Wave 8 — Workflow, CLI Streamlining & Annotation Reliability
 
-These tasks eliminate manual setup friction, prevent invalid pipeline runs, and provide real-time observability.
+These tasks eliminate manual setup friction, prevent invalid pipeline runs, provide real-time observability, and eliminate PDF visual annotation defects across student outputs.
 
 ### Task Prompt: W8-CHECK — Pre-flight Rubric & Data Audit (`./gradeline check`)
 Add a zero-token CLI subcommand `./gradeline check --profile <profile>` that validates:

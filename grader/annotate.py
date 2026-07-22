@@ -47,6 +47,7 @@ def annotate_submission_pdfs(
     result_map = {item.id: item for item in question_results}
     placed_rects: dict[int, list[fitz.Rect]] = {}
     rendered: set[str] = set()
+    rendered_subparts: set[str] = set()
     output_paths: list[Path] = []
     placement_details: dict[str, dict[str, object | None]] = {}
     single_pdf = len(submission.pdf_paths) == 1
@@ -72,6 +73,16 @@ def annotate_submission_pdfs(
                 doc.save(out_path)
                 output_paths.append(out_path)
                 continue
+
+            if pdf_path == submission.pdf_paths[0]:
+                header_fontsize = max(8.0, float(annotation_font_size) * HEADER_FONT_SCALE)
+                add_band_header(
+                    doc[0],
+                    final_band=final_band,
+                    dry_run=dry_run,
+                    fontsize=header_fontsize,
+                    placed_rects=placed_rects,
+                )
 
             if render_question_marks:
                 question_fontsize = max(8.0, float(annotation_font_size))
@@ -111,6 +122,10 @@ def annotate_submission_pdfs(
                             if subpart_label.lower().startswith(question.id.lower()):
                                 subpart_label = subpart_label[len(question.id):].lstrip("._- ")
                             subpart_label = subpart_label or sub_result.id
+                            full_subpart_key = f"{question.id}.{subpart_label}"
+
+                            if full_subpart_key in rendered_subparts:
+                                continue
 
                             sub_model_location = resolve_model_location(
                                 doc=doc,
@@ -163,7 +178,7 @@ def annotate_submission_pdfs(
                                     if parent_page_idx is not None and parent_point is not None:
                                         import fitz
                                         sub_page_idx = parent_page_idx
-                                        sub_point = fitz.Point(parent_point.x, parent_point.y + (missing_count * 15))
+                                        sub_point = fitz.Point(parent_point.x, parent_point.y + (missing_count * 38))
                                         missing_count += 1
 
                             if sub_page_idx is not None and sub_point is not None:
@@ -178,10 +193,11 @@ def annotate_submission_pdfs(
                                     sub_point,
                                     mark_text=sub_mark_text,
                                     is_correct=(sub_result.verdict in ("correct", "rounding_error")),
-                                    question_id=f"{question.id}.{subpart_label}",
+                                    question_id=full_subpart_key,
                                     fontsize=sub_fontsize,
                                     placed_rects=placed_rects,
                                 )
+                                rendered_subparts.add(full_subpart_key)
                             else:
                                 all_subparts_rendered = False
 
@@ -249,10 +265,6 @@ def annotate_submission_pdfs(
                         "coords": normalized_coords,
                     }
 
-            if pdf_path == submission.pdf_paths[0]:
-                header_fontsize = max(8.0, float(annotation_font_size) * HEADER_FONT_SCALE)
-                add_band_header(doc[0], final_band=final_band, dry_run=dry_run, fontsize=header_fontsize)
-
             doc.save(out_path)
             output_paths.append(out_path)
         finally:
@@ -271,6 +283,8 @@ def annotate_submission_pdfs(
                 result_map=result_map,
                 title_fontsize=title_fontsize,
                 line_fontsize=line_fontsize,
+                rendered_subparts=rendered_subparts,
+                placed_rects=placed_rects,
             )
             doc.saveIncr()
         finally:
@@ -509,13 +523,26 @@ def find_anchor_in_doc(
     if max_priority_found == 0:
         if len(doc) == 0:
             return None
-        # Only fallback for text-less (scanned) PDFs to avoid regression on typed PDFs
-        has_text = any(page.get_text().strip() for page in doc)
-        if has_text:
+        # Empty un-OCR'd pages (0 text) or scanned image PDFs (<300 chars text with images) 
+        # fallback to proportional page anchors. Digital text PDFs with content return None 
+        # so unfound questions drop cleanly into Page 1 review notes.
+        has_images = any(len(p.get_images()) > 0 for p in doc)
+        total_text_len = sum(len(p.get_text().strip()) for p in doc)
+        is_scanned_or_empty = (total_text_len == 0) or (has_images and total_text_len < 300)
+        if not is_scanned_or_empty:
             return None
+
         page_idx = 0
+        if len(doc) > 1:
+            num_match = re.search(r"\d+", question_id)
+            if num_match:
+                q_num = int(num_match.group())
+                page_idx = min(len(doc) - 1, max(0, q_num - 1))
+            else:
+                page_idx = min(len(doc) - 1, int(fallback_y_ratio * len(doc)))
+
         page = doc[page_idx]
-        x_rot = page.rect.width - 150.0
+        x_rot = max(24.0, page.rect.width - 150.0)
         y_rot = page.rect.height * fallback_y_ratio
         point_rot = fitz.Point(x_rot, y_rot)
         rotation = getattr(page, "rotation", 0)
@@ -532,7 +559,15 @@ def find_anchor_in_doc(
         if prio == max_priority_found
     ]
 
-    # Prefer the earliest page in the document that has matches at the highest priority level
+    # Guard against generic anchor tokens (e.g. "8.") matching headers/footers on Page 1 for high Q numbers
+    if len(candidate_pages) > 1 and max_priority_found == 1:
+        num_match = re.search(r"\d+", question_id)
+        if num_match and int(num_match.group()) >= 5:
+            later_pages = [p for p in candidate_pages if p > 0]
+            if later_pages:
+                candidate_pages = later_pages
+
+    # Prefer the earliest candidate page
     best_page_idx = min(candidate_pages)
     _, page_rect = page_matches[best_page_idx]
     
@@ -684,7 +719,9 @@ def add_movable_freetext_annotation(
     annot.set_info(
         title=ANNOTATION_INFO_TITLE,
         subject=subject,
+        content=text,
     )
+    annot.set_rect(rect)
     annot.set_border(width=1 if border_color is not None else 0)
     # Ensure annotation is printable and visible.
     annot.set_flags((annot.flags or 0) | fitz.PDF_ANNOT_IS_PRINT)
@@ -697,6 +734,7 @@ def add_movable_freetext_annotation(
         border_color=None,
         fill_color=fill_color,
     )
+    annot.set_rect(rect)
 
 
 def find_non_overlapping_rect(
@@ -707,11 +745,16 @@ def find_non_overlapping_rect(
 ) -> "fitz.Rect":
     import fitz
 
-    current_rect = fitz.Rect(candidate_rect)
+    pw, ph = page.rect.width, page.rect.height
+    w = min(candidate_rect.width, pw - 8.0)
+    h = min(candidate_rect.height, ph - 8.0)
+    x0 = clamp(candidate_rect.x0, 4.0, max(4.0, pw - w - 4.0))
+    y0 = clamp(candidate_rect.y0, 4.0, max(4.0, ph - h - 4.0))
+    current_rect = fitz.Rect(x0, y0, x0 + w, y0 + h)
 
     # 1. Downward nudging
     total_nudge_y = 0.0
-    nudge_step_y = candidate_rect.height + 4.0
+    nudge_step_y = current_rect.height + 4.0
 
     while total_nudge_y <= max_nudge_px:
         collides = False
@@ -719,22 +762,34 @@ def find_non_overlapping_rect(
             if current_rect.intersects(r):
                 collides = True
                 break
-        if not collides:
+        if not collides and current_rect.x1 <= pw - 4.0 and current_rect.y1 <= ph - 4.0:
             return current_rect
 
-        # Nudge downward
-        current_rect = fitz.Rect(
-            current_rect.x0,
-            current_rect.y0 + nudge_step_y,
-            current_rect.x1,
-            current_rect.y1 + nudge_step_y,
-        )
+        next_y0 = current_rect.y0 + nudge_step_y
+        if next_y0 + h > ph - 4.0:
+            # Try searching upward for open slot
+            up_y0 = current_rect.y0 - nudge_step_y
+            found_up = False
+            while up_y0 >= 4.0:
+                candidate_up = fitz.Rect(current_rect.x0, up_y0, current_rect.x0 + w, up_y0 + h)
+                if not any(candidate_up.intersects(r) for r in placed_rects_for_page):
+                    return candidate_up
+                up_y0 -= nudge_step_y
+
+            # Try placing leftward
+            left_x0 = max(4.0, current_rect.x0 - 160.0)
+            if left_x0 >= 4.0 and left_x0 != current_rect.x0:
+                current_rect = fitz.Rect(left_x0, current_rect.y0, left_x0 + w, current_rect.y0 + h)
+                total_nudge_y += nudge_step_y
+                continue
+            break
+        current_rect = fitz.Rect(current_rect.x0, next_y0, current_rect.x0 + w, next_y0 + h)
         total_nudge_y += nudge_step_y
 
-    # 2. Rightward nudging fallback
-    current_rect = fitz.Rect(candidate_rect)
+    # 2. Rightward / Leftward nudging fallback
+    current_rect = fitz.Rect(x0, y0, x0 + w, y0 + h)
     total_nudge_x = 0.0
-    nudge_step_x = 50.0
+    nudge_step_x = 40.0
 
     while total_nudge_x <= max_nudge_px:
         collides = False
@@ -742,20 +797,20 @@ def find_non_overlapping_rect(
             if current_rect.intersects(r):
                 collides = True
                 break
-        if not collides:
+        if not collides and current_rect.x1 <= pw - 4.0 and current_rect.y1 <= ph - 4.0:
             return current_rect
 
-        # Nudge rightward
-        current_rect = fitz.Rect(
-            current_rect.x0 + nudge_step_x,
-            current_rect.y0,
-            current_rect.x1 + nudge_step_x,
-            current_rect.y1,
-        )
+        next_x0 = current_rect.x0 + nudge_step_x
+        if next_x0 + w > pw - 4.0:
+            next_x0 = max(4.0, current_rect.x0 - nudge_step_x)
+        current_rect = fitz.Rect(next_x0, current_rect.y0, next_x0 + w, current_rect.y0 + h)
         total_nudge_x += nudge_step_x
 
-    # Return original candidate rect if still colliding after all attempts
-    return candidate_rect
+    # Return strictly clamped rect within page boundaries
+    w_fit = min(w, max(40.0, pw - 8.0))
+    final_x0 = clamp(current_rect.x0, 4.0, max(4.0, pw - w_fit - 4.0))
+    final_y0 = clamp(current_rect.y0, 4.0, max(4.0, ph - h - 4.0))
+    return fitz.Rect(final_x0, final_y0, final_x0 + w_fit, final_y0 + h)
 
 
 def insert_mark(
@@ -842,7 +897,13 @@ def offset_mark_point(
         return fitz.Point(x, y)
 
 
-def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False, fontsize: float = 14.0) -> None:
+def add_band_header(
+    page: "fitz.Page",
+    final_band: str,
+    dry_run: bool = False,
+    fontsize: float = 14.0,
+    placed_rects: dict[int, list[fitz.Rect]] | None = None,
+) -> None:
     text = f"Grade: {final_band}"
     if dry_run:
         text = f"Dry Run - {final_band} (no per-question marks)"
@@ -857,6 +918,8 @@ def add_band_header(page: "fitz.Page", final_band: str, dry_run: bool = False, f
         fontsize=fontsize,
         min_width=220.0,
     )
+    if placed_rects is not None:
+        placed_rects.setdefault(0, []).append(rect)
 
     # Detect background brightness for the header
     dark = is_dark_background(page, rect)
@@ -891,6 +954,8 @@ def add_fallback_summary(
     result_map: dict[str, QuestionResult],
     title_fontsize: float,
     line_fontsize: float,
+    rendered_subparts: set[str] | None = None,
+    placed_rects: dict[int, list["fitz.Rect"]] | None = None,
 ) -> None:
     x = max(24, page.rect.width - 230)
     y = 72
@@ -904,6 +969,11 @@ def add_fallback_summary(
         fontsize=title_size,
         min_width=120.0,
     )
+
+    placed_list = placed_rects.setdefault(page.number, []) if placed_rects is not None else []
+    if placed_rects is not None:
+        title_rect = find_non_overlapping_rect(page, title_rect, placed_list)
+        placed_list.append(title_rect)
 
     # Detect background brightness for title
     dark_title = is_dark_background(page, title_rect)
@@ -930,8 +1000,68 @@ def add_fallback_summary(
         border_color=title_border,
     )
 
-    for idx, question in enumerate(unresolved, start=1):
+    curr_y = y + title_rect.height + 4.0
+    line_count = 0
+
+    for question in unresolved:
         q_result = result_map.get(question.id)
+
+        # Handle questions with sub_results individually
+        if q_result and getattr(q_result, "sub_results", None) and len(q_result.sub_results) > 1:
+            for sub_res in q_result.sub_results:
+                subpart_label = sub_res.id
+                lower_label = subpart_label.lower()
+                for prefix in ("question ", "question", "q.", "q"):
+                    if lower_label.startswith(prefix):
+                        subpart_label = subpart_label[len(prefix):].lstrip()
+                        break
+                if subpart_label.lower().startswith(question.id.lower()):
+                    subpart_label = subpart_label[len(question.id):].lstrip("._- ")
+                subpart_label = subpart_label or sub_res.id
+                full_subpart_key = f"{question.id}.{subpart_label}"
+
+                if rendered_subparts and full_subpart_key in rendered_subparts:
+                    continue  # Skip subparts already marked on student pages
+
+                line_count += 1
+                verdict = sub_res.verdict
+                line_text = mark_text_for_result(question_id=question.id, result=sub_res, subpart_label=subpart_label)
+                line_size = max(8.0, float(line_fontsize))
+                line_rect = text_annotation_rect_from_baseline(
+                    page=page,
+                    x=float(x),
+                    y=float(curr_y),
+                    text=line_text,
+                    fontsize=line_size,
+                    min_width=150.0,
+                )
+                if placed_rects is not None:
+                    line_rect = find_non_overlapping_rect(page, line_rect, placed_list)
+                    placed_list.append(line_rect)
+
+                dark_line = is_dark_background(page, line_rect)
+                color = (0.0, 0.6, 0.0) if verdict in ("correct", "rounding_error") else (0.8, 0.0, 0.0)
+                line_fill = (1.0, 1.0, 1.0) if dark_line else None
+                line_border = (0.7, 0.7, 0.7) if dark_line else None
+
+                add_movable_freetext_annotation(
+                    page=page,
+                    rect=line_rect,
+                    text=line_text,
+                    fontsize=line_size,
+                    color=color,
+                    subject=build_annotation_subject(
+                        "review_note",
+                        q=full_subpart_key,
+                        p=page.number + 1,
+                        n=line_count,
+                    ),
+                    fill_color=line_fill,
+                    border_color=line_border,
+                )
+                curr_y = max(curr_y + line_rect.height + 4.0, line_rect.y1 + 4.0)
+            continue
+
         verdict = q_result.verdict if q_result else "needs_review"
 
         if q_result is None:
@@ -939,24 +1069,28 @@ def add_fallback_summary(
         else:
             line_text = mark_text_for_result(question_id=question.id, result=q_result)
 
+        line_count += 1
         line_size = max(8.0, float(line_fontsize))
         line_rect = text_annotation_rect_from_baseline(
             page=page,
             x=float(x),
-            y=float(y + (idx * 14)),
+            y=float(curr_y),
             text=line_text,
             fontsize=line_size,
             min_width=150.0,
         )
+        if placed_rects is not None:
+            line_rect = find_non_overlapping_rect(page, line_rect, placed_list)
+            placed_list.append(line_rect)
 
         # Detect background brightness for each line
         dark_line = is_dark_background(page, line_rect)
         if dark_line:
-            color = (0.0, 0.6, 0.0) if verdict == "correct" else (0.8, 0.0, 0.0)
+            color = (0.0, 0.6, 0.0) if verdict in ("correct", "rounding_error") else (0.8, 0.0, 0.0)
             line_fill = (1.0, 1.0, 1.0)  # mostly opaque white box
             line_border = (0.7, 0.7, 0.7)  # light gray border
         else:
-            color = (0.0, 0.6, 0.0) if verdict == "correct" else (0.8, 0.0, 0.0)
+            color = (0.0, 0.6, 0.0) if verdict in ("correct", "rounding_error") else (0.8, 0.0, 0.0)
             line_fill = None
             line_border = None
 
@@ -970,8 +1104,10 @@ def add_fallback_summary(
                 "review_note",
                 q=question.id,
                 p=page.number + 1,
-                n=idx,
+                n=line_count,
             ),
             fill_color=line_fill,
             border_color=line_border,
         )
+        curr_y = max(curr_y + line_rect.height + 4.0, line_rect.y1 + 4.0)
+
