@@ -148,6 +148,7 @@ def annotate_submission_pdfs(
                                     label_patterns=[],
                                     explicit_tokens=[f"{subpart_label})", f"{subpart_label}."],
                                     fallback_y_ratio=fallback_y_ratio,
+                                    block_registry=block_registry,
                                 )
                                 if sub_anchor:
                                     sub_page_idx, sub_point = sub_anchor
@@ -170,6 +171,7 @@ def annotate_submission_pdfs(
                                                 label_patterns=question.label_patterns,
                                                 explicit_tokens=question.anchor_tokens,
                                                 fallback_y_ratio=fallback_y_ratio,
+                                                block_registry=block_registry,
                                             )
                                             if parent_anchor:
                                                 parent_page_idx, parent_point = parent_anchor
@@ -240,6 +242,7 @@ def annotate_submission_pdfs(
                             label_patterns=question.label_patterns,
                             explicit_tokens=question.anchor_tokens,
                             fallback_y_ratio=fallback_y_ratio,
+                            block_registry=block_registry,
                         )
                         if anchor is None:
                             continue
@@ -348,7 +351,7 @@ def resolve_model_location(
             # Validate page index exists in the document; otherwise fall through to coords handling.
             if 0 <= page_idx < len(doc):
                 page = doc[page_idx]
-                x = block.left + (block.width / 2.0)
+                x = max(15.0, block.left - 10.0)
                 y = block.top
                 point_rot = fitz.Point(x, y)
                 rotation = getattr(page, "rotation", 0)
@@ -459,6 +462,7 @@ def find_anchor_in_doc(
     label_patterns: list[str],
     explicit_tokens: list[str],
     fallback_y_ratio: float = 0.5,
+    block_registry: dict[str, "TextBlock"] | None = None,
 ):
     import fitz
 
@@ -523,6 +527,103 @@ def find_anchor_in_doc(
     if max_priority_found == 0:
         if len(doc) == 0:
             return None
+
+        # Search OCR block_registry before falling back to proportional ratios on scanned image PDFs
+        if block_registry:
+            CIRCLED_DIGITS = {"1": "①", "2": "②", "3": "③", "4": "④", "5": "⑤", "6": "⑥", "7": "⑦", "8": "⑧", "9": "⑨", "10": "⑩"}
+            blocks = list(block_registry.values())
+            
+            # Subquestion or main question matching logic
+            sub_match = re.match(r"^(\d+)\.?([a-zA-Z])$", question_id)
+            target_block = None
+            if sub_match:
+                parent_id, sub = sub_match.group(1), sub_match.group(2).lower()
+                circled = CIRCLED_DIGITS.get(parent_id, "")
+                parent_pats = [rf"(?:^|\s)problem\s*{re.escape(parent_id)}\b", rf"(?:^|\s)question\s*{re.escape(parent_id)}\b", rf"(?:^|\s)q\.?\s*{re.escape(parent_id)}\b", rf"^\s*{re.escape(parent_id)}[\.\)\:]"]
+                if circled:
+                    parent_pats.insert(0, re.escape(circled))
+                
+                parent_b = None
+                for b in blocks:
+                    text = b.text.strip()
+                    for p in parent_pats:
+                        if re.search(p, text, re.IGNORECASE):
+                            parent_b = b
+                            break
+                    if parent_b:
+                        break
+                
+                next_parent_b = None
+                if parent_b:
+                    for q_next in range(int(parent_id) + 1, 20):
+                        circled_next = CIRCLED_DIGITS.get(str(q_next), "")
+                        next_pats = [rf"(?:^|\s)problem\s*{q_next}\b", rf"(?:^|\s)question\s*{q_next}\b", rf"^\s*{q_next}[\.\)\:]"]
+                        if circled_next:
+                            next_pats.insert(0, re.escape(circled_next))
+                        for b in blocks:
+                            text = b.text.strip()
+                            for p in next_pats:
+                                if re.search(p, text, re.IGNORECASE):
+                                    next_parent_b = b
+                                    break
+                            if next_parent_b:
+                                break
+                        if next_parent_b:
+                            break
+
+                sub_tokens = [f"{parent_id}{sub}", f"{parent_id}.{sub}", f"{sub})", f"{sub}.", f"({sub})"]
+                candidates = []
+                for b in blocks:
+                    if parent_b:
+                        if b.page < parent_b.page:
+                            continue
+                        if b.page == parent_b.page and b.top < parent_b.top - 5:
+                            continue
+                    if next_parent_b:
+                        if b.page > next_parent_b.page:
+                            continue
+                        if b.page == next_parent_b.page and b.top >= next_parent_b.top - 5:
+                            continue
+                    
+                    text = b.text.strip()
+                    for tok in sub_tokens:
+                        pattern = r"(?i)(?:^|\s|\b)" + re.escape(tok) + r"(?:$|\s|\b|\)|\.|\:)"
+                        if re.search(pattern, text):
+                            is_exact = f"{parent_id}{sub}" in tok.lower() or f"{parent_id}.{sub}" in tok.lower()
+                            prio = 3 if is_exact else 2
+                            candidates.append((prio, b.page, b.top, b))
+                            break
+                if candidates:
+                    candidates.sort(key=lambda c: (-c[0], c[1], c[2]))
+                    target_block = candidates[0][3]
+            else:
+                # Main question block matching
+                circled = CIRCLED_DIGITS.get(question_id, "")
+                pats = [rf"(?:^|\s)problem\s*{re.escape(question_id)}\b", rf"(?:^|\s)question\s*{re.escape(question_id)}\b", rf"(?:^|\s)q\.?\s*{re.escape(question_id)}\b", rf"^\s*{re.escape(question_id)}[\.\)\:]"]
+                if circled:
+                    pats.insert(0, re.escape(circled))
+                for b in blocks:
+                    text = b.text.strip()
+                    for p in pats:
+                        if re.search(p, text, re.IGNORECASE):
+                            target_block = b
+                            break
+                    if target_block:
+                        break
+
+            if target_block:
+                page_idx = target_block.page - 1
+                if 0 <= page_idx < len(doc):
+                    x = max(15.0, target_block.left - 10.0)
+                    y = target_block.top
+                    point_rot = fitz.Point(x, y)
+                    rotation = getattr(doc[page_idx], "rotation", 0)
+                    if rotation != 0:
+                        point = point_rot * (~doc[page_idx].rotation_matrix)
+                    else:
+                        point = point_rot
+                    return page_idx, point
+
         # Empty un-OCR'd pages (0 text) or scanned image PDFs (<300 chars text with images) 
         # fallback to proportional page anchors. Digital text PDFs with content return None 
         # so unfound questions drop cleanly into Page 1 review notes.

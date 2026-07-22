@@ -50,6 +50,7 @@ This document is the single source of truth for all planned improvements. It mer
 | **8** | W8-IMPORT | Smart Import & Solution/Roster Auto-Discovery | M | Flash | Planned | Feedback Reflection |
 | **8** | W8-STREAM | Real-time Structured Event Stream (`status.json`) | M | Flash | Planned | Feedback Reflection |
 | **8** | **W8-AUDIT** | **PDF Annotation Engine Overhaul & `./gradeline audit-pdf`** | **M** | **Flash** | ✅ Done | Feedback #9, #10, #16 |
+| **8** | **W8-SCAN-ANCHOR** | **Scanned PDF OCR Anchor Lookup & Margin Alignment** | **M** | **Flash** | ✅ Done | Feedback #23 |
 | **Backlog** | BL-SEC | App Hardening & Security Auditing | M | Flash | ✅ Done | Security Audit |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
@@ -102,4 +103,6 @@ Modify `grader/orchestrator.py` to emit an atomic `status.json` file in the run 
 | BL-DOCX | Word/TXT/MD Solutions Keys Support | M | Lower friction for instructors. (Note: Student submission DOCX conversion already exists in `discovery.py`; this task is specifically for converting/parsing solution keys). |
 | BL-SEARCH | Smart Candidate Search in Downloads | S | Sort by modified date, weight profile name matches higher. |
 | BL-VISION-AUTO | Auto-Detect Math-Heavy Pages | M | Heuristic to detect Tesseract gibberish on math content and selectively re-extract via Gemini. Follow-up to W6-VISION — the flag becomes a hard override, the heuristic becomes the smart default. |
+| BL-SAVED-ANIM | Autosave Micro-Animations & Visual Confirmation | S | Disappearing popups, subtle green pulse ring, and "Saved ✓" badges on patches in Review UI. |
+| BL-WEB-WORKSTATION | Unified Web-Based Grading Workstation | XL | Single intuitive web app for non-tech professors covering Ingestion, Auto-Rubric Creation, Grading, and Review. |
 

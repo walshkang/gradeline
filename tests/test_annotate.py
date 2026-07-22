@@ -107,3 +107,46 @@ def test_scanned_pdf_text_density_fallback():
     assert page_idx == 0
     assert point.x > 0 and point.y > 0
     doc.close()
+
+
+def test_block_registry_ocr_anchor_search():
+    from grader.annotate import resolve_model_location
+    from grader.types import TextBlock
+
+    doc = fitz.open()
+    page1 = doc.new_page(width=612.0, height=792.0)
+    page2 = doc.new_page(width=612.0, height=792.0)
+
+    block_registry = {
+        "p1_b1": TextBlock(id="p1_b1", text="Problem 1", page=1, left=40.0, top=50.0, width=100.0, height=20.0, source="gemini_flash", confidence=1.0),
+        "p1_b2": TextBlock(id="p1_b2", text="a) P(R > 30)", page=1, left=40.0, top=700.0, width=150.0, height=20.0, source="gemini_flash", confidence=1.0),
+        "p2_b1": TextBlock(id="p2_b1", text="b) P(R < 0)", page=2, left=40.0, top=50.0, width=150.0, height=20.0, source="gemini_flash", confidence=1.0),
+        "p2_b2": TextBlock(id="p2_b2", text="c) P(6 < R < 14)", page=2, left=40.0, top=200.0, width=150.0, height=20.0, source="gemini_flash", confidence=1.0),
+    }
+
+    # Search for 2a should find p1_b2 on Page 1 (index 0)
+    anchor = find_anchor_in_doc(
+        doc=doc,
+        question_id="2a",
+        label_patterns=["2a"],
+        explicit_tokens=["a)"],
+        fallback_y_ratio=0.5,
+        block_registry=block_registry,
+    )
+
+    assert anchor is not None
+    page_idx, point = anchor
+    assert page_idx == 0
+    assert point.y == 700.0
+    assert point.x == 30.0  # max(15.0, 40.0 - 10.0)
+
+    # resolve_model_location with block_id uses left margin x
+    qres = QuestionResult(id="2a", verdict="correct", confidence=1.0, short_reason="", evidence_quote="", block_id="p1_b2")
+    loc = resolve_model_location(doc, "test.pdf", qres, block_registry=block_registry)
+    assert loc is not None
+    assert loc[0] == 0
+    assert loc[1].x == 30.0
+    assert loc[1].y == 700.0
+
+    doc.close()
+

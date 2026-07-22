@@ -741,10 +741,34 @@ Files modified/created:
 - grader/workflow_cli.py (Exposed ./gradeline audit-pdf subcommand)
 - tests/test_annotate.py (NEW: Unit tests for zero overlap, canvas clamping, scanned PDF text density, and multiline wrapping)
 
-## Verification
-- Run `.venv/bin/python -m pytest tests/test_annotate.py`
-- Run `.venv/bin/python -m grader.workflow.audit_pdf outputs`
+### W8-SCAN-ANCHOR: Scanned PDF OCR Anchor Lookup & Margin Alignment
+
+**Origin**: Feedback #23
+**Size**: Medium (~3–4 hours) · **Tier**: Flash
+
 ```
+Overhaul PDF annotation positioning for scanned image PDFs by integrating Gemini Flash OCR block_registry fallback search, region-bounded sub-question marker re-anchoring, and margin-aligned badge placement.
+
+Files modified:
+- grader/annotate.py
+- grader/gemini_client.py
+- tests/test_annotate.py
+
+Key Changes:
+1. OCR Block Search in find_anchor_in_doc:
+   When PyMuPDF page.search_for returns no rects on scanned image PDFs, query block_registry for matching question/subquestion anchor tokens and parent question section boundaries (e.g. ①, ②, ③, ④).
+2. Left-Margin Badge Placement:
+   Position annotation badges at x = max(15.0, block.left - 10.0) so badges sit neatly in the left margin without overlaying student mathematical equations.
+3. Sub-Question Re-Anchoring:
+   Verify if block_id points to downstream calculation lines; if an earlier block matches the subquestion marker (a), b), (a)), re-anchor to the subquestion starting line block.
+4. Gemini System Instruction Refinement:
+   Instruct Gemini to set block_id to the block where work for that question or sub-question BEGINS.
+
+Verification:
+- Run pytest tests/test_annotate.py — 5/5 passed.
+- Run full pytest test suite — 299/299 passed.
+```
+
 
 
 

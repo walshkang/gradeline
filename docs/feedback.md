@@ -181,4 +181,29 @@ This document records usability pain points and suggested feature improvements d
 * **Status/Roadmap**: Addressed in Wave 4 (`W4-JUDGE` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
 
 
+### 21. Autosave Visual Confirmation & Micro-Animations ("Input Respected")
+* **Issue**: Users and professors may not realize edits (e.g. moving pin coordinates, altering scores/verdicts, typing notes) autosave in real time. The lack of visual feedback causes uncertainty about whether changes were saved.
+* **Suggested Solution**: 
+  * Add subtle, disappearing micro-animations (e.g., a momentary green pulse or checkmark badge `"Saved ✓"`) near updated fields and markers when an API patch succeeds.
+  * Provide self-dismissing toast popups for major actions so professors get immediate visual confirmation that their input is respected.
+* **Status/Roadmap**: Placed in Backlog (`BL-SAVED-ANIM` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
+
+
+### 22. Professor-First Web Grading Workstation Vision
+* **Vision & Strategic Priority**: Making an intuitive, friction-free web application for non-technical professors is the top priority for upcoming iterations.
+* **Core Objectives**:
+  * **Professor Workspace**: The Review Server should serve as a friendly, self-describing workstation where all actions are opt-in and obvious.
+  * **Unified End-to-End Web App**: Expand the web app beyond review and export to eventually encompass the **ingestion phase** (solutions, roster, zip upload) and the **Auto-Rubric Creator**, enabling professors to run the entire grading lifecycle from a single browser website without using the CLI/terminal.
+* **Status/Roadmap**: Placed in Backlog (`BL-WEB-WORKSTATION` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
+
+
+### 23. Inaccurate Annotation Placement on Handwritten/Scanned Image PDFs
+* **Issue**: Visual annotations (badges like `[4a ✓]`) on scanned image PDFs (e.g. Aaron Gurley, Aldo Arossa) were often placed on incorrect pages or overlaying math equations. PyMuPDF's `page.search_for` returns 0 matches for scanned image PDFs (which lack embedded digital fonts), causing `find_anchor_in_doc` to fall back to a naive `page_idx = q_num - 1` formula and proportional Y coordinates. Additionally, centering coordinates (`x = left + width/2`) placed badges directly on top of student mathematical formulas.
+* **Impact**: Badges appeared on wrong pages (e.g., Aldo's 2a on Page 1 forced onto Page 2) or landed mid-equation in the space of other questions (Aaron's 4a/4b).
+* **Suggested Solution**:
+  * In `find_anchor_in_doc`, when PyMuPDF text search yields 0 matches, search the OCR `block_registry` (from Gemini Flash vision) for anchor tokens, sub-question markers (`a)`, `b)`), and parent question boundaries (`①`, `②`, `③`, `④`).
+  * Re-anchor sub-questions to their starting line marker block if `block_id` points to downstream math steps.
+  * Shift badge horizontal placement to `x = max(15.0, block.left - 10.0)` so annotations sit cleanly in the left margin without overlaying text.
+  * Refine LLM system instructions in `gemini_client.py` to set `block_id` to the starting line block of the response.
+* **Status/Roadmap**: ✅ Completed in Wave 8 (`W8-SCAN-ANCHOR` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
 

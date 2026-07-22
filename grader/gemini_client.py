@@ -810,7 +810,7 @@ def build_context_system_instruction(rubric: RubricConfig) -> str:
         "If Gemini's detector yields [ymin, xmin, ymax, xmax], compute the center: [(ymin+ymax)//2, (xmin+xmax)//2]. "
         "Always include page_number (1-indexed integer) and source_file set to exactly the PDF filename as it appears in the attached files list. "
         "If you cannot locate an answer visually, omit coords/page_number/source_file rather than guessing.\n"
-        "Block ID rule: if the student text was provided as XML-wrapped blocks (<answer id=\"pN_bN\">...</answer>), set block_id to the id attribute of the block containing the answer. "
+        "Block ID rule: if the student text was provided as XML-wrapped blocks (<answer id=\"pN_bN\">...</answer>), set block_id to the id attribute of the block where the student's work for that specific question or sub-question BEGINS (the block containing the question label / sub-question marker e.g., '1', '2', 'a)', 'b)', '4a'). Do NOT set block_id to an intermediate calculation line or floating result number. "
         "When block_id is set it takes priority over coords for placement — omit coords when you have block_id.\n"
         "Sub-question rule: Some questions contain multiple sub-parts (e.g. a), b), c) or 1), 2), 3)). "
         "When you encounter such questions, you MUST return each sub-part as a separate entry in the "
