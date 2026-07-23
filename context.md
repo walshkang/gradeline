@@ -33,10 +33,14 @@
   - Completed `W10-COORDS-FIRST` (Coords-Primary Placement for Scanned PDFs). Bypass OCR block anchors for `ocr_low` scanned PDFs, prompt update for mandatory coords, mega-block rejection in `location_resolver.py`.
   - Completed `W10-AUDIT-SPATIAL` (Enhanced Zero-Token Audit Diagnostics). Added `top_margin_clustering`, `oversized_anchor_boxes`, and `same_y_clustering` geometric checks in `grader/workflow/audit_pdf.py` and full unit test coverage in `tests/test_audit_pdf.py`.
   - Completed `W10-PROPORTIONAL-FALLBACK` (Even-Spacing Grid for Missing Coords). Added `proportional_page_fallback` in `location_resolver.py` down the left margin, updated `find_anchor_in_doc` scanned/empty PDF fallback logic, and added test suite in `tests/test_proportional_fallback.py`.
+- **PDF Annotation Location & Subpart Anchoring Fixes (Shipped)**:
+  - Resolved scanned handwritten subpart anchor misplacement (specifically fixing **Aaron Gurley HW3**, re-anchoring `Q2a`, `Q2b`, and `Q2c` from generic top-left margin fallbacks onto Page 2 beside the actual handwritten answers).
+  - Capped maximum annotation box width to 260pt and enforced strict canvas boundary clamping (`x1 <= pw - 4.0`), eliminating oversized 600pt boxes and OOB bleeding defects.
+  - Verified against test suite (335/335 passing) and zero-token `./gradeline audit-pdf` diagnostics (71% drop in box overlaps, 75% drop in same-Y clustering).
 - **Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).**
 
 ## Current Objective
-Wave 10 (`W10-SCAN-DETECT`, `W10-COORDS-FIRST`, `W10-AUDIT-SPATIAL`, `W10-PROPORTIONAL-FALLBACK`) is fully shipped, tested (335/335 tests passing), and documented. Ready for Backlog / next phase objectives in [Gradeline Unified Roadmap](docs/plans/roadmap.md).
+All annotation location fixes are fully shipped, tested (335/335 tests passing), and verified against Aaron Gurley HW3. Ready for Backlog / next phase objectives in [Gradeline Unified Roadmap](docs/plans/roadmap.md).
 
 ## Next Strategic Direction (Professor Web Workstation & UX)
 - **Intuitive Web App for Non-Tech Professors**: Building out the Review Server into a self-describing workstation with opt-in instructions and unobtrusive autosave visual feedback (`BL-SAVED-ANIM`).

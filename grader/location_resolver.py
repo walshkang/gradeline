@@ -238,7 +238,22 @@ def find_anchor_in_doc(
                         if next_parent_b:
                             break
 
-                sub_tokens = [f"{parent_id}{sub}", f"{parent_id}.{sub}", f"{sub})", f"{sub}.", f"({sub})"]
+                sub_tokens = [
+                    f"{parent_id}{sub}",
+                    f"{parent_id}.{sub}",
+                    f"{parent_id}_{sub}",
+                    f"{parent_id}{sub})",
+                    f"{parent_id}{sub}.",
+                    f"{parent_id}.{sub})",
+                    f"({parent_id}{sub})",
+                    f"({sub})",
+                    f"{sub})",
+                    f"{sub}.",
+                    f"problem {parent_id}{sub}",
+                    f"question {parent_id}{sub}",
+                    f"q{parent_id}{sub}",
+                    f"q.{parent_id}{sub}",
+                ]
                 candidates = []
                 for b in blocks:
                     if parent_b:
@@ -254,7 +269,7 @@ def find_anchor_in_doc(
 
                     text = b.text.strip()
                     for tok in sub_tokens:
-                        pattern = r"(?i)(?:^|\s|\b)" + re.escape(tok) + r"(?:$|\s|\b|\)|\.|\:)"
+                        pattern = r"(?i)(?:^|\s|[\(\[\{])" + re.escape(tok) + r"(?:$|\s|[\)\.\:\,\]\}]|\b)"
                         if re.search(pattern, text):
                             is_exact = f"{parent_id}{sub}" in tok.lower() or f"{parent_id}.{sub}" in tok.lower()
                             prio = 3 if is_exact else 2
@@ -442,15 +457,21 @@ def resolve_model_location(
                     continue
                 if b.page == parent_b.page and b.top < parent_b.top - 5.0:
                     continue
-            elif b.page != pnum:
-                continue
-
             text = b.text.strip().lower()
-            is_sub_match = sub_letter and (text.startswith(f"{sub_letter})") or text.startswith(f"{sub_letter}.") or text.startswith(f"({sub_letter})") or text.startswith(f"{qid.lower()}") or text.startswith(f"{parent_num}.{sub_letter}"))
+            clean_t = text.lstrip(" ([\t")
+            is_sub_match = sub_letter and (
+                clean_t.startswith(f"{sub_letter})")
+                or clean_t.startswith(f"{sub_letter}.")
+                or clean_t.startswith(f"({sub_letter})")
+                or clean_t.startswith(f"{qid.lower()}")
+                or clean_t.startswith(f"{parent_num}.{sub_letter}")
+                or clean_t.startswith(f"{parent_num}{sub_letter}")
+            )
             is_parent_match = (parent_b and b.id == parent_b.id)
 
             if is_sub_match or is_parent_match:
-                dist = abs(b.top - abs_y)
+                page_diff = abs(b.page - pnum)
+                dist = abs(b.top - abs_y) + (page_diff * 1000.0)
                 prio = 3 if is_sub_match else 1
                 candidates.append((prio, dist, b))
 

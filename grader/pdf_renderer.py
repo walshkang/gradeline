@@ -45,6 +45,7 @@ def text_annotation_rect_from_baseline(
     text: str,
     fontsize: float,
     min_width: float = 80.0,
+    max_width: float = 260.0,
 ) -> "fitz.Rect":
     import fitz
 
@@ -52,10 +53,11 @@ def text_annotation_rect_from_baseline(
     lines = text.splitlines() or [text]
     num_lines = len(lines)
 
-    width = min(
-        estimate_text_width(text=text, fontsize=fontsize, minimum=min_width),
-        max(24.0, page.rect.width - 8.0),
-    )
+    estimated = estimate_text_width(text=text, fontsize=fontsize, minimum=min_width)
+    effective_max_width = min(max_width, max(min_width, page.rect.width - 48.0))
+    width = min(estimated, effective_max_width)
+    width = max(width, min(min_width, page.rect.width - 8.0))
+
     line_height = fontsize * 1.35
     padding = 18.0
     height = max(24.0, num_lines * line_height + padding)
@@ -151,13 +153,13 @@ def find_non_overlapping_rect(
     page: "fitz.Page",
     candidate_rect: "fitz.Rect",
     placed_rects_for_page: list["fitz.Rect"],
-    max_nudge_px: float = 200.0,
+    max_nudge_px: float = 450.0,
 ) -> "fitz.Rect":
     import fitz
 
     pw, ph = page.rect.width, page.rect.height
-    w = min(candidate_rect.width, pw - 8.0)
-    h = min(candidate_rect.height, ph - 8.0)
+    w = min(candidate_rect.width, max(40.0, pw - 8.0))
+    h = min(candidate_rect.height, max(20.0, ph - 8.0))
     x0 = clamp(candidate_rect.x0, 4.0, max(4.0, pw - w - 4.0))
     y0 = clamp(candidate_rect.y0, 4.0, max(4.0, ph - h - 4.0))
     current_rect = fitz.Rect(x0, y0, x0 + w, y0 + h)
@@ -216,8 +218,8 @@ def find_non_overlapping_rect(
         total_nudge_x += nudge_step_x
 
     # Return strictly clamped rect within page boundaries
-    w_fit = min(w, max(40.0, pw - 8.0))
-    final_x0 = clamp(current_rect.x0, 4.0, max(4.0, pw - w_fit - 4.0))
+    final_x0 = clamp(current_rect.x0, 4.0, max(4.0, pw - 44.0))
+    w_fit = min(w, max(40.0, pw - final_x0 - 4.0))
     final_y0 = clamp(current_rect.y0, 4.0, max(4.0, ph - h - 4.0))
     return fitz.Rect(final_x0, final_y0, final_x0 + w_fit, final_y0 + h)
 
