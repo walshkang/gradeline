@@ -148,6 +148,7 @@ def extract_pdf_text(
             source="pdftotext",
             native_char_count=native_chars,
             ocr_char_count=0,
+            quality="native",
         )
 
     if force_vision and gemini_api_key:
@@ -177,13 +178,20 @@ def extract_pdf_text(
 
     ocr_text = "\n".join(b.text for b in ocr_blocks)
     ocr_chars = non_whitespace_char_count(ocr_text)
+    quality = "unknown"
     if ocr_chars > native_chars:
         best_text = ocr_text
-        source = "gemini_flash" if ocr_blocks and ocr_blocks[0].source == "gemini_flash" else "ocr"
+        if ocr_blocks and ocr_blocks[0].source == "gemini_flash":
+            source = "gemini_flash"
+            quality = "ocr_low"  # Gemini OCR text is good for regex, but blocks shouldn't be used for spatial anchors on handwriting
+        else:
+            source = "ocr"
+            quality = "ocr_low" if _is_gibberish_blocks(ocr_blocks) else "ocr_clean"
         best_blocks = ocr_blocks
     else:
         best_text = native_text
         source = "pdftotext"
+        quality = "native"
         best_blocks = []
     return ExtractedPdf(
         pdf_path=pdf_path,
@@ -192,11 +200,30 @@ def extract_pdf_text(
         source=source,
         native_char_count=native_chars,
         ocr_char_count=ocr_chars,
+        quality=quality,
     )
 
+def _is_gibberish_blocks(blocks: list[TextBlock]) -> bool:
+    if not blocks:
+        return True
+    total_words = 0
+    total_chars = 0
+    for b in blocks:
+        # Check for mega-blocks that cover >35% of a typical 612x792 page (~170,000 points squared)
+        if b.width * b.height > 170_000:
+            return True
+        words = b.text.split()
+        total_words += len(words)
+        total_chars += sum(len(w) for w in words)
+    if total_words == 0:
+        return True
+    mean_word_length = total_chars / total_words
+    if mean_word_length < 2.5:
+        return True
+    return False
 
 def _needs_gemini_fallback(blocks: list[TextBlock]) -> bool:
-    if not blocks:
+    if _is_gibberish_blocks(blocks):
         return True
     confident = [b for b in blocks if b.confidence >= 0]
     if not confident:

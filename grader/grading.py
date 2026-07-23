@@ -196,7 +196,7 @@ def grade_one_submission(
                     solutions_pdf_path=solutions_pdf_path,
                     context_cache_enabled=context_cache,
                     context_cache_ttl_seconds=context_cache_ttl_seconds,
-                    blocks=list(block_registry.values()) if block_registry else None,
+                    blocks=[b for item in extracted_for_precheck if item.quality != "ocr_low" for b in item.blocks] if extracted_for_precheck else None,
                     questions_to_grade=questions_to_grade,
                     **extra_kwargs,
                 )

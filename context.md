@@ -17,7 +17,7 @@
   - Resolved missing justifications (`logic_analysis`, `short_reason`, `detail_reason`) and missing suggested grades/verdicts for `needs_review` questions across primary model response normalization, fallback error handling, audit CSV generation, review state import, and review server UI rendering (including a new Suggested Grade & Rationale banner with 1-click apply).
 - **Workflow, CLI Streamlining & Annotation Reliability (Wave 8 Progress)**:
   - Completed `W8-AUDIT` (PDF Visual Annotation Engine Overhaul & Zero-Token `./gradeline audit-pdf` Diagnostic Suite). Fixed OOB bleeding, page 1 summary note overlap, scanned PDF text density anchors, and subpart resolution tracking across 292 student output PDFs.
-  - Completed `W8-SCAN-ANCHOR` (Scanned PDF OCR Anchor Lookup & Left Margin Alignment). Integrated Gemini Flash OCR `block_registry` fallback search in `find_anchor_in_doc`, region-bounded sub-question marker re-anchoring, left-margin badge alignment (`x = block.left - margin`), and refined LLM `block_id` starting line rules. Tested & verified against scanned assignments (Aaron Gurley, Aldo Arossa).
+  - Completed `W8-SCAN-ANCHOR` (Scanned PDF OCR Anchor Lookup & Left Margin Alignment). Integrated Gemini Flash OCR `block_registry` fallback search in `find_anchor_in_doc`, region-bounded sub-question marker re-anchoring, left-margin badge alignment (`x = block.left - margin`), and refined LLM `block_id` starting line rules. Tested & verified against scanned assignments (Student B, Student C).
 - **Codebase Modularization & Refactoring (Wave 9 Progress)**:
   - Completed `W9-ANNOT-STATE` (Extract AnnotationSession Dataclass `[Track A1]`). Encapsulated `placed_rects`, `rendered`, `rendered_subparts`, `placement_details` inside `AnnotationSession` in `grader/annotate.py` with clean state management methods (`clear_placed_rects`, `mark_rendered`, `mark_subpart_rendered`, `record_placement`, `update_results`).
   - Completed `W9-GEMINI-SCHEMAS` (Extract Gemini Schemas & Prompts `[Track B1]`). Decomposed `grader/gemini_client.py` by extracting Pydantic response models, constants, and prompt builder functions into `grader/gemini_schemas.py` with zero API dependencies while maintaining re-exported backward compatibility.
@@ -31,11 +31,11 @@
 - **Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).**
 
 ## Current Objective
-Wave 9 Modularization & Refactoring is 100% complete! Proceeding to Backlog & Web Workstation initiatives in [Gradeline Unified Roadmap](docs/plans/roadmap.md):
-- **BL-SEC**: App Hardening & Security Auditing (`bandit`, `pip-audit`, untrusted prompt isolation)
-- **BL-DOCX**: Word/TXT/MD Solution Keys Support
-- **BL-VISION-AUTO**: Auto-Detect Math-Heavy Pages
-- **BL-WEB-WORKSTATION**: Unified Web-Based Grading Workstation
+Wave 9 Modularization & Refactoring is 100% complete! Proceeding to **Wave 10 — Handwritten PDF Spatial Anchoring & Audit Quality** in [Gradeline Unified Roadmap](docs/plans/roadmap.md):
+- **W10-SCAN-DETECT**: Scanned PDF Quality Classification
+- **W10-COORDS-FIRST**: Coords-Primary Placement for Scanned PDFs
+- **W10-AUDIT-SPATIAL**: Enhanced Zero-Token Audit Diagnostics
+- **W10-PROPORTIONAL-FALLBACK**: Even-Spacing Grid for Missing Coords
 
 ## Next Strategic Direction (Professor Web Workstation & UX)
 - **Intuitive Web App for Non-Tech Professors**: Building out the Review Server into a self-describing workstation with opt-in instructions and unobtrusive autosave visual feedback (`BL-SAVED-ANIM`).

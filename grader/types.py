@@ -74,6 +74,7 @@ class ExtractedPdf:
     source: str
     native_char_count: int
     ocr_char_count: int
+    quality: str = "unknown"
 
 
 from .cost import TokenUsage
