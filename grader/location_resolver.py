@@ -53,6 +53,36 @@ def point_to_normalized(page: "fitz.Page", point: "fitz.Point") -> tuple[float, 
     return (y, x)
 
 
+def proportional_page_fallback(
+    page: "fitz.Page",
+    question_index: int = 0,
+    total_questions: int = 1,
+    margin_left: float = 24.0,
+    margin_top_ratio: float = 0.10,
+    margin_bottom_ratio: float = 0.10,
+) -> "fitz.Point":
+    """Compute an even-spacing fallback anchor point down the left margin of a page."""
+    import fitz
+
+    if total_questions <= 1:
+        y_ratio = 0.5
+    else:
+        norm_idx = clamp(float(question_index), 0.0, float(max(1, total_questions - 1)))
+        span = 1.0 - margin_top_ratio - margin_bottom_ratio
+        y_ratio = margin_top_ratio + span * ((norm_idx + 0.5) / float(total_questions))
+
+    y_ratio = clamp(y_ratio, 0.05, 0.95)
+    x_abs = clamp(margin_left, 4.0, max(4.0, page.rect.width - 4.0))
+    y_abs = page.rect.height * y_ratio
+
+    point_rot = fitz.Point(x_abs, y_abs)
+    rotation = getattr(page, "rotation", 0)
+    if rotation != 0:
+        return point_rot * (~page.rotation_matrix)
+    return point_rot
+
+
+
 def build_anchor_tokens(question_id: str, label_patterns: list[str], explicit_tokens: list[str]) -> list[str]:
     tokens: list[str] = []
     tokens.extend(explicit_tokens)
@@ -99,6 +129,8 @@ def find_anchor_in_doc(
     explicit_tokens: list[str],
     fallback_y_ratio: float = 0.5,
     block_registry: dict[str, "TextBlock"] | None = None,
+    question_index: int = 0,
+    total_questions: int = 1,
 ):
     import fitz
 
@@ -278,14 +310,12 @@ def find_anchor_in_doc(
                 page_idx = min(len(doc) - 1, int(fallback_y_ratio * len(doc)))
 
         page = doc[page_idx]
-        x_rot = max(24.0, page.rect.width - 150.0)
-        y_rot = page.rect.height * fallback_y_ratio
-        point_rot = fitz.Point(x_rot, y_rot)
-        rotation = getattr(page, "rotation", 0)
-        if rotation != 0:
-            point = point_rot * (~page.rotation_matrix)
-        else:
-            point = point_rot
+        point = proportional_page_fallback(
+            page,
+            question_index=question_index,
+            total_questions=total_questions,
+            margin_left=24.0,
+        )
         return page_idx, point
 
     # Filter to pages that match at the highest priority level found in the document
@@ -332,17 +362,21 @@ def resolve_model_location(
             # Validate page index exists in the document; otherwise fall through to coords handling.
             if 0 <= page_idx < len(doc):
                 page = doc[page_idx]
-                x = max(15.0, block.left - 10.0)
-                y = block.top
-                point_rot = fitz.Point(x, y)
-                rotation = getattr(page, "rotation", 0)
-                if rotation != 0:
-                    point = point_rot * (~page.rotation_matrix)
-                else:
-                    point = point_rot
-                normalized_coords = point_to_normalized(page, point)
-                # Return placement_source as an extra element so callers can honor it.
-                return page_idx, point, normalized_coords, "block_id"
+                page_area = page.rect.width * page.rect.height
+                block_area = block.width * block.height
+                # Reject mega-blocks covering >30% of page area and fall back to coords.
+                if not (page_area > 0 and (block_area / page_area) > 0.30):
+                    x = max(15.0, block.left - 10.0)
+                    y = block.top
+                    point_rot = fitz.Point(x, y)
+                    rotation = getattr(page, "rotation", 0)
+                    if rotation != 0:
+                        point = point_rot * (~page.rotation_matrix)
+                    else:
+                        point = point_rot
+                    normalized_coords = point_to_normalized(page, point)
+                    # Return placement_source as an extra element so callers can honor it.
+                    return page_idx, point, normalized_coords, "block_id"
         # If block_id was provided but not found in the registry, fall through to coords handling.
 
     if result.coords is None:

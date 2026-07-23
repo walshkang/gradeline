@@ -18,6 +18,7 @@ from .location_resolver import (
     is_literal_pattern,
     mark_text_for_result,
     point_to_normalized,
+    proportional_page_fallback,
     resolve_model_location,
     should_render_question_marks,
     strip_regex_markers,
@@ -219,6 +220,8 @@ def _process_question_annotation(
             block_registry=block_registry,
             single_pdf=single_pdf,
             question_fontsize=question_fontsize,
+            question_index=q_idx,
+            total_questions=total_questions,
         )
     else:
         _process_single_question_annotation(
@@ -231,6 +234,8 @@ def _process_question_annotation(
             block_registry=block_registry,
             single_pdf=single_pdf,
             question_fontsize=question_fontsize,
+            question_index=q_idx,
+            total_questions=total_questions,
         )
 
 
@@ -245,6 +250,8 @@ def _process_subparts_annotation(
     block_registry: dict[str, "TextBlock"] | None,
     single_pdf: bool,
     question_fontsize: float,
+    question_index: int = 0,
+    total_questions: int = 1,
 ) -> None:
     all_subparts_rendered = True
     parent_loc_resolved = False
@@ -279,6 +286,8 @@ def _process_subparts_annotation(
                 explicit_tokens=[f"{subpart_label})", f"{subpart_label}."],
                 fallback_y_ratio=fallback_y_ratio,
                 block_registry=block_registry,
+                question_index=question_index,
+                total_questions=total_questions,
             )
             if sub_anchor:
                 sub_page_idx, sub_point = sub_anchor
@@ -301,6 +310,8 @@ def _process_subparts_annotation(
                             explicit_tokens=question.anchor_tokens,
                             fallback_y_ratio=fallback_y_ratio,
                             block_registry=block_registry,
+                            question_index=question_index,
+                            total_questions=total_questions,
                         )
                         if parent_anchor:
                             parent_page_idx, parent_point = parent_anchor
@@ -361,6 +372,8 @@ def _process_single_question_annotation(
     block_registry: dict[str, "TextBlock"] | None,
     single_pdf: bool,
     question_fontsize: float,
+    question_index: int = 0,
+    total_questions: int = 1,
 ) -> None:
     model_location = resolve_model_location(
         doc=doc,
@@ -384,6 +397,8 @@ def _process_single_question_annotation(
             explicit_tokens=question.anchor_tokens,
             fallback_y_ratio=fallback_y_ratio,
             block_registry=block_registry,
+            question_index=question_index,
+            total_questions=total_questions,
         )
         if anchor is None:
             return
@@ -492,4 +507,5 @@ __all__ = [
     "compact_reason",
     "find_anchor_in_doc",
     "resolve_model_location",
+    "proportional_page_fallback",
 ]

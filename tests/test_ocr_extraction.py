@@ -77,7 +77,7 @@ class ParseTsvBlocksTests(unittest.TestCase):
 
 class NeedsGeminiFallbackTests(unittest.TestCase):
     def _block(self, conf: float) -> TextBlock:
-        return TextBlock(id="p1_b1", text="x", page=1, left=0, top=0,
+        return TextBlock(id="p1_b1", text="hello", page=1, left=0, top=0,
                          width=10, height=10, source="tesseract_tsv", confidence=conf)
 
     def test_empty_blocks_triggers_fallback(self) -> None:

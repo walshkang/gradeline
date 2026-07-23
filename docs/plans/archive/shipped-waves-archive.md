@@ -960,3 +960,94 @@ Verification:
 - Run PYTHONPATH=. .venv/bin/pytest tests/test_annotate*.py tests/test_annotation_pipeline.py tests/test_location_resolver.py — 42/42 passed.
 - Run full pytest test suite — 324/324 passed.
 ```
+
+---
+
+## Wave 10 — Handwritten PDF Spatial Anchoring & Audit Quality
+
+### W10-AUDIT-SPATIAL: Enhanced Zero-Token Audit Diagnostics
+
+**Size**: Small · **Tier**: Flash
+
+```
+Add 3 new geometric checks to audit_pdf_outputs() in grader/workflow/audit_pdf.py:
+1. Top-Margin Clustering: Flag pages where >= 3 annotations have y0 < page_height * 0.15.
+2. Oversized Anchor Box: Flag annotations whose matched block bounding box is disproportionately large (height > 80pt or width > 300pt).
+3. Same-Y Clustering: Flag pages where >= 3 annotations share the same y-coordinate (+/- 5pt), indicating collapse into a single mega-block.
+
+Files modified/created:
+- grader/workflow/audit_pdf.py (Added top_margin_clustering, oversized_box_defects, and same_y_clustering checks, updated returned dict keys, and updated console summary output)
+- tests/test_audit_pdf.py (Created unit test suite covering clean PDFs, top-margin clustering, oversized anchor boxes, same-Y clustering, and non-existent directories)
+
+Verification:
+- Run ./.venv/bin/python -m unittest tests/test_audit_pdf.py — 5/5 passed.
+- Run full unittest test suite — 266/266 passed.
+```
+
+---
+
+### W10-PROPORTIONAL-FALLBACK: Even-Spacing Grid for Missing Coords
+
+**Size**: Small · **Tier**: Flash
+
+```
+In location_resolver.py, add a proportional_page_fallback(page, question_index, total_questions) function.
+If both block_id and coords are missing/rejected for a scanned PDF, space the annotations evenly down the left margin instead of dropping them.
+
+Files modified/created:
+- grader/location_resolver.py (Added proportional_page_fallback function, updated find_anchor_in_doc fallback logic for scanned/empty PDFs to use proportional left margin spacing)
+- grader/annotate.py (Passed question_index and total_questions down to find_anchor_in_doc, re-exported proportional_page_fallback)
+- tests/test_proportional_fallback.py (Created unit test suite for proportional fallback spacing and rotation)
+- tests/test_annotate_rotation.py (Updated fallback expectations for left-margin alignment)
+
+Verification:
+- Run PYTHONPATH=. ./.venv/bin/pytest tests/test_proportional_fallback.py tests/test_location_resolver.py tests/test_annotate.py tests/test_annotate_rotation.py — 23/23 passed.
+```
+
+---
+
+### W10-SCAN-DETECT: Scanned PDF Quality Classification
+
+**Size**: Small · **Tier**: Flash
+
+```
+In extract.py, add _is_gibberish_blocks(blocks) heuristic to flag low-quality Tesseract blocks (e.g., mean word length < 2.5, blocks covering > 35% of page).
+Modify _needs_gemini_fallback() to return True on gibberish.
+Add quality: str = "unknown" field to ExtractedPdf dataclass to track extraction confidence (native, ocr_clean, ocr_low).
+Mark Gemini OCR blocks as quality="ocr_low" so they aren't used for spatial anchoring on handwriting.
+
+Files modified/created:
+- grader/types.py (Added quality field to ExtractedPdf)
+- grader/extract.py (Added _is_gibberish_blocks classification heuristic, updated _needs_gemini_fallback and extract_pdf_text)
+- tests/test_ocr_extraction.py (Added unit tests for gibberish block detection and quality flagging)
+
+Verification:
+- Run PYTHONPATH=. ./.venv/bin/pytest tests/test_ocr_extraction.py — 24/24 passed.
+- Run full pytest test suite — 335/335 passed.
+```
+
+---
+
+### W10-COORDS-FIRST: Coords-Primary Placement for Scanned PDFs
+
+**Size**: Medium · **Tier**: Flash
+
+```
+In grading.py, do not pass blocks= to grade_submission_unified() if ExtractedPdf.quality == "ocr_low". This forces Gemini to use native coords=[y,x] for placement instead of referencing garbage answer block IDs.
+In gemini_schemas.py, add the clarification: "If no <answer> blocks are provided in the prompt, you MUST set coords=[y,x] for each question."
+In location_resolver.py, when a resolved block_id points to a mega-block covering >30% of the page area, reject it and fall back to coords.
+Keep block_registry for the annotation stage so anchor text search fallback still works if needed.
+
+Files modified/created:
+- grader/grading.py (Bypassed passing blocks when ExtractedPdf quality is "ocr_low")
+- grader/gemini_schemas.py (Added prompt instruction requiring coords=[y,x] when no answer blocks are provided)
+- grader/location_resolver.py (Added mega-block rejection threshold (>30% page area) falling back to coords)
+- tests/test_coords_first.py (Created unit test suite covering prompt clarification, mega-block rejection, and coords placement)
+
+Verification:
+- Run PYTHONPATH=. ./.venv/bin/pytest tests/test_coords_first.py — 3/3 passed.
+- Run full pytest test suite — 335/335 passed.
+```
+
+
+

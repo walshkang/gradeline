@@ -20,6 +20,9 @@ def audit_pdf_outputs(output_dir: Path) -> dict[str, Any]:
     oob_defects = []
     overlap_defects = []
     page_mismatch_defects = []
+    top_margin_clustering_defects = []
+    oversized_box_defects = []
+    same_y_clustering_defects = []
     header_only_scanned_count = 0
 
     for p in pdf_files:
@@ -33,6 +36,8 @@ def audit_pdf_outputs(output_dir: Path) -> dict[str, Any]:
                 pw, ph = page.rect.width, page.rect.height
                 annots = list(page.annots() or [])
                 rects: list[tuple[str, fitz.Rect]] = []
+                top_margin_count = 0
+                y0_coords: list[float] = []
 
                 for a in annots:
                     r = a.rect
@@ -65,6 +70,34 @@ def audit_pdf_outputs(output_dir: Path) -> dict[str, Any]:
                                     page_mismatch_defects.append(
                                         f"{p.relative_to(output_dir)}: Question {qid} placed on Page 1 of {len(doc)} pages"
                                     )
+
+                    # 4. Top-Margin Clustering tracking (y0 < 15% page height)
+                    if r.y0 < ph * 0.15:
+                        top_margin_count += 1
+
+                    # 5. Oversized Anchor Box Check (height > 80pt or width > 300pt)
+                    if r.height > 80.0 or r.width > 300.0:
+                        oversized_box_defects.append(
+                            f"{p.relative_to(output_dir)} [P{page_num} {subj}]: width={r.width:.1f}pt, height={r.height:.1f}pt"
+                        )
+
+                    y0_coords.append(r.y0)
+
+                # 4. Top-Margin Clustering Check (>= 3 annotations)
+                if top_margin_count >= 3:
+                    top_margin_clustering_defects.append(
+                        f"{p.relative_to(output_dir)} [P{page_num}]: {top_margin_count} annotations clustered in top margin (y0 < {ph * 0.15:.1f}pt)"
+                    )
+
+                # 6. Same-Y Clustering Check (>= 3 annotations within ±5pt)
+                if len(y0_coords) >= 3:
+                    for y in y0_coords:
+                        matches = [y_other for y_other in y0_coords if abs(y_other - y) <= 5.0]
+                        if len(matches) >= 3:
+                            same_y_clustering_defects.append(
+                                f"{p.relative_to(output_dir)} [P{page_num}]: {len(matches)} annotations clustered at y0 ~ {y:.1f}pt (±5pt)"
+                            )
+                            break
             doc.close()
         except Exception as exc:
             print(f"Error reading {p}: {exc}")
@@ -75,6 +108,9 @@ def audit_pdf_outputs(output_dir: Path) -> dict[str, Any]:
     print(f"OOB Bleeding Defects: {len(oob_defects)}")
     print(f"Box Overlap Defects (>30%): {len(overlap_defects)}")
     print(f"Page Mismatch Warnings: {len(page_mismatch_defects)}")
+    print(f"Top-Margin Clustering Defects: {len(top_margin_clustering_defects)}")
+    print(f"Oversized Anchor Box Defects: {len(oversized_box_defects)}")
+    print(f"Same-Y Clustering Defects: {len(same_y_clustering_defects)}")
 
     if oob_defects:
         print("\nSample OOB Defects:")
@@ -86,12 +122,30 @@ def audit_pdf_outputs(output_dir: Path) -> dict[str, Any]:
         for d in overlap_defects[:5]:
             print(f"  - {d}")
 
+    if top_margin_clustering_defects:
+        print("\nSample Top-Margin Clustering Defects:")
+        for d in top_margin_clustering_defects[:5]:
+            print(f"  - {d}")
+
+    if oversized_box_defects:
+        print("\nSample Oversized Anchor Box Defects:")
+        for d in oversized_box_defects[:5]:
+            print(f"  - {d}")
+
+    if same_y_clustering_defects:
+        print("\nSample Same-Y Clustering Defects:")
+        for d in same_y_clustering_defects[:5]:
+            print(f"  - {d}")
+
     return {
         "total_pdfs": len(pdf_files),
         "oob_defects": len(oob_defects),
         "overlap_defects": len(overlap_defects),
         "page_mismatches": len(page_mismatch_defects),
         "scanned_header_only": header_only_scanned_count,
+        "top_margin_clustering": len(top_margin_clustering_defects),
+        "oversized_anchor_boxes": len(oversized_box_defects),
+        "same_y_clustering": len(same_y_clustering_defects),
     }
 
 

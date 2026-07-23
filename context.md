@@ -28,14 +28,15 @@
   - Completed `W9-GEMINI-NORMALIZE` (Extract Response Normalization `[Track B2]`). Decomposed `grader/gemini_client.py` by extracting response parsing, sub-part aggregation, feedback derivation, locator normalization, and draft rubric normalization logic into `grader/gemini_normalize.py`, maintaining 100% re-exported backward compatibility.
   - Completed `W9-GEMINI-RESILIENCE` (Extract Resilience & Thin Client `[Track B3 - Final]`). Decomposed `grader/gemini_client.py` by extracting rate limiting, caching, exponential backoff retries, file readiness polling, cache key calculations, and error mapping logic into `grader/gemini_resilience.py` (`GeminiCacheStore`, `call_with_backoff`, `wait_for_file_active`, etc.), refactoring `GeminiGrader` into a thin transport API client with full re-exported backward compatibility.
   - Completed `W9-ANNOT-PIPELINE` (Refactor Annotator Pipeline `[Track A4 - Final]`). Decomposed `annotate_submission_pdfs` in `grader/annotate.py` into modular single-responsibility pipeline helpers (`_annotate_single_pdf`, `_process_question_annotation`, `_process_subparts_annotation`, `_append_unresolved_summary`), extracted `AnnotationSession` into `grader/annotation_state.py`, and extracted PyMuPDF rendering logic into `grader/pdf_renderer.py`, preserving 100% re-exported backward compatibility.
+- **Handwritten PDF Spatial Anchoring & Audit Quality (Wave 10 Shipped)**:
+  - Completed `W10-SCAN-DETECT` (Scanned PDF Quality Classification). Added `_is_gibberish_blocks()` heuristic in `extract.py` and `quality` tracking on `ExtractedPdf`.
+  - Completed `W10-COORDS-FIRST` (Coords-Primary Placement for Scanned PDFs). Bypass OCR block anchors for `ocr_low` scanned PDFs, prompt update for mandatory coords, mega-block rejection in `location_resolver.py`.
+  - Completed `W10-AUDIT-SPATIAL` (Enhanced Zero-Token Audit Diagnostics). Added `top_margin_clustering`, `oversized_anchor_boxes`, and `same_y_clustering` geometric checks in `grader/workflow/audit_pdf.py` and full unit test coverage in `tests/test_audit_pdf.py`.
+  - Completed `W10-PROPORTIONAL-FALLBACK` (Even-Spacing Grid for Missing Coords). Added `proportional_page_fallback` in `location_resolver.py` down the left margin, updated `find_anchor_in_doc` scanned/empty PDF fallback logic, and added test suite in `tests/test_proportional_fallback.py`.
 - **Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).**
 
 ## Current Objective
-Wave 9 Modularization & Refactoring is 100% complete! Proceeding to **Wave 10 — Handwritten PDF Spatial Anchoring & Audit Quality** in [Gradeline Unified Roadmap](docs/plans/roadmap.md):
-- **W10-SCAN-DETECT**: Scanned PDF Quality Classification
-- **W10-COORDS-FIRST**: Coords-Primary Placement for Scanned PDFs
-- **W10-AUDIT-SPATIAL**: Enhanced Zero-Token Audit Diagnostics
-- **W10-PROPORTIONAL-FALLBACK**: Even-Spacing Grid for Missing Coords
+Wave 10 (`W10-SCAN-DETECT`, `W10-COORDS-FIRST`, `W10-AUDIT-SPATIAL`, `W10-PROPORTIONAL-FALLBACK`) is fully shipped, tested (335/335 tests passing), and documented. Ready for Backlog / next phase objectives in [Gradeline Unified Roadmap](docs/plans/roadmap.md).
 
 ## Next Strategic Direction (Professor Web Workstation & UX)
 - **Intuitive Web App for Non-Tech Professors**: Building out the Review Server into a self-describing workstation with opt-in instructions and unobtrusive autosave visual feedback (`BL-SAVED-ANIM`).

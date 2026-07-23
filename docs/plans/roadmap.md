@@ -60,10 +60,10 @@ This document is the single source of truth for all planned improvements. It mer
 | **9** | **W9-GEMINI-RESILIENCE** | **Extract Resilience & Thin Client `[Track B3 - Final]`** | **M** | **Flash** | ✅ Done | Feedback #24 |
 | **9** | **W9-ORCH-STAGES** | **Extract Orchestrator Stages `[Track C]`** | **M** | **Flash** | ✅ Done | Feedback #24 |
 | **9** | **W9-CLI-COMMANDS** | **Extract Workflow CLI Subcommands `[Track D]`** | **M** | **Flash** | ✅ Done | Feedback #24 |
-| **10** | **W10-SCAN-DETECT** | **Scanned PDF Quality Classification** | **S** | **Flash** | Planned | HW3 Student A |
-| **10** | **W10-COORDS-FIRST** | **Coords-Primary Placement for Scanned PDFs** | **M** | **Flash** | Planned | HW3 Student A |
-| **10** | **W10-AUDIT-SPATIAL** | **Enhanced Zero-Token Audit Diagnostics** | **S** | **Flash** | Planned | HW3 Student A |
-| **10** | **W10-PROPORTIONAL-FALLBACK**| **Even-Spacing Grid for Missing Coords** | **S** | **Flash** | Planned | HW3 Student A |
+| **10** | **W10-SCAN-DETECT** | **Scanned PDF Quality Classification** | **S** | **Flash** | ✅ Done | HW3 Student A |
+| **10** | **W10-COORDS-FIRST** | **Coords-Primary Placement for Scanned PDFs** | **M** | **Flash** | ✅ Done | HW3 Student A |
+| **10** | **W10-AUDIT-SPATIAL** | **Enhanced Zero-Token Audit Diagnostics** | **S** | **Flash** | ✅ Done | HW3 Student A |
+| **10** | **W10-PROPORTIONAL-FALLBACK**| **Even-Spacing Grid for Missing Coords** | **S** | **Flash** | ✅ Done | HW3 Student A |
 | **Backlog** | BL-SEC | App Hardening & Security Auditing | M | Flash | ✅ Done | Security Audit |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
@@ -148,29 +148,7 @@ These tasks decompose high-complexity monoliths (`annotate.py`, `gemini_client.p
 
 ## Wave 10 — Handwritten PDF Spatial Anchoring & Audit Quality
 
-These tasks address the root cause of misplaced annotations on scanned handwritten PDFs (like Student A HW3) by shifting from brittle OCR blocks to Gemini's native spatial coordinates, and adding new audit diagnostics to catch spatial clustering defects.
-
-### Task Prompt: W10-SCAN-DETECT — Scanned PDF Quality Classification
-- In `extract.py`, add `_is_gibberish_blocks(blocks)` heuristic to flag low-quality Tesseract blocks (e.g., mean word length < 2.5, blocks covering > 35% of page).
-- Modify `_needs_gemini_fallback()` to return `True` on gibberish.
-- Add `quality: str = "unknown"` field to `ExtractedPdf` dataclass to track extraction confidence (`native`, `ocr_clean`, `ocr_low`).
-- **Resolution**: Continue using `_needs_gemini_fallback` to trigger Gemini OCR for better text (for regex pre-checks), but mark those Gemini OCR blocks as `quality="ocr_low"` so they aren't used for spatial anchoring on handwriting.
-
-### Task Prompt: W10-COORDS-FIRST — Coords-Primary Placement for Scanned PDFs
-- In `grading.py`, do not pass `blocks=` to `grade_submission_unified()` if `ExtractedPdf.quality == "ocr_low"`. This forces Gemini to use native `coords=[y,x]` for placement instead of referencing garbage `<answer id="p3_b3">` blocks.
-- In `gemini_schemas.py`, add the clarification: *"If no `<answer>` blocks are provided in the prompt, you MUST set `coords=[y,x]` for each question."* (Keep the existing `block_id` override rule for digital PDFs).
-- In `location_resolver.py`, when a resolved `block_id` points to a mega-block covering >30% of the page area, reject it and fall back to coords.
-- Keep `block_registry` for the annotation stage so anchor text search fallback still works if needed.
-
-### Task Prompt: W10-AUDIT-SPATIAL — Enhanced Zero-Token Audit Diagnostics
-- In `audit_pdf.py`, add 3 new geometric checks to `audit_pdf_outputs()`:
-  1. **Top-Margin Clustering**: Flag pages where ≥3 annotations have `y0 < page_height * 0.15`.
-  2. **Oversized Anchor Box**: Flag annotations whose matched block bounding box is disproportionately large (e.g. height > 80pt or width > 300pt for a simple `✓ Q3a` mark).
-  3. **Same-Y Clustering**: Flag pages where ≥3 annotations share the same y-coordinate (±5pt), indicating they all mapped to a single mega-block.
-
-### Task Prompt: W10-PROPORTIONAL-FALLBACK — Even-Spacing Grid for Missing Coords
-- In `location_resolver.py`, add a `proportional_page_fallback(page, question_index, total_questions)` function.
-- If both `block_id` and `coords` are missing/rejected for a scanned PDF, space the annotations evenly down the left margin instead of dropping them.
+These tasks address the root cause of misplaced annotations on scanned handwritten PDFs (like Student A HW3) by shifting from brittle OCR blocks to Gemini's native spatial coordinates, and adding new audit diagnostics to catch spatial clustering defects. (All Wave 10 tasks have been shipped; prompt details are archived in [shipped-waves-archive.md](archive/shipped-waves-archive.md)).
 
 ---
 
