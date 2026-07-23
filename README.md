@@ -1,66 +1,35 @@
-# Gemini-Backed Brightspace Grader
+# Gradeline — Agent-Native & Verifiable PDF Grading Engine
 
 [![Tests](https://github.com/walshkang/gradeline/actions/workflows/test.yml/badge.svg)](https://github.com/walshkang/gradeline/actions/workflows/test.yml)
 
-This tool grades Brightspace PDF submissions with Gemini, annotates PDFs with movable/editable FreeText annotations (green checks/red `x` marks), and builds CSV outputs for grade import and review.
+**Gradeline** is a CLI-native, fail-closed, spatial PDF grading engine powered by Google Gemini. Built specifically for instructors using **D2L Brightspace**, it automates assignment evaluation by combining deterministic pre-checks, spatial PDF visual annotations (green checks ✓ / red ✗ marks), Gemini context caching, and a local human-in-the-loop review app.
 
-It is specifically optimized for instructors using **D2L Brightspace** who download PDF submissions and want a repeatable, profile-based grading workflow with a built-in review web app. It natively understands Brightspace's "Download All" ZIP structure, auto-detects `OrgDefinedId` or usernames, and outputs import-ready CSVs that match the Brightspace gradebook format.
+It natively handles Brightspace's "Download All" ZIP structure, matches student roster IDs (`OrgDefinedId`/`Username`), enforces zero-trust security guardrails, and outputs import-ready CSVs formatted for the Brightspace gradebook.
 
-## You’ll need
+---
 
-- A Brightspace course with at least one PDF-based assignment
-- A Google Gemini API key
+## Key Highlights
+
+* **Deterministic Hybrid Pre-Check**: Utilizes regular expressions and an `expected_numeric` DSL to automatically grade exact numerical and percentage answers. Matching answers bypass LLM calls entirely, reducing API cost and latency.
+
+* **Context Caching at Scale**: Uploads master solution keys and system instructions to Gemini Context Cache (24-hour TTL) once per batch, cutting input token costs by up to 90%.
+
+* **Spatial PDF Grounding**: Stamps visual checks and error badges directly onto student PDFs at precise target coordinates using an exact priority fallback chain and collision detection.
+
+* **Judge LLM Audit Pass**: Runs an independent secondary AI critique pass on `grading_audit.csv` to verify methodology on partial credit and rounding error verdicts.
+
+* **Fail-Closed Zero-Trust Execution**: Corrupted PDFs or schema failures never crash the pipeline; problematic submissions automatically escalate to `REVIEW_REQUIRED` (score 0) while persisting progress checkpoints.
+
+* **Agent-Native & Safe**: Includes structured exit codes (`0`, `3`, `4`, `5`), streaming `--json` telemetry, untrusted prompt XML isolation, and `.agents/AGENTS.md` repository guardrails for autonomous coding agents.
+
+---
+
+## Prerequisites
+
 - macOS or Linux
-- Python 3.11+ and the dependencies from `requirements.txt`
-
-## Quick Start
-
-```bash
-# 1. Activate the virtual environment
-source .venv/bin/activate
-
-# 2. Set your Gemini API key (or add to .env file)
-export GEMINI_API_KEY="your_api_key_here"
-
-# 3. Import your assignment files from Downloads into data/{profile}/
-./gradeline import --profile a2x
-
-# 4. Run the quickstart wizard for that assignment
-./gradeline quickstart --profile a2
-```
-
-> **First time?** Download your student submissions, answer key PDF, and grade CSV from Brightspace into `~/Downloads`, then run `./gradeline import --profile a2`. See [`data/README.md`](data/README.md) for the expected `data/{profile}/` structure.
-
-Running `./gradeline` with no arguments opens an interactive menu:
-
-```
-› quickstart        —  Auto-detect settings, grade, and review
-  run               —  Grade submissions and launch review server
-  regrade           —  Clear cache and re-run grading from scratch
-  serve             —  Launch review server for existing results
-  setup             —  Interactive profile setup wizard
-  import            —  Copy recent Brightspace downloads into data/{profile}/
-  spot-grade        —  Grade a single late submission PDF (no Brightspace ID required)
-  configure-api-key —  Set or change GenAI API key (.env)
-  list              —  List local workflow profiles
-```
-
-All commands can also be called directly:
-
-```bash
-./gradeline import --profile a2
-./gradeline quickstart --profile a2
-./gradeline run --profile a2
-./gradeline regrade --profile a2
-./gradeline serve --profile a2
-./gradeline configure-api-key
-./gradeline list
-```
-
-## Requirements
-
-- macOS/Linux
 - Python 3.11+
+- A Google Gemini API key
+- A Brightspace course with PDF-based assignments
 - Python dependencies:
 
 ```bash
@@ -70,9 +39,61 @@ python3 -m pip install -r requirements.txt
 - Legacy mode only binaries (not needed for unified mode):
   - `pdftotext`, `pdfinfo`, `pdftoppm`, `tesseract`
 
-## Environment
+---
 
-Set your Gemini API key:
+## Quick Start
+
+```bash
+# 1. Activate the virtual environment
+source .venv/bin/activate
+
+# 2. Set your Gemini API key (or configure via .env)
+export GEMINI_API_KEY="your_api_key_here"
+
+# 3. Import your Brightspace assignment download from ~/Downloads into data/a2/
+./gradeline import --profile a2
+
+# 4. Run the quickstart wizard to generate profile config, grade, and review
+./gradeline quickstart --profile a2
+```
+
+> **First time?** Download student submissions, answer key PDF, and grade CSV into `~/Downloads`, then run `./gradeline import --profile a2`. See [`data/README.md`](data/README.md) for expected directory layouts.
+
+### Interactive TUI Menu
+
+Running `./gradeline` with no arguments launches the interactive terminal menu:
+
+```
+› quickstart        —  Auto-detect settings, grade, and launch review workstation
+  run               —  Grade submissions and launch local review server
+  regrade           —  Clear cache and re-run grading (full or per-question)
+  serve             —  Launch review workstation for existing output results
+  setup             —  Interactive step-by-step profile setup wizard
+  import            —  Copy recent Brightspace downloads into data/{profile}/
+  spot-grade        —  Grade a single late submission PDF
+  audit-pdf         —  Zero-token visual annotation & layout health check
+  configure-api-key —  Set or rotate GenAI API key in .env
+  list              —  List local workflow profiles and state validation
+```
+
+All commands can be invoked directly via CLI:
+
+```bash
+./gradeline import --profile a2
+./gradeline quickstart --profile a2
+./gradeline run --profile a2
+./gradeline regrade --profile a2
+./gradeline serve --profile a2
+./gradeline audit-pdf --profile a2
+./gradeline configure-api-key
+./gradeline list
+```
+
+---
+
+## Environment Setup
+
+Configure your Gemini API key via environment variable or `.env` file:
 
 ```bash
 export GEMINI_API_KEY="your_api_key_here"
@@ -84,14 +105,7 @@ Or create a local `.env` file in this repo root (auto-loaded by `grader.cli` and
 GEMINI_API_KEY="your_api_key_here"
 ```
 
-You can also configure or rotate this key interactively via the workflow TUI (applies to all profiles):
-
-```bash
-./gradeline          # open interactive menu
-# then choose: configure-api-key
-```
-
-Or call the configuration command directly:
+Or configure key rotation interactively across all workflow profiles:
 
 ```bash
 ./gradeline configure-api-key
@@ -99,9 +113,107 @@ Or call the configuration command directly:
 
 This command updates the `.env` file used by Gradeline processes; it does **not** export `GEMINI_API_KEY` into your shell environment. If other tools depend on `GEMINI_API_KEY` in the shell, continue to set it with `export GEMINI_API_KEY=...` as needed.
 
+---
+
+## Documentation
+
+- [`docs/runbook.md`](docs/runbook.md) — step-by-step operational guide: new assignment setup, re-runs, rubric iteration, performance tuning, troubleshooting
+
+---
+
+## Architecture & Pipeline Execution
+
+Gradeline executes a linear, four-stage spatial ETL (Extract, Transform, Load) pipeline per submission, executed concurrently using thread pools.
+
+```mermaid
+flowchart TD
+    SUB["📄 Student Submissions (PDFs)"]
+    RUBRIC["📋 Rubric & Solutions Key"]
+    CACHE[("Gemini Context Cache\n(TTL: 24h)")]
+
+    SUB --> S1
+    RUBRIC --> S15
+    RUBRIC --> CACHE
+
+    S1["Stage 1 — Extraction\n(Tesseract OCR / Gemini Vision)"]
+    S1 -->|"TextBlock Registry\n(id, text, bounding box)"| S15
+
+    S15["Stage 1.5 — Regex Pre-check\n(Deterministic matching)"]
+    S15 -->|"verdict: correct (bypasses LLM)\nOR falls through"| S2
+
+    CACHE -.->|"System Prompt +\nSolutions Context"| S2
+    S2["Stage 2 — AI Grading\n(Gemini unified mode)"]
+    S2 -->|"QuestionResult\n(verdict, evidence_quote, block_id, coords)"| S3
+
+    S3["Stage 3 — Spatial Annotation\n(PDF markup)"]
+    S3 -->|"Annotated PDF"| OUT_DIR
+
+    OUT_DIR["📂 Output Directory\n(Mirrored Brightspace structure)"]
+    
+    S2 --> AUDIT["grading_audit.csv"]
+    AUDIT --> S4["Stage 4 — Judge LLM\n(Logic Critique)"]
+    S4 -->|"Critiques & Fixes"| REVIEW_STATE["review_state.json"]
+    
+    REVIEW_STATE --> UI["🖥️ Local Review Server\n(Override & Accept Fixes)"]
+    UI --> EXPORT["brightspace_grades_import.csv"]
+```
+
+### Stage 1 — Extraction (OCR & Spatial Registry)
+
+Builds a **Block Registry** containing bounding box coordinates (x, y, w, h) for all extracted text. Uses Tesseract OCR with dynamic DPI scaling for high-res scans, falling back to Gemini Vision (`extraction_model`) for low-confidence handwriting.
+
+### Stage 1.5 — Deterministic Pre-Check (Hybrid Engine)
+
+Evaluates extracted text against `expected_answers` regexes and `expected_numeric` target rules. Exact matches earn an immediate `correct` verdict (`grading_source="regex"`), bypassing LLM API calls entirely.
+
+### Stage 2 — AI Evaluation (Context-Cached Gemini)
+
+Sends submission PDFs to Gemini with the Block Registry injected as structured XML context. Evaluates student methodology against rubric criteria and outputs structured JSON containing verdicts, reasoning, and evidence quotes.
+
+### Stage 3 — Spatial Annotation & Collision Prevention
+
+Renders physical checkmarks (✓) and red marks (✗) directly onto student PDFs. Placement priority:
+
+1. `block_id` — Direct match to OCR Block Registry.
+2. `model_coords` — Normalized 0–1000 spatial coordinates provided by Gemini.
+3. `local_anchor` — Regex anchor token positioning.
+4. `summary_fallback` — Page 1 summary table for unlocated questions.
+
+Collision detection automatically nudges overlapping annotations downward or rightward to guarantee layout legibility.
+
+### Stage 4 — Judge LLM Logic Audit
+
+An independent secondary AI pass audits `grading_audit.csv`. It verifies that `rounding_error` and `partial_credit` verdicts are backed by methodology evidence, injecting proposed fixes into `review_state.json` without mutating raw audit trails.
+
+### Architectural Guardrails & Key Decisions
+
+**Fail-Closed Error Handling (Zero-Trust State Management)**
+The pipeline never crashes on individual submission errors (corrupted PDFs, OCR failures, LLM schema violations). Instead, it catches the exception, flags the submission as `REVIEW_REQUIRED` (scoring it 0), saves a checkpoint, and gracefully proceeds.
+
+**Context Caching for Answer Keys**
+In `unified` mode, the `solutions.pdf` and base system instructions are uploaded to Gemini's Context Cache once per run. All grading calls reuse this cache, significantly reducing token consumption and latency.
+
+**Dual Thread Pools**
+Execution uses two separate thread pools drained by a single event loop:
+- **Grading Pool:** Heavy API wait times (default concurrency: 8)
+- **Annotation Pool:** CPU-bound PDF rendering (concurrency: 4)
+This ensures fast submissions finish immediately while complex ones (handwriting retries) run in the background.
+
+**Separation of Audit State and Review UI**
+The Judge LLM and human reviewers do not mutate the raw `grading_audit.csv` directly. Overrides and AI fixes are injected into `review_state.json`, preserving a clean separation between the original AI run and post-grading manual/audit modifications.
+
+**Modular Single-Responsibility Architecture**
+The orchestrator and grading subsystems are fully decomposed into decoupled, single-responsibility components:
+- **`grader/stages/`**: Isolated phase handlers (`preprocessing_stage`, `grading_stage`, `annotation_stage`, `report_stage`, `regrade_stage`).
+- **`grader/location_resolver.py` & `pdf_renderer.py`**: Pure placement strategy heuristics and PyMuPDF vector drawing decoupled from state management (`annotation_state.py`).
+- **`grader/gemini_resilience.py` & `gemini_schemas.py`**: Rate limiting, context caching, exponential backoff retries, and schema validation separated from transport mechanics.
+- **`grader/workflow/commands/`**: Subcommand handlers (`run`, `regrade`, `spot_grade`, `clear_run`, `grade_new`) extracted from the top-level CLI parser.
+
+---
+
 ## Workflow CLI (Profile-Based)
 
-Use workflow profiles to avoid long flag lists for repeated assignment runs. The `./gradeline` wrapper auto-activates the `.venv` and delegates to the workflow CLI.
+Profiles eliminate long CLI flag strings for repeated assignment evaluation. Settings are saved under `.manual_runs/profiles/{profile}.toml`. The `./gradeline` wrapper auto-activates the `.venv` and delegates to the workflow CLI.
 
 At a high level:
 
@@ -230,105 +342,32 @@ The list view includes:
   - Make sure your assignment files are either in `data/{profile}/` or in `~/Downloads`.
   - Try running `./gradeline import --profile {profile}` to populate `data/{profile}/` first.
 
-## Documentation
-
-- [`docs/runbook.md`](docs/runbook.md) — step-by-step operational guide: new assignment setup, re-runs, rubric iteration, performance tuning, troubleshooting
-
-## How It Works
-
-The core grading engine operates as a four-stage linear pipeline per submission, executed concurrently using thread pools.
-
-```mermaid
-flowchart TD
-    SUB["📄 Student Submissions (PDFs)"]
-    RUBRIC["📋 Rubric & Solutions Key"]
-    CACHE[("Gemini Context Cache\n(TTL: 24h)")]
-
-    SUB --> S1
-    RUBRIC --> S15
-    RUBRIC --> CACHE
-
-    S1["Stage 1 — Extraction\n(Tesseract OCR / Vision)"]
-    S1 -->|"TextBlock Registry\n(id, text, bounding box)"| S15
-
-    S15["Stage 1.5 — Regex Pre-check\n(Deterministic matching)"]
-    S15 -->|"verdict: correct (bypasses LLM)\nOR falls through"| S2
-
-    CACHE -.->|"System Prompt +\nSolutions Context"| S2
-    S2["Stage 2 — AI Grading\n(Gemini unified mode)"]
-    S2 -->|"QuestionResult\n(verdict, evidence_quote, block_id, coords)"| S3
-
-    S3["Stage 3 — Spatial Annotation\n(PDF markup)"]
-    S3 -->|"Annotated PDF"| OUT_DIR
-
-    OUT_DIR["📂 Output Directory\n(Mirrored Brightspace structure)"]
-    
-    S2 --> AUDIT["grading_audit.csv"]
-    AUDIT --> S4["Stage 4 — Judge LLM\n(Logic Critique)"]
-    S4 -->|"Critiques & Fixes"| REVIEW_STATE["review_state.json"]
-    
-    REVIEW_STATE --> UI["🖥️ Local Review Server\n(Override & Accept Fixes)"]
-    UI --> EXPORT["brightspace_grades_import.csv"]
-```
-
-### Stage 1 — Extraction (OCR / Vision)
-Extracts raw text and spatial bounding boxes from student PDFs. Runs Tesseract OCR in TSV mode to generate a **block registry** containing `id`, `text`, and exact pixel coordinates. If confidence is too low (e.g., messy handwriting), a Gemini vision fallback (`extraction_model`) is employed. 
-
-### Stage 1.5 — Regex Pre-check (Hybrid)
-Evaluates extracted text against `expected_answers` from the rubric. If a regex perfectly matches, the pipeline assigns a `correct` verdict deterministically (`grading_source="regex"`), skipping the LLM entirely to save time and API costs.
-
-### Stage 2 — Grading (AI Reasoning)
-The core logic engine. The submission PDF is sent to the LLM (using Gemini's unified mode) with the block registry injected as XML in the system prompt. The LLM evaluates the answers against the rubric and returns structured JSON containing a `verdict`, `evidence_quote`, and a specific `block_id`.
-
-### Stage 3 — Spatial Annotation
-Places physical green checks (✓) and red marks (✗) onto a copy of the student's PDF. Resolves placement using a strict priority chain:
-1. `block_id` — Maps back to the exact bounding box from Stage 1.
-2. `model_coords` — Normalized X/Y coordinates provided by the LLM (handwritten fallback).
-3. `local_anchor` — Regex search for question label tokens (e.g., "1a)").
-4. `summary_fallback` — Appends unresolved marks to a text summary on page 1.
-
-### Stage 4 — Judge LLM Auditing
-An independent AI pass that evaluates the primary grader's `logic_analysis` and `evidence_quote` against the rubric. It operates strictly on the `grading_audit.csv` database. Approved critiques and fixes are injected into `review_state.json`.
-
-### Architectural Guardrails & Key Decisions
-
-**Fail-Closed Error Handling (Zero-Trust State Management)**
-The pipeline never crashes on individual submission errors (corrupted PDFs, OCR failures, LLM schema violations). Instead, it catches the exception, flags the submission as `REVIEW_REQUIRED` (scoring it 0), saves a checkpoint, and gracefully proceeds.
-
-**Context Caching for Answer Keys**
-In `unified` mode, the `solutions.pdf` and base system instructions are uploaded to Gemini's Context Cache once per run. All grading calls reuse this cache, significantly reducing token consumption and latency.
-
-**Dual Thread Pools**
-Execution uses two separate thread pools drained by a single event loop:
-- **Grading Pool:** Heavy API wait times (default concurrency: 8)
-- **Annotation Pool:** CPU-bound PDF rendering (concurrency: 4)
-This ensures fast submissions finish immediately while complex ones (handwriting retries) run in the background.
-
-**Separation of Audit State and Review UI**
-The Judge LLM and human reviewers do not mutate the raw `grading_audit.csv` directly. Overrides and AI fixes are injected into `review_state.json`, preserving a clean separation between the original AI run and post-grading manual/audit modifications.
-
 ---
 
-## Direct CLI Usage
+## Direct CLI Usage & Agent Integration
 
-For advanced usage or scripting, you can bypass profiles and call the grading engine directly:
+For advanced scripting, CI/CD pipelines, or autonomous agent invocation, call the engine directly:
 
 ```bash
 python3 -m grader.cli \
-  --submissions-dir "/path/to/submissions" \
-  --solutions-pdf "/path/to/solutions.pdf" \
-  --rubric-yaml "/path/to/rubric.yaml" \
-  --grades-template-csv "/path/to/template.csv" \
-  --grade-column "Assignment 1 Points Grade" \
+  --submissions-dir "data/a2/submissions" \
+  --solutions-pdf "data/a2/solutions.pdf" \
+  --rubric-yaml "configs/a2.yaml" \
+  --grades-template-csv "data/a2/grades.csv" \
+  --grade-column "Assignment 2 Points Grade" \
   --grading-mode unified \
-  --model "gemma-4-31b-it" \
-  --output-dir "/path/to/output"
+  --model "gemini-2.5-flash" \
+  --output-dir "outputs/a2" \
+  --json \
+  --quiet
 ```
 
 Optional flags:
 
 ```bash
 --plain                          # force plain text output (no Rich formatting)
+--json                           # emit JSON summary to stdout on completion (agent-friendly)
+--quiet                          # suppress all non-error output; implies --plain
 --diagnostics-file "/custom/path/grading_diagnostics.json"
 --grading-mode legacy            # use legacy OCR/text + optional locator pass
 --grading-mode agent             # agentic mode: uses an external CLI agent for multi-step reasoning
@@ -344,6 +383,18 @@ Optional flags:
 --resume                         # resume grading run from local checkpoint
 ```
 
+### Agent Integration & Exit Codes
+
+Gradeline communicates execution health to orchestrating AI agents (Claude Code, Devin, Codex) via standardized exit codes and clean JSON streams:
+
+| Exit Code | Status | Meaning & Agent Action |
+| --- | --- | --- |
+| `0` | **Success** | Run completed; all submissions graded successfully. |
+| `3` | **Review Required** | Run completed; one or more submissions escalated to `REVIEW_REQUIRED`. |
+| `4` | **Process Errors** | Run completed with processing/grading exceptions logged to `grading_diagnostics.json`. |
+| `5` | **Rate Limited** | Daily API limit exhausted; checkpoint saved for `--resume`. |
+| `1` / `2` | **Preflight Error** | Invalid arguments, missing input files, or CSV write failures. |
+
 ## Outputs
 
 Inside `--output-dir`:
@@ -355,9 +406,11 @@ Inside `--output-dir`:
 - `index_audit.csv`
 - `grading_diagnostics.json` (unless overridden with `--diagnostics-file`)
 
-## Manual Review Web App (Local)
+---
 
-After a grading run finishes, a local browser app launches for second-pass manual review. The review server is started automatically by `./gradeline run` and `./gradeline regrade`.
+## Manual Review Web Workstation
+
+Launch the local web review app to inspect visual annotations, audit AI reasoning, and export finalized gradebook CSVs. The review server is started automatically by `./gradeline run` and `./gradeline regrade`.
 
 To start the review server manually:
 
@@ -365,18 +418,21 @@ To start the review server manually:
 ./gradeline serve --profile a2
 ```
 
-Then open the URL shown in the terminal (default `http://127.0.0.1:8765`).
+Navigate to `http://127.0.0.1:8765` to access:
 
-Use the **Config** tab to inspect/update:
-- solutions/rubric paths captured from the CLI run
-- grade points mapping
-- rubric thresholds (`check_plus_min`, `check_min`), `partial_credit`
-- question label patterns and scoring rules
+- **Suggested Grade & Rationale Banner**: One-click acceptance of Judge LLM logic critiques for `needs_review` flags.
+- **Live SSE Web Grading**: Trigger batch grading or regrading directly from the browser with real-time SSE progress streaming.
+- **Assignment Setup & Upload**: Manage profiles, configure rubric paths, and upload student submissions or solution PDFs directly.
+- **Interactive PDF Annotation Sidebar**: Drag, drop, or edit spatial coordinates for PDF checkmarks and error badges directly in the viewer.
+- **Token & Cost Dashboard**: Audit real-time API token consumption and per-student grading cost metrics.
+- **Config Management**: Inspect/update solutions/rubric paths, grade points mappings, rubric thresholds (`check_plus_min`, `check_min`), and question label patterns.
 
 ### Export reviewed artifacts
 
+Export reviewed artifacts via web UI or CLI:
+
 ```bash
-python3 -m grader.review_cli export --output-dir "/path/to/grading/output"
+python3 -m grader.review_cli export --output-dir "outputs/a2"
 ```
 
 Reviewed artifacts are written into `output_dir/review/`:
@@ -389,9 +445,13 @@ Reviewed artifacts are written into `output_dir/review/`:
 - `brightspace_grades_import_reviewed.csv`
 - `review_decisions.json`
 
-## Advanced Concepts & Notes
+---
+
+## Advanced Policies & Guardrails
 
 ### Grading & Scoring Policies
+- **`expected_numeric` Rubric DSL**: Define numeric target values in Rubric YAML (e.g. `expected_numeric: { target: 42.5, tolerance: 0.1, mode: percentage }`). Gradeline automatically generates pre-check regexes handling scientific notation, decimal variations, and percentage formats to bypass LLM calls deterministically.
+- **`force_vision_extraction` Support**: Set `force_vision_extraction: true` in your rubric/profile configuration to bypass Tesseract OCR entirely and use Gemini Vision extraction for math-heavy or handwritten submission sets.
 - **Custom Dynamic Grading Bands**: You can define any arbitrary grading bands (like `10, 9, 8...`) in the Rubric YAML under `bands`. Gradeline evaluates them dynamically by sorted descending threshold, and numeric band names automatically map directly to the output points score without manual CLI flag mappings.
 - **Rounding Error Forgiveness**: `rounding_error` verdicts are fully forgiven (score 1.0, same as `correct`). They appear as `✓ Q1 ≈` in green on annotated PDFs and as `≈` in the summary line so you can still see where they occurred.
 - **Feedback Fallback Policy**: If the AI feedback contains third-person tokens or is too wordy, the system drops the LLM feedback and falls back to the rubric's `short_note_fail` rather than dropping the note entirely. This ensures that the student is never penalized without a descriptive failure reason.
@@ -399,6 +459,7 @@ Reviewed artifacts are written into `output_dir/review/`:
 - Grade points are configurable via CLI flags: `--check-plus-points`, `--check-points`, `--check-minus-points`, `--review-required-points`.
 
 ### Reliability & Error Handling
+- **Security Hardening**: Untrusted student submissions and prompt inputs are isolated (`grader/security.py`) to prevent prompt injection. All incoming files undergo path traversal validation, and SHA-256 fingerprinting is used for submission indexing.
 - **Fail-Closed Error Handling**: If a PDF is corrupted, text extraction fails, or the LLM returns an invalid schema, the pipeline catches the error, flags the submission as `REVIEW_REQUIRED` (with a score of 0), logs the failure, and gracefully proceeds to the next student without crashing.
 - **Checkpoints**: Progress checkpoints are saved automatically on interrupts (Ctrl+C) or daily limit exhaustion, allowing you to resume seamlessly via `--resume` or the interactive menu. Checkpoints are automatically cleared upon successful completion of the grading run.
 - **Rate Limiting**: Thread-safe sliding window RPM limits and daily RPD limits are enforced by default. If a daily limit is hit, grading exits with code `5` and saves a checkpoint.
@@ -418,19 +479,23 @@ Reviewed artifacts are written into `output_dir/review/`:
 - `--dry-run` defaults to header-only annotation (no per-question x/✓ marks). Use `--annotate-dry-run-marks` for debug placement marks.
 - Rich console output with section headings, colored bands, and progress bars is used automatically in interactive terminals; use `--plain` for deterministic text output.
 
+---
+
 ## Running Tests
 
 Gradeline contains both unit/workflow tests and automated E2E browser integration tests (using Playwright).
 
 ### Unit & Workflow Tests
-To run the standard test suite:
+
 ```bash
 source .venv/bin/activate
 python3 -m pytest tests/ -x -q
 ```
 
 ### E2E / Browser Integration Tests
+
 The manual review server dashboard has integration tests that require Playwright:
+
 ```bash
 # 1. Install dev dependencies
 source .venv/bin/activate
@@ -444,17 +509,18 @@ playwright install chromium
 python3 -m pytest tests/test_review_ui.py -v
 ```
 
-## AI Coding Sessions & Agent Guidance
+---
 
-If you are an AI assistant or agent opening a coding session or executing commands/tool calls in this workspace, please adhere to the following rules:
+## AI Agent Development Guidance
 
-1. **Activate the Virtual Environment**: Always run the activation script before any other command:
-   ```bash
-   source .venv/bin/activate
-   ```
+When opening an automated coding session in this workspace, strictly adhere to the project invariants in [`.agents/AGENTS.md`](.agents/AGENTS.md):
+
+1. **Activate the Virtual Environment**: Always run `source .venv/bin/activate` prior to command execution.
 2. **Use Python 3**: Always run python commands using `python3` explicitly rather than `python` (e.g., when executing scripts, running tests, or performing tool calls):
    ```bash
    source .venv/bin/activate && python3 -m pytest tests/ -x -q
    ```
-3. **Follow Architectural Guardrails**: Read and comply with the core project invariants defined in [.agents/AGENTS.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/.agents/AGENTS.md) (Grade Integrity, Feedback Integrity, Config Hierarchy).
-
+3. **Respect Architectural Invariants**:
+   - *Grade Integrity*: Never assign non-zero grades without an explicit submission match. Never promote `REVIEW_REQUIRED` automatically.
+   - *Feedback Integrity*: Every point deduction must include a descriptive `short_reason`.
+   - *Config Hierarchy*: Respect `defaults.toml` → Profile TOML → CLI Flag resolution.
