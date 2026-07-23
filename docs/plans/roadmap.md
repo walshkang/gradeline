@@ -65,6 +65,10 @@ This document is the single source of truth for all planned improvements. It mer
 | **10** | **W10-AUDIT-SPATIAL** | **Enhanced Zero-Token Audit Diagnostics** | **S** | **Flash** | ✅ Done | HW3 Student A |
 | **10** | **W10-PROPORTIONAL-FALLBACK**| **Even-Spacing Grid for Missing Coords** | **S** | **Flash** | ✅ Done | HW3 Student A |
 | **11** | **W11-NONPDF** | **Non-PDF Submission Ingestion Engine (Images, Excel, Word → PDF)** | **M** | **Flash** | ✅ Done | HW3 Bella Submission |
+| **12** | **W12-PROFILE** | **Fix HW4 Profile Config (`hw4.toml`)** | **S** | **Flash** | Planned | HW4 Post-Mortem |
+| **12** | **W12-CRITERIA** | **Fix `compute_criteria_partial_score` Regex** | **S** | **Flash** | Planned | HW4 Post-Mortem |
+| **12** | **W12-DETECT** | **Validate Snapshot Grade Column in `workflow_detect.py`** | **S** | **Flash** | Planned | HW4 Post-Mortem |
+| **12** | **W12-TESTS** | **Add Criteria Parser Test Cases for LLM Phrasing Variants** | **S** | **Flash** | Planned | HW4 Post-Mortem |
 | **Backlog** | BL-SEC | App Hardening & Security Auditing | M | Flash | ✅ Done | Security Audit |
 
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
@@ -154,6 +158,162 @@ These tasks address the root cause of misplaced annotations on scanned handwritt
 
 ---
 
+## Wave 12 — HW4 Post-Mortem: Criteria Parser & Profile Fixes
+
+These tasks address two bugs discovered during the HW4 grading run:
+1. **Brightspace CSV export failed** because `hw4.toml` had a stale `grade_column` from a prior assignment (`"Assignment 2 Points Grade"`) that doesn't exist in `data/hw4/grades.csv`.
+2. **Grades were artificially low** because `compute_criteria_partial_score()` in `score.py` used rigid regexes that couldn't parse common LLM `logic_analysis` phrasing. Students meeting 4/5 rubric criteria collapsed to the 0.50 fallback instead of earning 0.80.
+
+> [!NOTE]
+> **Root Cause Analysis**: HW4 questions are multi-step process questions (hypothesis tests, confidence intervals with interpretation). The AI rubric generator correctly created `scoring_criteria` checklists and set `requires_work: true`. The `expected_answers` regexes are vestigial hints — the real grading path runs through the LLM + criteria parser. The criteria parser regex is where grades were suppressed.
+
+> [!NOTE]
+> **Parallel Execution**: All 4 tasks modify disjoint files and can run **100% in parallel**.
+
+### Task Prompt: W12-PROFILE — Fix HW4 Profile Config (`hw4.toml`)
+
+**File**: `.manual_runs/profiles/hw4.toml`
+
+**Problem**: `grade_column` is set to `"Assignment 2 Points Grade"` (stale from a prior assignment) and `identifier_column` is `"OrgDefinedId"`. The actual CSV headers in `data/hw4/grades.csv` are `"Assignment 4 Points Grade <Numeric MaxPoints:10>"` and `"Username"`.
+
+**Fix**:
+1. Open `.manual_runs/profiles/hw4.toml`.
+2. Change `grade_column` to `"Assignment 4 Points Grade <Numeric MaxPoints:10>"`.
+3. Change `identifier_column` to `"Username"`.
+4. Model after `.manual_runs/profiles/hw3.toml` which correctly uses the exact header from `data/hw3/grades.csv`.
+
+**Verification**: Run `.venv/bin/python3 -c 'import csv; r=csv.DictReader(open("data/hw4/grades.csv")); print(r.fieldnames)'` and confirm the `grade_column` value matches a header exactly.
+
+### Task Prompt: W12-CRITERIA — Fix `compute_criteria_partial_score` Regex
+
+**File**: `grader/score.py`, function `compute_criteria_partial_score()` (lines 14–51)
+
+**Problem**: The two regex patterns fail on common LLM `logic_analysis` output styles:
+- Pattern 1 `r"(?:criteria|criterion)?\s*([0-9\s,and&]+)\s*met\b"` — fails when auxiliary verbs appear before `met` (e.g. `"Criteria 1, 2, 3, and 4 are met"`) because `are` is not inside the number-capturing group and breaks the match.
+- Pattern 2 `r"\b(?:criterion|criteria)\s*(\d+)\s*(?:is|was|[:=])?\s*met\b"` — fails when parenthetical descriptions appear between the number and `met` (e.g. `"Criterion 1 (hypotheses) was met"`) because `(hypotheses)` is not matched by `\s*(?:is|was|[:=])?\s*`.
+
+**Fix** — Replace the two pattern blocks with:
+```python
+# Pattern 1: List format — "Criteria 1, 2, 3, and 4 [are/were] met"
+# Also handles "Criteria 1, 2, 4 met; Criterion 3, 5 unmet"
+for match in re.finditer(
+    r"(?:criteria|criterion)\s*([0-9\s,and&]+)(?:\([^)]*\))?\s*(?:are|were|is|was|[:=])?\s*met\b",
+    logic_analysis,
+    flags=re.IGNORECASE,
+):
+    num_str = match.group(1)
+    for num in re.findall(r"\b\d+\b", num_str):
+        met_indices.add(int(num))
+
+# Pattern 2: Single item with optional parenthetical description
+# e.g. "Criterion 1 (hypotheses) was met" or "Criterion 2 (t-test statistic and df) met"
+for match in re.finditer(
+    r"\b(?:criterion|criteria)\s*(\d+)\b[^\n.:;]*?\b(?:is|was|are|were)?\s*met\b",
+    logic_analysis,
+    flags=re.IGNORECASE,
+):
+    met_indices.add(int(match.group(1)))
+```
+
+**Key changes**:
+- Pattern 1: Added `(?:are|were|is|was|[:=])?` between the number group and `met`.
+- Pattern 2: Changed `\s*(?:is|was|[:=])?\s*` to `[^\n.:;]*?\b(?:is|was|are|were)?\s*` so parenthetical text like `(hypotheses)` is skipped over.
+
+**Verification**:
+1. Run `.venv/bin/pytest tests/test_scoring_criteria.py -v` — all existing tests must pass.
+2. Manually verify with: `.venv/bin/python3 -c 'from grader.score import compute_criteria_partial_score; from grader.types import ScoringCriterion; c=[ScoringCriterion(requirement="a",weight=1.0) for _ in range(5)]; print(compute_criteria_partial_score("Criteria 1, 2, 3, and 4 are met. Criterion 5 unmet.", c, 0.5))'` — should print `0.8`, not `0.5`.
+3. Verify: `.venv/bin/python3 -c 'from grader.score import compute_criteria_partial_score; from grader.types import ScoringCriterion; c=[ScoringCriterion(requirement="a",weight=1.0) for _ in range(5)]; print(compute_criteria_partial_score("Criterion 1 (hypotheses) was met. Criterion 2 (t-test) met. Criterion 3 (comparison) met. Criterion 4 (decision) met. Criterion 5 (assumption) unmet.", c, 0.5))'` — should print `0.8`, not `0.5`.
+
+### Task Prompt: W12-DETECT — Validate Snapshot Grade Column in `workflow_detect.py`
+
+**File**: `grader/workflow_detect.py`, function `detect_defaults()` (around lines 225–254)
+
+**Problem**: When a prior run's `grading_diagnostics.json` snapshot contains a `grade_column` value (e.g. `"Assignment 2 Points Grade"` from a different assignment), `detect_defaults()` trusts it at 85% confidence even when it doesn't match any header in the *current* template CSV. This caused the HW4 run to use a stale column name.
+
+**Fix**: After resolving `grade_column_requested` from the snapshot (line 225) and before the `if grade_column_requested:` check (line 237), add a validation step:
+```python
+# Validate snapshot grade_column against actual CSV headers
+if grade_column_requested and grade_column_source == "recent_run":
+    csv_headers = _grade_column_candidates_for_detected_csv(
+        grades_template_csv.value, assignment_token=assignment_token
+    )
+    all_headers = _read_csv_headers(grades_template_csv.value) if grades_template_csv.value else []
+    if all_headers and grade_column_requested not in all_headers:
+        # Snapshot column doesn't exist in current CSV — discard it
+        grade_column_requested = None
+```
+
+**Verification**: Run `.venv/bin/pytest tests/test_workflow_detect.py -v` — all existing tests must pass.
+
+### Task Prompt: W12-TESTS — Add Criteria Parser Test Cases for LLM Phrasing Variants
+
+**File**: `tests/test_scoring_criteria.py`
+
+**Problem**: The existing test suite for `compute_criteria_partial_score` only covers basic patterns (`"Criteria 1, 2 met"`, `"Criterion 3 met."`). It does not cover the phrasing variants that real LLM outputs produce.
+
+**Fix**: Add these test methods to class `ScoringCriteriaTests`:
+
+```python
+def test_criteria_with_parenthetical_descriptions(self) -> None:
+    """Criterion N (description) met/was met patterns are parsed correctly."""
+    criteria = [
+        ScoringCriterion(requirement="A", weight=1.0),
+        ScoringCriterion(requirement="B", weight=1.0),
+        ScoringCriterion(requirement="C", weight=1.0),
+        ScoringCriterion(requirement="D", weight=1.0),
+        ScoringCriterion(requirement="E", weight=1.0),
+    ]
+    logic = (
+        "Criterion 1 (hypotheses) met: Student stated H0. "
+        "Criterion 2 (t-test statistic and df) met: Correct. "
+        "Criterion 3 (comparison) met: Right. "
+        "Criterion 4 (decision) met: Fail to reject. "
+        "Criterion 5 (assumption) unmet: Missing normality."
+    )
+    score = compute_criteria_partial_score(logic, criteria, fallback=0.5)
+    self.assertAlmostEqual(score, 0.8)  # 4/5
+
+def test_criteria_list_with_auxiliary_verbs(self) -> None:
+    """'Criteria 1, 2, 3, and 4 are met' patterns are parsed correctly."""
+    criteria = [
+        ScoringCriterion(requirement="A", weight=1.0),
+        ScoringCriterion(requirement="B", weight=1.0),
+        ScoringCriterion(requirement="C", weight=1.0),
+        ScoringCriterion(requirement="D", weight=1.0),
+        ScoringCriterion(requirement="E", weight=1.0),
+    ]
+    logic = "Criteria 1, 2, 3, and 4 are met. Criterion 5 is unmet."
+    score = compute_criteria_partial_score(logic, criteria, fallback=0.5)
+    self.assertAlmostEqual(score, 0.8)  # 4/5
+
+def test_criteria_was_met_phrasing(self) -> None:
+    """'Criterion N (desc) was met' phrasing is parsed correctly."""
+    criteria = [
+        ScoringCriterion(requirement="A", weight=1.0),
+        ScoringCriterion(requirement="B", weight=2.0),
+    ]
+    logic = "Criterion 1 (standard error) was met by calculating SE correctly. Criterion 2 (interval) was unmet."
+    score = compute_criteria_partial_score(logic, criteria, fallback=0.5)
+    self.assertAlmostEqual(score, 1.0 / 3.0)  # weight 1.0 / total 3.0
+
+def test_criteria_semicolon_separated_mixed(self) -> None:
+    """'Criteria 1, 2, 4 met; Criterion 3, 5 unmet' mixed format."""
+    criteria = [
+        ScoringCriterion(requirement="A", weight=1.0),
+        ScoringCriterion(requirement="B", weight=1.0),
+        ScoringCriterion(requirement="C", weight=1.0),
+        ScoringCriterion(requirement="D", weight=1.0),
+        ScoringCriterion(requirement="E", weight=1.0),
+    ]
+    logic = "Criteria 1, 2, 4 met; Criterion 3, 5 unmet."
+    score = compute_criteria_partial_score(logic, criteria, fallback=0.5)
+    self.assertAlmostEqual(score, 0.6)  # 3/5
+```
+
+**Verification**: Run `.venv/bin/pytest tests/test_scoring_criteria.py -v` — all new and existing tests must pass (requires W12-CRITERIA to be applied first, or tests will demonstrate the bug).
+
+---
+
 ## Backlog
 
 | Task ID | Title | Size | Notes |
@@ -163,5 +323,6 @@ These tasks address the root cause of misplaced annotations on scanned handwritt
 | BL-SEARCH | Smart Candidate Search in Downloads | S | Sort by modified date, weight profile name matches higher. |
 | BL-SAVED-ANIM | Autosave Micro-Animations & Visual Confirmation | S | Disappearing popups, subtle green pulse ring, and "Saved ✓" badges on patches in Review UI. |
 | BL-WEB-WORKSTATION | Unified Web-Based Grading Workstation | XL | Single intuitive web app for non-tech professors covering Ingestion, Auto-Rubric Creation, Grading, and Review. |
+| BL-CRITERIA-STRUCT | Structured `criteria_met` in LLM Response Schema | M | Add `criteria_met: list[int]` to `UnifiedQuestionItem` so the LLM returns which scoring criteria indices were satisfied as machine-readable data instead of free-text prose parsed by regex. Eliminates fragility of `compute_criteria_partial_score()` regex parsing across all subjects/languages. Requires schema change in `gemini_schemas.py`, fallback logic in `score.py`, and prompt update in `gemini_schemas.py` context instructions. |
 
 
