@@ -769,7 +769,194 @@ Verification:
 - Run full pytest test suite — 299/299 passed.
 ```
 
+---
+
+## Wave 9 — Codebase Modularization & Refactoring
+
+### W9-ANNOT-STATE: Extract AnnotationSession Dataclass `[Track A1]`
+
+**Size**: Small · **Tier**: Flash
+
+```
+Modify grader/annotate.py to extract tracking dictionaries and sets (placed_rects, rendered, rendered_subparts, placement_details) into a cohesive AnnotationSession dataclass. Update existing functions to use this new state object.
+
+Files modified:
+- grader/annotate.py (Defined AnnotationSession dataclass with helper methods: clear_placed_rects, mark_rendered, is_rendered, mark_subpart_rendered, is_subpart_rendered, record_placement, update_results; updated annotate_submission_pdfs, insert_mark, add_band_header, add_fallback_summary)
+- tests/test_annotate.py (Added unit test test_annotation_session_state_tracking)
+
+Verification:
+- Run pytest tests/test_annotate*.py — 28/28 passed.
+- Run full pytest test suite — 300/300 passed.
+```
+
+---
+
+### W9-GEMINI-SCHEMAS: Extract Gemini Schemas & Prompts `[Track B1]`
+
+**Size**: Small · **Tier**: Flash
+
+```
+Extract Pydantic models, JSON schema definitions, and prompt builder functions from grader/gemini_client.py into a new grader/gemini_schemas.py module. This creates a pure data contract boundary with zero API dependency.
+
+Files modified/created:
+- grader/gemini_schemas.py (Created new zero-API-dependency module containing UnifiedQuestionItem, UnifiedSubmissionResponse, DraftScoringCriterion, DraftRubricQuestion, DraftRubricBands, DraftRubricConfig, prompt constants, and prompt builder functions build_legacy_grading_prompt, build_unified_grading_prompt, build_rubric_draft_prompt, build_context_system_instruction, build_agent_grading_prompt, build_locator_prompt, build_rubric_lines)
+- grader/gemini_client.py (Updated to import and re-export all extracted symbols from grader.gemini_schemas for 100% backward compatibility)
+
+Verification:
+- Run PYTHONPATH=. .venv/bin/pytest tests/test_gemini_contract.py — 45/45 passed.
+- Run full test suite — 299/299 passed.
+```
+
+---
+
+### W9-ANNOT-RENDERER: Extract PDF Renderer Module `[Track A2]`
+
+**Size**: Small · **Tier**: Flash
+
+```
+Extract drawing and PyMuPDF operations from grader/annotate.py into a new grader/pdf_renderer.py module. This includes insert_mark, add_movable_freetext_annotation, find_non_overlapping_rect, is_dark_background, add_band_header, add_fallback_summary, offset_mark_point, and related drawing constants. Update annotate.py to import from this new module.
+
+Files modified/created:
+- grader/pdf_renderer.py (Created new module for PyMuPDF drawing & annotation rendering operations)
+- grader/annotate.py (Updated to import and re-export rendering functions & constants for 100% backward compatibility)
+- tests/test_pdf_renderer.py (Added unit tests for pdf_renderer.py)
+
+Verification:
+- Run PYTHONPATH=. .venv/bin/pytest tests/test_pdf_renderer.py tests/test_annotate*.py — 33/33 passed.
+- Run full pytest test suite — 304/304 passed.
+```
+
+---
+
+### W9-ORCH-STAGES: Extract Orchestrator Stages `[Track C]`
+
+**Size**: Medium · **Tier**: Flash / Pro
+
+```
+Decompose monolithic grader/orchestrator.py (1,185 lines) by extracting pipeline phase handlers into single-responsibility sub-modules under grader/stages/:
+- grader/stages/preprocessing_stage.py (Preprocessing task execution)
+- grader/stages/grading_stage.py (Single-submission grading & zero-trust error fallback)
+- grader/stages/annotation_stage.py (PDF annotation, trust rationale building & snapshot tracking)
+- grader/stages/report_stage.py (CSV report outputs, audit summary & exit code evaluation)
+- grader/stages/regrade_stage.py (Question regrading pipeline execution)
+- grader/orchestrator.py (Refactored into a thin coordinator while preserving backward compatibility for re-exports & test patches)
+
+Files modified/created:
+- grader/stages/__init__.py
+- grader/stages/preprocessing_stage.py
+- grader/stages/grading_stage.py
+- grader/stages/annotation_stage.py
+- grader/stages/report_stage.py
+- grader/stages/regrade_stage.py
+- grader/orchestrator.py
+- tests/test_orchestrator_stages.py
+
+Verification:
+- Run PYTHONPATH=. .venv/bin/pytest tests/test_orchestrator_stages.py tests/test_orchestrator_*.py tests/test_regrade.py — 16/16 passed.
+- Run full test suite — 304/304 passed.
+```
 
 
+---
+
+### W9-CLI-COMMANDS: Extract Workflow CLI Subcommands `[Track D]`
+
+**Size**: Small · **Tier**: Flash
+
+```
+Decompose the monolithic grader/workflow_cli.py (1,206 lines) by extracting subcommand handlers into dedicated modules under grader/workflow/commands/ and grader/workflow/cli_utils.py. The main() dispatch function and build_parser() remain in workflow_cli.py.
+
+Files modified/created:
+- grader/workflow/cli_utils.py (Created new module for CLI constants, argument serialization, host/port resolution, and review status check)
+- grader/workflow/commands/run.py (Created execution handlers for run, serve, resume, and profile setup bootstrapping)
+- grader/workflow/commands/regrade.py (Created regrading logic and cache purging handlers)
+- grader/workflow/commands/spot_grade.py (Created spot grading handler)
+- grader/workflow/commands/clear_run.py (Created run/checkpoint clearing handler)
+- grader/workflow/commands/grade_new.py (Created interactive new assignment wizard handler)
+- grader/workflow/commands/__init__.py (Re-exported command handlers)
+- grader/workflow_cli.py (Decomposed down from 1,206 to 421 lines, re-exporting all symbols for 100% backward compatibility)
+
+Verification:
+- Run PYTHONPATH=. .venv/bin/pytest tests/test_workflow_cli.py tests/test_regrade.py — 32/32 passed.
+- Run full pytest test suite — 299/299 passed.
+```
 
 
+---
+
+### W9-GEMINI-NORMALIZE: Extract Response Normalization `[Track B2]`
+
+**Size**: Small · **Tier**: Flash
+
+```
+Extract response parsing, sub-part aggregation, feedback derivation, locator normalization, and draft rubric normalization logic from grader/gemini_client.py into a new grader/gemini_normalize.py module.
+
+Files modified/created:
+- grader/gemini_normalize.py (Created new module containing canonical_id, match_subparts_to_parent, aggregate_subpart_verdicts, normalize_model_response, normalize_feedback, derive_short_reason, derive_detail_reason, extract_detail_reason, extract_overflow_detail, clamp_short_reason, extract_pithy_sentence, is_third_person_feedback, normalize_locator_response, normalize_draft_rubric_payload, normalize_verdict, normalize_confidence, normalize_question_id, parse_coords_0_to_1000, parse_page_number, merge_flags)
+- grader/gemini_client.py (Imported and re-exported all extracted functions from gemini_normalize.py for 100% backward compatibility)
+
+Verification:
+- Run PYTHONPATH=. ./.venv/bin/pytest tests/test_gemini_contract.py tests/test_rubric_normalization.py tests/test_scoring_criteria.py — 65/65 passed.
+- Run full pytest test suite — 314/314 passed.
+```
+
+
+---
+
+### W9-ANNOT-RESOLVER: Extract Location Resolver Module `[Track A3]`
+
+**Size**: Small · **Tier**: Flash
+
+```
+Extract pure placement strategy functions from grader/annotate.py into a new grader/location_resolver.py module. This includes resolve_model_location, find_anchor_in_doc, OCR block heuristics, token matching, clamp, compact_reason, mark_text_for_result, and clean_subpart_label(). Update annotate.py to import and re-export all symbols from grader.location_resolver for 100% backward compatibility.
+
+Files modified/created:
+- grader/location_resolver.py (Created new single-responsibility module containing placement heuristics, anchor searching, coordinate mapping, and subpart label normalization)
+- grader/annotate.py (Updated to import and re-export all location resolution functions & constants, and refactored annotate_submission_pdfs and add_fallback_summary to use clean_subpart_label)
+- tests/test_location_resolver.py (Added unit tests for clean_subpart_label, build_anchor_tokens, clamp, mark_text_for_result, point_to_normalized, and resolve_model_location)
+
+Verification:
+- Run PYTHONPATH=. .venv/bin/pytest tests/test_location_resolver.py tests/test_annotate*.py — 38/38 passed.
+- Run full pytest test suite — 314/314 passed.
+```
+
+
+---
+
+### W9-GEMINI-RESILIENCE: Extract Resilience & Thin Client `[Track B3 - Final]`
+
+**Size**: Medium · **Tier**: Flash
+
+```
+Extract rate limiting, caching, exponential backoff retries, file readiness polling, cache key calculations, and error mapping logic from grader/gemini_client.py into a new grader/gemini_resilience.py module. Leave a clean, lightweight transport API client (GeminiGrader) in gemini_client.py that stitches together schemas, normalization, and resilience logic.
+
+Files modified/created:
+- grader/gemini_resilience.py (Created new single-responsibility module containing call_with_backoff, should_retry, wait_for_file_active, acquire_rate_limit, GeminiCacheStore, compute_*_cache_key, hash_file, rubric_to_cache_payload, structured_response_payload, response_text, parse_json_maybe_fenced)
+- grader/gemini_client.py (Refactored GeminiGrader to use GeminiCacheStore and gemini_resilience functions, re-exporting schema, normalization, and resilience symbols for 100% backward compatibility)
+- tests/test_gemini_resilience.py (Created new unit test suite covering backoff retries, rate limiting, file readiness, parse_json_maybe_fenced, and GeminiCacheStore CRUD operations)
+
+Verification:
+- Run PYTHONPATH=. .venv/bin/pytest tests/test_gemini_contract.py tests/test_gemini_resilience.py — 51/51 passed.
+- Run full pytest test suite — 324/324 passed.
+```
+
+
+---
+
+### W9-ANNOT-PIPELINE: Refactor Annotator Pipeline `[Track A4 - Final]`
+
+**Size**: Small · **Tier**: Flash
+
+```
+Refactor the high-level annotate_submission_pdfs function in grader/annotate.py into smaller pipeline helpers (_annotate_single_pdf, _process_question_annotation, _process_subparts_annotation, _process_single_question_annotation, _append_unresolved_summary). Extract AnnotationSession dataclass into grader/annotation_state.py and PyMuPDF rendering logic into grader/pdf_renderer.py. Ensure annotate.py cleanly stitches together AnnotationSession, location_resolver, and pdf_renderer while re-exporting all symbols for 100% backward compatibility.
+
+Files modified/created:
+- grader/annotation_state.py (Created AnnotationSession dataclass to manage state tracking, placed rects, rendered sets, placement details, and result finalization)
+- grader/pdf_renderer.py (Created single-responsibility PyMuPDF rendering module containing insert_mark, add_movable_freetext_annotation, add_band_header, add_fallback_summary, collision nudging, and rendering constants)
+- grader/annotate.py (Decomposed annotate_submission_pdfs into modular pipeline helpers and re-exported all state, rendering, and location resolver symbols for backward compatibility)
+- tests/test_annotation_pipeline.py (Added unit tests for AnnotationSession lifecycle, single PDF annotation, subparts annotation, and summary fallback rendering)
+
+Verification:
+- Run PYTHONPATH=. .venv/bin/pytest tests/test_annotate*.py tests/test_annotation_pipeline.py tests/test_location_resolver.py — 42/42 passed.
+- Run full pytest test suite — 324/324 passed.
+```
