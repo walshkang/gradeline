@@ -1,0 +1,105 @@
+assignment_id: hw4
+bands:
+  "10": 0.85 # 85%+ (Lenient check plus/A)
+  "9": 0.70  # 70%+
+  "8": 0.55  # 55%+
+  "7": 0.40  # 40%+
+  "5": 0.00  # Default minimum score
+  
+questions:
+- id: '1'
+  label_patterns: ["1.", "1)", "Question 1", "Q1"]
+  anchor_tokens: ["confidence interval", "claimed value", "26.49"]
+  scoring_rules: |
+    Full credit for correctly calculating the 95% confidence interval and providing a correct interpretation. 
+    The interval calculation must be shown, including standard error and margin of error. 
+    The interpretation must state the confidence level, provide context, and note that the claimed value of 30 is outside the interval.
+  short_note_pass: Correct interval and interpretation.
+  short_note_fail: The confidence interval or its interpretation is incorrect.
+  weight: 0.25
+  requires_work: true
+  expected_answers:
+  - '\( *26\.49\d*, *27\.5[01]\d* *\)'
+  scoring_criteria:
+  - requirement: Correctly calculates the standard error (approx 0.2583).
+    weight: 1.0
+  - requirement: Uses the correct z-critical value for 95% confidence (1.96).
+    weight: 1.0
+  - requirement: Calculates the final confidence interval (approx 26.49 to 27.51). Accept values within +/- 0.02.
+    weight: 2.0
+  - requirement: Provides a correct interpretation, noting that the claimed population mean of 30 is not within the interval.
+    weight: 1.0
+
+- id: '2'
+  label_patterns: ["2.", "2)", "Question 2", "Q2"]
+  anchor_tokens: ["99% confidence", "3.27", "standard error"]
+  scoring_rules: |
+    Full credit for correctly calculating the 99% confidence interval and providing a correct interpretation. 
+    The interval calculation must be shown, including standard error and margin of error. 
+    The interpretation must state the confidence level and provide context.
+  short_note_pass: Correct interval and interpretation.
+  short_note_fail: The confidence interval or its interpretation is incorrect.
+  weight: 0.25
+  requires_work: true
+  expected_answers:
+  - '\( *3\.26?\d*, *3\.53?\d* *\)'
+  scoring_criteria:
+  - requirement: Correctly calculates the standard error (approx 0.0516).
+    weight: 1.0
+  - requirement: Uses the correct z-critical value for 99% confidence (2.576 or 2.58).
+    weight: 1.0
+  - requirement: Calculates the final confidence interval (approx 3.27 to 3.53). Accept values within +/- 0.02.
+    weight: 2.0
+  - requirement: Provides a correct interpretation of the interval in context.
+    weight: 1.0
+
+- id: '3'
+  label_patterns: ["3.", "3)", "Question 3", "Q3"]
+  anchor_tokens: ["textbook prices", "null hypothesis", "112"]
+  scoring_rules: |
+    Full credit for performing a complete hypothesis test. This includes stating the null and alternative hypotheses, 
+    calculating the z-test statistic, comparing it to the critical value (or using the p-value), and stating the final conclusion in context.
+  short_note_pass: Correct test and conclusion.
+  short_note_fail: Hypothesis test steps or conclusion are incorrect.
+  weight: 0.25
+  requires_work: true
+  expected_answers:
+  - '(?:fail to reject|do not reject) (?:H0|H_0|the null)'
+  scoring_criteria:
+  - requirement: 'States the correct null (H₀: μ = 112) and one-tailed alternative (H␐: μ > 112) hypotheses.'
+    weight: 1.0
+  - requirement: Calculates the correct z-test statistic (approx -62.32).
+    weight: 1.0
+  - requirement: Correctly compares the test statistic to the critical value (1.645) or p-value to alpha (0.05).
+    weight: 1.0
+  - requirement: Makes the correct decision to fail to reject the null hypothesis.
+    weight: 1.0
+  - requirement: States the final conclusion in the context of textbook prices.
+    weight: 1.0
+
+- id: '4'
+  label_patterns: ["4.", "4)", "Question 4", "Q4"]
+  anchor_tokens: ["fuel efficiency", "degrees of freedom", "32.5"]
+  scoring_rules: |
+    Full credit for a complete t-test. This includes stating hypotheses, calculating the t-test statistic and degrees of freedom, 
+    making a decision based on the critical value or p-value, stating a conclusion, and identifying the necessary assumption.
+  short_note_pass: Correct test, conclusion, and assumption.
+  short_note_fail: Hypothesis test or required assumption is incorrect or missing.
+  weight: 0.25
+  requires_work: true
+  expected_answers:
+  - '(?:fail to reject|do not reject) (?:H0|H_0|the null)'
+  scoring_criteria:
+  - requirement: 'States the correct null (H₀: μ = 32.5) and one-tailed alternative (H␐: μ < 32.5) hypotheses.'
+    weight: 1.0
+  - requirement: Calculates the correct t-test statistic (approx -1.58) and degrees of freedom (24).
+    weight: 1.0
+  - requirement: Correctly compares the test statistic to the critical value (approx -2.492) or p-value to alpha (0.01).
+    weight: 1.0
+  - requirement: Makes the correct decision to fail to reject the null hypothesis.
+    weight: 1.0
+  - requirement: States the necessary assumption that the population of fuel efficiency is normally distributed.
+    weight: 1.0
+
+scoring_mode: equal_weights
+partial_credit: 0.5

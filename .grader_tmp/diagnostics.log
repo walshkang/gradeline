@@ -1,0 +1,6 @@
+--- Command Failed: pdfinfo nonexistent_file_xyz.pdf ---
+Exit code: 1
+Stderr:
+I/O Error: Couldn't open file 'nonexistent_file_xyz.pdf': No such file or directory.
+
+
