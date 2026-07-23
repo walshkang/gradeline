@@ -58,12 +58,75 @@ class DiscoveryTests(unittest.TestCase):
             units = discover_submission_units(root)
             
             # Only student2 should be discovered because student1 had no PDF/convertible files (index.html is ignored/skipped).
-            # The root index.html should be ignored because it is a file.
-            # The hidden folder .hidden_folder should be skipped because it starts with '.'
             self.assertEqual(len(units), 1)
             self.assertEqual(units[0].student_name, "Student Two")
             self.assertEqual(len(units[0].pdf_paths), 1)
             self.assertEqual(units[0].pdf_paths[0].name, "submission.pdf")
+
+    def test_discover_submission_units_converts_xlsx_and_docx(self) -> None:
+        import docx
+        import openpyxl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            student = root / "789 - Bella Mastendino"
+            student.mkdir()
+
+            # Create XLSX file
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "HW3 Answers"
+            ws["A1"] = "Question 1"
+            ws["B1"] = "mu = 11.536"
+            wb.save(student / "Isabella Mastendino.HW3.xlsx")
+
+            # Create DOCX file
+            doc = docx.Document()
+            doc.add_paragraph("Homework 3 DOCX Submission")
+            doc.save(student / "answers.docx")
+
+            units = discover_submission_units(root)
+            self.assertEqual(len(units), 1)
+            unit = units[0]
+            self.assertEqual(unit.student_name, "Bella Mastendino")
+
+            # Check converted PDF paths
+            pdf_names = {p.name for p in unit.pdf_paths}
+            self.assertIn("Isabella Mastendino.HW3.pdf", pdf_names)
+            self.assertIn("answers.pdf", pdf_names)
+
+    def test_multi_file_submission_pdf_xlsx_heic(self) -> None:
+        import openpyxl
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            student = root / "999 - Multi Submission Student"
+            student.mkdir()
+
+            # 1. Existing PDF (template or main PDF)
+            (student / "HW3.pdf").write_bytes(b"%PDF-1.4\n%EOF")
+
+            # 2. XLSX file
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws["A1"] = "XLSX Solution"
+            wb.save(student / "HW3.xlsx")
+
+            # 3. Image file (PNG / JPEG)
+            img = Image.new("RGB", (100, 100), color="blue")
+            img.save(student / "solution_photo.png")
+
+            units = discover_submission_units(root)
+            self.assertEqual(len(units), 1)
+            unit = units[0]
+
+            pdf_names = {p.name for p in unit.pdf_paths}
+            # All 3 files must be discovered (HW3.pdf, HW3_xlsx.pdf, 999 - Multi Submission Student_images.pdf)
+            self.assertIn("HW3.pdf", pdf_names)
+            self.assertIn("HW3_xlsx.pdf", pdf_names)
+            self.assertIn("999 - Multi Submission Student_images.pdf", pdf_names)
+            self.assertEqual(len(unit.pdf_paths), 3)
 
 if __name__ == "__main__":
     unittest.main()

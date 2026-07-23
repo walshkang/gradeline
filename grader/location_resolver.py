@@ -480,7 +480,7 @@ def resolve_model_location(
             matched_b = candidates[0][2]
             abs_x = max(15.0, matched_b.left - 10.0)
             abs_y = matched_b.top
-            page_idx = matched_b.page - 1
+            page_idx = max(0, min(len(doc) - 1, matched_b.page - 1))
             page = doc[page_idx]
 
     x = clamp(abs_x, 4.0, max(4.0, page.rect.width - 4.0))

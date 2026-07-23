@@ -64,7 +64,9 @@ This document is the single source of truth for all planned improvements. It mer
 | **10** | **W10-COORDS-FIRST** | **Coords-Primary Placement for Scanned PDFs** | **M** | **Flash** | ✅ Done | HW3 Student A |
 | **10** | **W10-AUDIT-SPATIAL** | **Enhanced Zero-Token Audit Diagnostics** | **S** | **Flash** | ✅ Done | HW3 Student A |
 | **10** | **W10-PROPORTIONAL-FALLBACK**| **Even-Spacing Grid for Missing Coords** | **S** | **Flash** | ✅ Done | HW3 Student A |
+| **11** | **W11-NONPDF** | **Non-PDF Submission Ingestion Engine (Images, Excel, Word → PDF)** | **M** | **Flash** | ✅ Done | HW3 Bella Submission |
 | **Backlog** | BL-SEC | App Hardening & Security Auditing | M | Flash | ✅ Done | Security Audit |
+
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
 
