@@ -235,6 +235,62 @@ questions:
         score_oob = compute_criteria_partial_score("Criterion 99 met.", criteria, fallback=0.6)
         self.assertEqual(score_oob, 0.6)
 
+    def test_criteria_with_parenthetical_descriptions(self) -> None:
+        """Criterion N (description) met/was met patterns are parsed correctly."""
+        criteria = [
+            ScoringCriterion(requirement="A", weight=1.0),
+            ScoringCriterion(requirement="B", weight=1.0),
+            ScoringCriterion(requirement="C", weight=1.0),
+            ScoringCriterion(requirement="D", weight=1.0),
+            ScoringCriterion(requirement="E", weight=1.0),
+        ]
+        logic = (
+            "Criterion 1 (hypotheses) met: Student stated H0. "
+            "Criterion 2 (t-test statistic and df) met: Correct. "
+            "Criterion 3 (comparison) met: Right. "
+            "Criterion 4 (decision) met: Fail to reject. "
+            "Criterion 5 (assumption) unmet: Missing normality."
+        )
+        score = compute_criteria_partial_score(logic, criteria, fallback=0.5)
+        self.assertAlmostEqual(score, 0.8)  # 4/5
+
+    def test_criteria_list_with_auxiliary_verbs(self) -> None:
+        """'Criteria 1, 2, 3, and 4 are met' patterns are parsed correctly."""
+        criteria = [
+            ScoringCriterion(requirement="A", weight=1.0),
+            ScoringCriterion(requirement="B", weight=1.0),
+            ScoringCriterion(requirement="C", weight=1.0),
+            ScoringCriterion(requirement="D", weight=1.0),
+            ScoringCriterion(requirement="E", weight=1.0),
+        ]
+        logic = "Criteria 1, 2, 3, and 4 are met. Criterion 5 is unmet."
+        score = compute_criteria_partial_score(logic, criteria, fallback=0.5)
+        self.assertAlmostEqual(score, 0.8)  # 4/5
+
+    def test_criteria_was_met_phrasing(self) -> None:
+        """'Criterion N (desc) was met' phrasing is parsed correctly."""
+        criteria = [
+            ScoringCriterion(requirement="A", weight=1.0),
+            ScoringCriterion(requirement="B", weight=2.0),
+        ]
+        logic = "Criterion 1 (standard error) was met by calculating SE correctly. Criterion 2 (interval) was unmet."
+        score = compute_criteria_partial_score(logic, criteria, fallback=0.5)
+        self.assertAlmostEqual(score, 1.0 / 3.0)  # weight 1.0 / total 3.0
+
+    def test_criteria_semicolon_separated_mixed(self) -> None:
+        """'Criteria 1, 2, 4 met; Criterion 3, 5 unmet' mixed format."""
+        criteria = [
+            ScoringCriterion(requirement="A", weight=1.0),
+            ScoringCriterion(requirement="B", weight=1.0),
+            ScoringCriterion(requirement="C", weight=1.0),
+            ScoringCriterion(requirement="D", weight=1.0),
+            ScoringCriterion(requirement="E", weight=1.0),
+        ]
+        logic = "Criteria 1, 2, 4 met; Criterion 3, 5 unmet."
+        score = compute_criteria_partial_score(logic, criteria, fallback=0.5)
+        self.assertAlmostEqual(score, 0.6)  # 3/5
+
+
     def test_score_submission_integration(self) -> None:
         """score_submission applies criteria score for partial verdicts."""
         sc1 = ScoringCriterion(requirement="Step A", weight=1.0)

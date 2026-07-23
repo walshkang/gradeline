@@ -25,9 +25,10 @@ def compute_criteria_partial_score(
 
     met_indices: set[int] = set()
 
-    # Pattern 1: Explicit list preceding "met" (e.g. "Criteria 1, 3 met", "Criteria 1 and 2 met")
+    # Pattern 1: Explicit list preceding "met" (e.g. "Criteria 1, 2, 3, and 4 are met")
+    # Also handles "Criteria 1, 2, 4 met; Criterion 3, 5 unmet"
     for match in re.finditer(
-        r"(?:criteria|criterion)?\s*([0-9\s,and&]+)\s*met\b",
+        r"(?:criteria|criterion)\s*([0-9\s,and&]+)(?:\([^)]*\))?\s*(?:are|were|is|was|[:=])?\s*met\b",
         logic_analysis,
         flags=re.IGNORECASE,
     ):
@@ -35,9 +36,10 @@ def compute_criteria_partial_score(
         for num in re.findall(r"\b\d+\b", num_str):
             met_indices.add(int(num))
 
-    # Pattern 2: Individual item matches like "Criterion 1: met" or "Criterion 1 is met"
+    # Pattern 2: Single item with optional parenthetical description
+    # e.g. "Criterion 1 (hypotheses) was met" or "Criterion 2 (t-test statistic and df) met"
     for match in re.finditer(
-        r"\b(?:criterion|criteria)\s*(\d+)\s*(?:is|was|[:=])?\s*met\b",
+        r"\b(?:criterion|criteria)\s*(\d+)\b[^\n.:;]*?\b(?:is|was|are|were)?\s*met\b",
         logic_analysis,
         flags=re.IGNORECASE,
     ):

@@ -37,10 +37,14 @@
   - Resolved scanned handwritten subpart anchor misplacement (specifically fixing **Aaron Gurley HW3**, re-anchoring `Q2a`, `Q2b`, and `Q2c` from generic top-left margin fallbacks onto Page 2 beside the actual handwritten answers).
   - Capped maximum annotation box width to 260pt and enforced strict canvas boundary clamping (`x1 <= pw - 4.0`), eliminating oversized 600pt boxes and OOB bleeding defects.
   - Verified against test suite (335/335 passing) and zero-token `./gradeline audit-pdf` diagnostics (71% drop in box overlaps, 75% drop in same-Y clustering).
+- **HW4 Post-Mortem: Criteria Parser & Profile Fixes (Wave 12 Progress)**:
+  - Completed `W12-CRITERIA` (Fix `compute_criteria_partial_score` Regex). Updated `grader/score.py` regex patterns in `compute_criteria_partial_score()` to support auxiliary verbs ("are/were met") and parenthetical descriptions ("Criterion 1 (hypotheses) was met"), preventing partial score suppression on multi-step rubric criteria.
+  - Completed `W12-TESTS` (Add Criteria Parser Test Cases for LLM Phrasing Variants). Added 4 new test methods to `ScoringCriteriaTests` in `tests/test_scoring_criteria.py` covering LLM logic analysis phrasing variants (parentheticals, auxiliary verbs, was met, semicolon separated lists). Verified with 14/14 tests passing.
 - **Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).**
 
 ## Current Objective
-All annotation location fixes are fully shipped, tested (335/335 tests passing), and verified against Aaron Gurley HW3. Ready for Backlog / next phase objectives in [Gradeline Unified Roadmap](docs/plans/roadmap.md).
+Executing Wave 12 tasks (HW4 Post-Mortem: Criteria Parser & Profile Fixes). `W12-CRITERIA` and `W12-TESTS` are completed and verified against test suites (14/14 criteria tests passing). Remaining Wave 12 tasks (`W12-PROFILE`, `W12-DETECT`) are queued in [Gradeline Unified Roadmap](docs/plans/roadmap.md).
+
 
 ## Next Strategic Direction (Professor Web Workstation & UX)
 - **Intuitive Web App for Non-Tech Professors**: Building out the Review Server into a self-describing workstation with opt-in instructions and unobtrusive autosave visual feedback (`BL-SAVED-ANIM`).

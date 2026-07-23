@@ -1049,5 +1049,63 @@ Verification:
 - Run full pytest test suite — 335/335 passed.
 ```
 
+---
+
+## Wave 12 — HW4 Post-Mortem: Criteria Parser & Profile Fixes
+
+### W12-CRITERIA: Fix `compute_criteria_partial_score` Regex
+
+**Size**: Small · **Tier**: Flash
+
+```
+Task Prompt: W12-CRITERIA — Fix compute_criteria_partial_score Regex
+
+File: grader/score.py, function compute_criteria_partial_score()
+
+Problem: The two regex patterns fail on common LLM logic_analysis output styles:
+- Pattern 1 r"(?:criteria|criterion)?\s*([0-9\s,and&]+)\s*met\b" — fails when auxiliary verbs appear before met (e.g. "Criteria 1, 2, 3, and 4 are met").
+- Pattern 2 r"\b(?:criterion|criteria)\s*(\d+)\s*(?:is|was|[:=])?\s*met\b" — fails when parenthetical descriptions appear between the number and met (e.g. "Criterion 1 (hypotheses) was met").
+
+Fix:
+Updated Pattern 1 regex: r"(?:criteria|criterion)\s*([0-9\s,and&]+)(?:\([^)]*\))?\s*(?:are|were|is|was|[:=])?\s*met\b"
+Updated Pattern 2 regex: r"\b(?:criterion|criteria)\s*(\d+)\b[^\n.:;]*?\b(?:is|was|are|were)?\s*met\b"
+
+Files modified:
+- grader/score.py (Updated compute_criteria_partial_score regexes)
+
+Verification:
+- Run .venv/bin/python3 -m pytest tests/test_scoring_criteria.py -v — 10/10 passed.
+- Run python manual verification snippets for auxiliary verbs and parenthetical descriptions — both returned 0.8.
+- Run full pytest test suite — 337/337 passed.
+```
+
+---
+
+### W12-TESTS: Add Criteria Parser Test Cases for LLM Phrasing Variants
+
+**Size**: Small · **Tier**: Flash
+
+```
+Task Prompt: W12-TESTS — Add Criteria Parser Test Cases for LLM Phrasing Variants
+
+File: tests/test_scoring_criteria.py
+
+Problem: The existing test suite for compute_criteria_partial_score only covers basic patterns ("Criteria 1, 2 met", "Criterion 3 met."). It does not cover the phrasing variants that real LLM outputs produce.
+
+Fix: Added test methods to class ScoringCriteriaTests:
+- test_criteria_with_parenthetical_descriptions
+- test_criteria_list_with_auxiliary_verbs
+- test_criteria_was_met_phrasing
+- test_criteria_semicolon_separated_mixed
+
+Files modified:
+- tests/test_scoring_criteria.py (Added 4 test methods to ScoringCriteriaTests)
+
+Verification:
+- Run PYTHONPATH=. .venv/bin/pytest tests/test_scoring_criteria.py -v — 14/14 passed.
+```
+
+
+
 
 
