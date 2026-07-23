@@ -26,9 +26,15 @@ Active objective is completing remaining **Wave 8 — Workflow & CLI Streamlinin
 - `W8-PROFILE`: One-Command Profile Auto-Creation
 - `W8-IMPORT`: Smart Import & Solution/Roster Auto-Discovery
 - `W8-STREAM`: Real-time Structured Event Stream (`status.json`)
-- `W9-REFACTOR-ANNOT`: PDF Annotator & Placement Engine Refactoring (Phase 1)
-- `W9-REFACTOR-GEMINI`: Gemini LLM Client & Resilience Decomposition (Phase 2)
-- `W9-REFACTOR-MONOLITH`: Pipeline Orchestrator & CLI Subcommand Decomposition (Phase 3)
+- `W9-ANNOT-STATE`: Extract AnnotationSession Dataclass (Phase 1)
+- `W9-ANNOT-RENDERER`: Extract PDF Renderer Module (Phase 1)
+- `W9-ANNOT-RESOLVER`: Extract Location Resolver Module (Phase 1)
+- `W9-ANNOT-PIPELINE`: Refactor Annotator Pipeline (Phase 1)
+- `W9-GEMINI-SCHEMAS`: Extract Gemini Schemas & Prompts (Phase 2)
+- `W9-GEMINI-NORMALIZE`: Extract Response Normalization (Phase 2)
+- `W9-GEMINI-RESILIENCE`: Extract Resilience & Thin Client (Phase 2)
+- `W9-ORCH-STAGES`: Extract Orchestrator Stages (Phase 3)
+- `W9-CLI-COMMANDS`: Extract Workflow CLI Subcommands (Phase 3)
 
 ## Next Strategic Direction (Professor Web Workstation & UX)
 - **Intuitive Web App for Non-Tech Professors**: Building out the Review Server into a self-describing workstation with opt-in instructions and unobtrusive autosave visual feedback (`BL-SAVED-ANIM`).

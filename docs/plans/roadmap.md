@@ -51,9 +51,15 @@ This document is the single source of truth for all planned improvements. It mer
 | **8** | W8-STREAM | Real-time Structured Event Stream (`status.json`) | M | Flash | Planned | Feedback Reflection |
 | **8** | **W8-AUDIT** | **PDF Annotation Engine Overhaul & `./gradeline audit-pdf`** | **M** | **Flash** | ✅ Done | Feedback #9, #10, #16 |
 | **8** | **W8-SCAN-ANCHOR** | **Scanned PDF OCR Anchor Lookup & Margin Alignment** | **M** | **Flash** | ✅ Done | Feedback #23 |
-| **9** | W9-REFACTOR-ANNOT | PDF Annotator & Placement Engine Refactoring (Phase 1) | L | Pro | Planned | Feedback #24 |
-| **9** | W9-REFACTOR-GEMINI | Gemini LLM Client & Resilience Decomposition (Phase 2) | L | Pro | Planned | Feedback #24 |
-| **9** | W9-REFACTOR-MONOLITH | Pipeline Orchestrator & CLI Decomposition (Phase 3) | L | Pro | Planned | Feedback #24 |
+| **9** | W9-ANNOT-STATE | Extract AnnotationSession Dataclass | S | Flash | Planned | Feedback #24 |
+| **9** | W9-ANNOT-RENDERER | Extract PDF Renderer Module | M | Flash | Planned | Feedback #24 |
+| **9** | W9-ANNOT-RESOLVER | Extract Location Resolver Module | M | Flash | Planned | Feedback #24 |
+| **9** | W9-ANNOT-PIPELINE | Refactor Annotator Pipeline | M | Flash | Planned | Feedback #24 |
+| **9** | W9-GEMINI-SCHEMAS | Extract Gemini Schemas & Prompts | S | Flash | Planned | Feedback #24 |
+| **9** | W9-GEMINI-NORMALIZE | Extract Response Normalization | M | Flash | Planned | Feedback #24 |
+| **9** | W9-GEMINI-RESILIENCE | Extract Resilience & Thin Client | M | Flash | Planned | Feedback #24 |
+| **9** | W9-ORCH-STAGES | Extract Orchestrator Stages | M | Flash | Planned | Feedback #24 |
+| **9** | W9-CLI-COMMANDS | Extract Workflow CLI Subcommands | M | Flash | Planned | Feedback #24 |
 | **Backlog** | BL-SEC | App Hardening & Security Auditing | M | Flash | ✅ Done | Security Audit |
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
@@ -100,23 +106,32 @@ Modify `grader/orchestrator.py` to emit an atomic `status.json` file in the run 
 
 These tasks decompose high-complexity monoliths (`annotate.py`, `gemini_client.py`, `orchestrator.py`, `workflow_cli.py`) into single-responsibility modules to simplify unit testing, state management, and long-term maintainability.
 
-### Task Prompt: W9-REFACTOR-ANNOT — PDF Annotator & Placement Engine Refactoring (Phase 1)
-Decompose `grader/annotate.py` (1,246 lines) into modular sub-packages while preserving existing public function signatures:
-- **`location_resolver.py`**: Pure placement strategy functions (`resolve_model_location`, `find_anchor_in_doc`, OCR block heuristics, token matching, `clean_subpart_label()`, module-level `CIRCLED_DIGITS`). Zero `fitz` dependency for fast unit testing.
-- **`pdf_renderer.py`**: Drawing & PyMuPDF operations (`insert_mark`, `add_movable_freetext_annotation`, `find_non_overlapping_rect`, `is_dark_background`).
-- **`annotator.py`**: High-level orchestrator function `annotate_submission_pdfs` decomposed into pipeline helpers (`_annotate_single_pdf`, `_append_unresolved_summary`).
-- **`AnnotationSession` Dataclass**: Encapsulate tracking dictionaries and sets (`placed_rects`, `rendered`, `rendered_subparts`, `placement_details`) into a cohesive state dataclass.
+### Task Prompt: W9-ANNOT-STATE — Extract AnnotationSession Dataclass
+Modify `grader/annotate.py` to extract the tracking dictionaries and sets (`placed_rects`, `rendered`, `rendered_subparts`, `placement_details`) from `annotate_submission_pdfs` into a cohesive `AnnotationSession` dataclass. Update the existing functions to use this new state object.
 
-### Task Prompt: W9-REFACTOR-GEMINI — Gemini LLM Client & Resilience Decomposition (Phase 2)
-Decompose `grader/gemini_client.py` (1,814 lines) into single-responsibility modules:
-- **`gemini_schemas.py`**: Pydantic models, JSON schema definitions, and structured output contract helpers for primary grading, judge feedback, and rubric generation.
-- **`gemini_resilience.py`**: Rate limiting, quota tracking, exponential backoff retries, and error mapping logic.
-- **`gemini_client.py`**: Clean, lightweight transport API client orchestrating request execution and schema parsing.
+### Task Prompt: W9-ANNOT-RENDERER — Extract PDF Renderer Module
+Extract drawing and PyMuPDF operations from `grader/annotate.py` into a new `grader/pdf_renderer.py` module. This should include `insert_mark`, `add_movable_freetext_annotation`, `find_non_overlapping_rect`, `is_dark_background`, and related constants. Update `annotate.py` to import from this new module.
 
-### Task Prompt: W9-REFACTOR-MONOLITH — Pipeline Orchestrator & CLI Subcommand Decomposition (Phase 3)
-Decompose `orchestrator.py` (1,181 lines) and `workflow_cli.py` (1,206 lines):
-- **`grader/stages/`**: Modularize `orchestrator.py` into pipeline stages (`precheck_stage.py`, `grading_stage.py`, `audit_stage.py`, `annotation_stage.py`).
-- **`grader/workflow/commands/`**: Extract CLI subcommands from `workflow_cli.py` into dedicated subcommand modules.
+### Task Prompt: W9-ANNOT-RESOLVER — Extract Location Resolver Module
+Extract pure placement strategy functions from `grader/annotate.py` into a new `grader/location_resolver.py` module. This includes `resolve_model_location`, `find_anchor_in_doc`, OCR block heuristics, token matching, and `clean_subpart_label()`. Aim for minimal `fitz` dependency where possible to enable fast unit testing. Update `annotate.py` to import from this new module.
+
+### Task Prompt: W9-ANNOT-PIPELINE — Refactor Annotator Pipeline
+Refactor the high-level `annotate_submission_pdfs` function in `grader/annotate.py` (now acting as the orchestrator) into smaller pipeline helpers like `_annotate_single_pdf` and `_append_unresolved_summary`. Ensure the module cleanly stitches together `AnnotationSession`, `location_resolver`, and `pdf_renderer`. Ensure existing public function signatures remain the same.
+
+### Task Prompt: W9-GEMINI-SCHEMAS — Extract Gemini Schemas & Prompts
+Extract Pydantic models, JSON schema definitions, and prompt builder functions from `grader/gemini_client.py` into a new `grader/gemini_schemas.py` module. This creates a pure data contract boundary with zero API dependency.
+
+### Task Prompt: W9-GEMINI-NORMALIZE — Extract Response Normalization
+Extract all response parsing, derivation, and normalization logic (e.g., `normalize_model_response`, `normalize_locator_response`) from `grader/gemini_client.py` into a new `grader/gemini_normalize.py` module.
+
+### Task Prompt: W9-GEMINI-RESILIENCE — Extract Resilience & Thin Client
+Extract rate limiting, caching, exponential backoff retries, and error mapping logic from `grader/gemini_client.py` into a new `grader/gemini_resilience.py` module. Leave a clean, lightweight transport API client (`GeminiGrader`) in `gemini_client.py` that stitches together schemas, normalization, and resilience logic.
+
+### Task Prompt: W9-ORCH-STAGES — Extract Orchestrator Stages
+Decompose the monolithic `grader/orchestrator.py` (1,184 lines) by extracting pipeline phases (e.g., precheck, grading, annotation) into dedicated stage handler sub-modules under `grader/stages/`. The `Orchestrator` class should remain as a thin coordinator.
+
+### Task Prompt: W9-CLI-COMMANDS — Extract Workflow CLI Subcommands
+Decompose the monolithic `grader/workflow_cli.py` (1,206 lines) by extracting subcommand handlers (e.g., `run_from_profile`, `regrade_from_profile`) into dedicated modules under `grader/workflow/commands/`. The `main()` dispatch function and `build_parser()` should remain in `workflow_cli.py`.
 
 ---
 

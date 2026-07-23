@@ -204,10 +204,10 @@ This document records usability pain points and suggested feature improvements d
   3. `grader/orchestrator.py` (1,181 lines) & `grader/workflow_cli.py` (1,206 lines): Merge end-to-end pipeline execution and CLI command dispatchers into multi-hundred-line functions.
 * **Suggested Solution**: 
   Implement a 3-Phase Modularization Plan:
-  * **Phase 1 (`W9-REFACTOR-ANNOT`)**: Split `annotate.py` into pure logic `location_resolver.py`, PyMuPDF wrapper `pdf_renderer.py`, high-level `annotator.py`, and an `AnnotationSession` dataclass for state management.
-  * **Phase 2 (`W9-REFACTOR-GEMINI`)**: Split `gemini_client.py` into `gemini_schemas.py` (data contracts), `gemini_resilience.py` (retries/rate limiting), and core transport client.
-  * **Phase 3 (`W9-REFACTOR-MONOLITH`)**: Extract `orchestrator.py` stage handlers (`stages/precheck_stage.py`, `stages/grading_stage.py`, etc.) and `workflow_cli.py` command modules.
-* **Status/Roadmap**: Planned in Wave 9 (`W9-REFACTOR-ANNOT`, `W9-REFACTOR-GEMINI`, `W9-REFACTOR-MONOLITH` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
+  * **Phase 1**: Split `annotate.py` into state management (`W9-ANNOT-STATE`), pure logic `location_resolver.py` (`W9-ANNOT-RESOLVER`), PyMuPDF wrapper `pdf_renderer.py` (`W9-ANNOT-RENDERER`), and a high-level `annotator.py` pipeline (`W9-ANNOT-PIPELINE`).
+  * **Phase 2**: Split `gemini_client.py` into `gemini_schemas.py` (`W9-GEMINI-SCHEMAS`), `gemini_normalize.py` (`W9-GEMINI-NORMALIZE`), and `gemini_resilience.py` (`W9-GEMINI-RESILIENCE`) leaving a thin transport client.
+  * **Phase 3**: Extract `orchestrator.py` stage handlers (`W9-ORCH-STAGES`) and `workflow_cli.py` subcommand handlers (`W9-CLI-COMMANDS`).
+* **Status/Roadmap**: Planned in Wave 9 (`W9-ANNOT-STATE`, `W9-ANNOT-RENDERER`, `W9-ANNOT-RESOLVER`, `W9-ANNOT-PIPELINE`, `W9-GEMINI-SCHEMAS`, `W9-GEMINI-NORMALIZE`, `W9-GEMINI-RESILIENCE`, `W9-ORCH-STAGES`, `W9-CLI-COMMANDS` in [roadmap.md](file:///Users/walsh.kang/Documents/GitHub/gradeline/docs/plans/roadmap.md)).
 
 
 ### 23. Scanned PDF OCR Anchor Lookup & Left Margin Alignment
