@@ -67,7 +67,7 @@ This document is the single source of truth for all planned improvements. It mer
 | **11** | **W11-NONPDF** | **Non-PDF Submission Ingestion Engine (Images, Excel, Word → PDF)** | **M** | **Flash** | ✅ Done | HW3 Bella Submission |
 | **12** | **W12-PROFILE** | **Fix HW4 Profile Config (`hw4.toml`)** | **S** | **Flash** | ✅ Done | HW4 Post-Mortem |
 | **12** | **W12-CRITERIA** | **Fix `compute_criteria_partial_score` Regex** | **S** | **Flash** | ✅ Done | HW4 Post-Mortem |
-| **12** | **W12-DETECT** | **Validate Snapshot Grade Column in `workflow_detect.py`** | **S** | **Flash** | Planned | HW4 Post-Mortem |
+| **12** | **W12-DETECT** | **Validate Snapshot Grade Column in `workflow_detect.py`** | **S** | **Flash** | ✅ Done | HW4 Post-Mortem |
 | **12** | **W12-TESTS** | **Add Criteria Parser Test Cases for LLM Phrasing Variants** | **S** | **Flash** | ✅ Done | HW4 Post-Mortem |
 | **Backlog** | BL-SEC | App Hardening & Security Auditing | M | Flash | ✅ Done | Security Audit |
 | **13** | **W13-SHELL** | **Workstation Navigation Shell & Landing Page** | **M** | **Flash** | Planned | BL-WEB-WORKSTATION |
@@ -201,26 +201,8 @@ These tasks address two bugs discovered during the HW4 grading run:
 *(Task shipped — prompt archived in `docs/plans/archive/shipped-waves-archive.md`)*
 
 
-### Task Prompt: W12-DETECT — Validate Snapshot Grade Column in `workflow_detect.py`
-
-**File**: `grader/workflow_detect.py`, function `detect_defaults()` (around lines 225–254)
-
-**Problem**: When a prior run's `grading_diagnostics.json` snapshot contains a `grade_column` value (e.g. `"Assignment 2 Points Grade"` from a different assignment), `detect_defaults()` trusts it at 85% confidence even when it doesn't match any header in the *current* template CSV. This caused the HW4 run to use a stale column name.
-
-**Fix**: After resolving `grade_column_requested` from the snapshot (line 225) and before the `if grade_column_requested:` check (line 237), add a validation step:
-```python
-# Validate snapshot grade_column against actual CSV headers
-if grade_column_requested and grade_column_source == "recent_run":
-    csv_headers = _grade_column_candidates_for_detected_csv(
-        grades_template_csv.value, assignment_token=assignment_token
-    )
-    all_headers = _read_csv_headers(grades_template_csv.value) if grades_template_csv.value else []
-    if all_headers and grade_column_requested not in all_headers:
-        # Snapshot column doesn't exist in current CSV — discard it
-        grade_column_requested = None
-```
-
-**Verification**: Run `.venv/bin/pytest tests/test_workflow_detect.py -v` — all existing tests must pass.
+### Task Prompt: W12-DETECT — Validate Snapshot Grade Column in `workflow_detect.py` ✅ Done
+*(Task shipped — prompt archived in `docs/plans/archive/shipped-waves-archive.md`)*
 
 ### Task Prompt: W12-TESTS — Add Criteria Parser Test Cases for LLM Phrasing Variants ✅ Done
 *(Task shipped — prompt archived in `docs/plans/archive/shipped-waves-archive.md`)*

@@ -1109,3 +1109,24 @@ Verification:
 
 
 
+
+### Task Prompt: W12-DETECT — Validate Snapshot Grade Column in `workflow_detect.py`
+
+**File**: `grader/workflow_detect.py`, function `detect_defaults()` (around lines 225–254)
+
+**Problem**: When a prior run's `grading_diagnostics.json` snapshot contains a `grade_column` value (e.g. `"Assignment 2 Points Grade"` from a different assignment), `detect_defaults()` trusts it at 85% confidence even when it doesn't match any header in the *current* template CSV. This caused the HW4 run to use a stale column name.
+
+**Fix**: After resolving `grade_column_requested` from the snapshot (line 225) and before the `if grade_column_requested:` check (line 237), add a validation step:
+```python
+# Validate snapshot grade_column against actual CSV headers
+if grade_column_requested and grade_column_source == "recent_run":
+    csv_headers = _grade_column_candidates_for_detected_csv(
+        grades_template_csv.value, assignment_token=assignment_token
+    )
+    all_headers = _read_csv_headers(grades_template_csv.value) if grades_template_csv.value else []
+    if all_headers and grade_column_requested not in all_headers:
+        # Snapshot column doesn't exist in current CSV — discard it
+        grade_column_requested = None
+```
+
+**Verification**: Run `.venv/bin/pytest tests/test_workflow_detect.py -v` — all existing tests must pass.

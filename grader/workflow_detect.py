@@ -226,6 +226,13 @@ def detect_defaults(
     if existing_profile is not None:
         grade_column_requested = existing_profile.grade.grade_column
 
+    # Validate snapshot grade_column against actual CSV headers
+    if grade_column_requested and existing_profile is None:
+        all_headers = _read_csv_headers(grades_template_csv.value) if grades_template_csv.value else []
+        if all_headers and grade_column_requested not in all_headers:
+            # Snapshot column doesn't exist in current CSV — discard it
+            grade_column_requested = None
+
     grade_column_candidates = _grade_column_candidates_for_detected_csv(
         grades_template_csv.value,
         assignment_token=assignment_token,
