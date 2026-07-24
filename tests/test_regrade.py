@@ -103,7 +103,7 @@ def test_regrade_cli_parses_clear_cache(monkeypatch):
     parsed_args = []
     
     # Mock regrade_from_profile
-    def mock_regrade_from_profile(*, profile_spec, question, student_filter, host_override, port_override, clear_cache=False):
+    def mock_regrade_from_profile(*, profile_spec, question, student_filter, host_override, port_override, clear_cache=False, **kwargs):
         parsed_args.append((profile_spec, question, student_filter, clear_cache))
         return 0
         
