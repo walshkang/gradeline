@@ -12,6 +12,7 @@ from grader.location_resolver import (
     clean_subpart_label,
     compact_reason,
     find_anchor_in_doc,
+    find_answer_anchor_in_doc,
     is_literal_pattern,
     mark_text_for_result,
     point_to_normalized,
@@ -117,3 +118,26 @@ def test_resolve_model_location_block_id():
     assert point.x == 20.0  # max(15.0, 30.0 - 10.0)
     assert point.y == 60.0
     assert source == "block_id"
+
+
+def test_find_answer_anchor_in_doc():
+    doc = fitz.open()
+    page = doc.new_page(width=500, height=800)
+    page.insert_text(fitz.Point(50, 100), "1. Calculate mean: 11.534 ounces")
+
+    q_res = QuestionResult(id="1", verdict="correct", confidence=1.0, short_reason="", evidence_quote="μ = 11.534")
+    header_loc = (0, fitz.Point(50, 100))
+
+    ans_loc = find_answer_anchor_in_doc(doc, "1", q_res, header_loc)
+    assert ans_loc is not None
+    page_idx, point, src = ans_loc
+    assert page_idx == 0
+    assert src == "answer_anchor"
+    assert point.x > 50.0  # Placed adjacent to matched answer text
+
+    # Fallback to right margin when answer text not found
+    q_res_missing = QuestionResult(id="2", verdict="needs_review", confidence=0.0, short_reason="No work found", evidence_quote="")
+    ans_loc_fallback = find_answer_anchor_in_doc(doc, "2", q_res_missing, header_loc)
+    assert ans_loc_fallback is not None
+    assert ans_loc_fallback[2] == "section_right_margin"
+    assert ans_loc_fallback[1].x >= 400.0

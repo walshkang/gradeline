@@ -15,6 +15,7 @@ from .location_resolver import (
     clean_subpart_label,
     compact_reason,
     find_anchor_in_doc,
+    find_answer_anchor_in_doc,
     is_literal_pattern,
     mark_text_for_result,
     point_to_normalized,
@@ -58,6 +59,7 @@ def annotate_submission_pdfs(
     dry_run: bool = False,
     annotate_dry_run_marks: bool = False,
     annotation_font_size: float = DEFAULT_ANNOTATION_FONT_SIZE,
+    annotation_mode: str = "answer_inline",
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[Path], list[QuestionResult]]:
     import fitz  # Lazy import for testability without dependency.
@@ -90,6 +92,7 @@ def annotate_submission_pdfs(
             single_pdf=single_pdf,
             render_question_marks=render_question_marks,
             annotation_font_size=annotation_font_size,
+            annotation_mode=annotation_mode,
             progress_callback=progress_callback,
         )
 
@@ -130,6 +133,7 @@ def _annotate_single_pdf(
     single_pdf: bool,
     render_question_marks: bool,
     annotation_font_size: float,
+    annotation_mode: str = "answer_inline",
     progress_callback: Callable[[int, int, str], None] | None,
 ) -> None:
     import fitz
@@ -158,7 +162,7 @@ def _annotate_single_pdf(
                 placed_rects=session.placed_rects,
             )
 
-        if render_question_marks:
+        if render_question_marks and annotation_mode != "header_summary_only":
             question_fontsize = max(8.0, float(annotation_font_size))
             total_questions = len(rubric.questions)
             for q_idx, question in enumerate(rubric.questions):
@@ -173,6 +177,7 @@ def _annotate_single_pdf(
                     block_registry=block_registry,
                     single_pdf=single_pdf,
                     question_fontsize=question_fontsize,
+                    annotation_mode=annotation_mode,
                     progress_callback=progress_callback,
                 )
 
@@ -194,6 +199,7 @@ def _process_question_annotation(
     block_registry: dict[str, "TextBlock"] | None,
     single_pdf: bool,
     question_fontsize: float,
+    annotation_mode: str = "answer_inline",
     progress_callback: Callable[[int, int, str], None] | None,
 ) -> None:
     q_result = session.result_map.get(question.id)
@@ -222,6 +228,7 @@ def _process_question_annotation(
             question_fontsize=question_fontsize,
             question_index=q_idx,
             total_questions=total_questions,
+            annotation_mode=annotation_mode,
         )
     else:
         _process_single_question_annotation(
@@ -236,6 +243,7 @@ def _process_question_annotation(
             question_fontsize=question_fontsize,
             question_index=q_idx,
             total_questions=total_questions,
+            annotation_mode=annotation_mode,
         )
 
 
@@ -252,7 +260,11 @@ def _process_subparts_annotation(
     question_fontsize: float,
     question_index: int = 0,
     total_questions: int = 1,
+    annotation_mode: str = "answer_inline",
 ) -> None:
+    if annotation_mode == "header_summary_only":
+        return
+
     all_subparts_rendered = True
     parent_loc_resolved = False
     parent_page_idx, parent_point = None, None
@@ -325,6 +337,21 @@ def _process_subparts_annotation(
                     missing_count += 1
 
         if sub_page_idx is not None and sub_point is not None:
+            anchor_location = (sub_page_idx, sub_point)
+            if annotation_mode == "answer_inline":
+                ans_loc = find_answer_anchor_in_doc(
+                    doc=doc,
+                    question_id=sub_result.id,
+                    q_result=sub_result,
+                    anchor_location=anchor_location,
+                    block_registry=block_registry,
+                )
+                if ans_loc is not None:
+                    sub_page_idx, sub_point = ans_loc[0], ans_loc[1]
+            elif annotation_mode == "right_margin":
+                right_x = max(10.0, doc[sub_page_idx].rect.width - 80.0)
+                sub_point = fitz.Point(right_x, sub_point.y)
+
             sub_mark_text = mark_text_for_result(
                 question_id=question.id,
                 result=sub_result,
@@ -374,7 +401,11 @@ def _process_single_question_annotation(
     question_fontsize: float,
     question_index: int = 0,
     total_questions: int = 1,
+    annotation_mode: str = "answer_inline",
 ) -> None:
+    if annotation_mode == "header_summary_only":
+        return
+
     model_location = resolve_model_location(
         doc=doc,
         pdf_filename=pdf_path.name,
@@ -382,13 +413,11 @@ def _process_single_question_annotation(
         block_registry=block_registry,
         ignore_source_file=single_pdf,
     )
+    anchor_location = None
     if model_location is not None:
-        if len(model_location) == 3:
-            page_idx, point, normalized_coords = model_location
-            placement_source = q_result.placement_source or "model_coords"
-        else:
-            page_idx, point, normalized_coords, resolver_placement_source = model_location
-            placement_source = q_result.placement_source or resolver_placement_source
+        page_idx, point = model_location[0], model_location[1]
+        anchor_location = (page_idx, point)
+        placement_source = q_result.placement_source or "model_coords"
     else:
         anchor = find_anchor_in_doc(
             doc=doc,
@@ -402,9 +431,30 @@ def _process_single_question_annotation(
         )
         if anchor is None:
             return
-        page_idx, point = anchor
-        normalized_coords = point_to_normalized(doc[page_idx], point)
+        anchor_location = anchor
         placement_source = q_result.placement_source or "local_anchor"
+
+    if annotation_mode == "answer_inline":
+        ans_loc = find_answer_anchor_in_doc(
+            doc=doc,
+            question_id=question.id,
+            q_result=q_result,
+            anchor_location=anchor_location,
+            block_registry=block_registry,
+        )
+        if ans_loc is not None:
+            page_idx, point, placement_source = ans_loc
+        else:
+            page_idx, point = anchor_location
+    elif annotation_mode == "right_margin":
+        page_idx, header_point = anchor_location
+        right_x = max(10.0, doc[page_idx].rect.width - 80.0)
+        point = fitz.Point(right_x, header_point.y)
+        placement_source = "right_margin"
+    else:
+        page_idx, point = anchor_location
+
+    normalized_coords = point_to_normalized(doc[page_idx], point)
 
     mark_text = mark_text_for_result(question_id=question.id, result=q_result)
     insert_mark(

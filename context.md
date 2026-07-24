@@ -43,9 +43,30 @@
 - **Detailed prompt specifications for shipped waves are archived in [archive/shipped-waves-archive.md](docs/plans/archive/shipped-waves-archive.md).**
 
 ## Current Objective
-Executing Wave 12 tasks (HW4 Post-Mortem: Criteria Parser & Profile Fixes). `W12-CRITERIA` and `W12-TESTS` are completed and verified against test suites (14/14 criteria tests passing). Remaining Wave 12 tasks (`W12-PROFILE`, `W12-DETECT`) are queued in [Gradeline Unified Roadmap](docs/plans/roadmap.md).
+Wave 12 (HW4 Post-Mortem) is nearly complete — `W12-PROFILE`, `W12-CRITERIA`, and `W12-TESTS` are shipped. Remaining task `W12-DETECT` (Validate Snapshot Grade Column) is queued.
 
+**Next up: Wave 13** — the former `BL-WEB-WORKSTATION` (XL) backlog item has been decomposed into three independently shippable waves (13–15) and promoted to active roadmap.
 
-## Next Strategic Direction (Professor Web Workstation & UX)
-- **Intuitive Web App for Non-Tech Professors**: Building out the Review Server into a self-describing workstation with opt-in instructions and unobtrusive autosave visual feedback (`BL-SAVED-ANIM`).
-- **Unified Web Workstation Vision (`BL-WEB-WORKSTATION`)**: Expanding the web interface to eventually cover assignment ingestion and auto-rubric creation, giving non-tech professors a single browser workstation for the entire assignment grading lifecycle.
+## Strategic Direction: Unified Web Grading Workstation (Waves 13–15)
+
+**Architecture decisions** (locked in):
+- **Multi-instance `ReviewApi`** with lazy initialization for assignment switching (vs hot-swap).
+- **Vanilla JS with ES modules** (`import`/`export`) to decompose the 76KB `app.js` monolith — no framework migration.
+
+### Wave 13 — Workstation Shell & Assignment Hub (Foundation)
+- `W13-SHELL`: Sidebar navigation shell replacing the flat tab bar, with Dashboard landing page.
+- `W13-ASSIGNMENTS`: Multi-profile API + UI for switching between assignments without restarting the server.
+- `W13-LAUNCH`: `./gradeline workstation` CLI command for standalone launch (no `--output-dir` required).
+- `W13-WIZARD`: Multi-step guided setup wizard (Name → Upload → Rubric → Configure → Launch).
+
+### Wave 14 — Rubric Editor & Grading Dashboard (Intelligence)
+- `W14-RUBRIC-EDITOR`: Visual rubric editor with structured card view + raw YAML toggle.
+- `W14-DASHBOARD`: Post-grading analytics: band distribution chart, per-question accuracy heatmap, cost breakdown, timing stats.
+- `W14-PROGRESS`: Enhanced in-page grading progress panel replacing the modal overlay.
+- `W14-TOAST`: Autosave micro-animations & visual confirmation (absorbs `BL-SAVED-ANIM`).
+
+### Wave 15 — UX Polish & Premium Design (Premium)
+- `W15-DESIGN`: Cohesive design system with CSS tokens, dark mode, Google Fonts, glassmorphism.
+- `W15-RESPONSIVE`: Tablet & mobile responsive layout with collapsible sidebar.
+- `W15-HELP`: Contextual help tooltips and first-run onboarding overlay.
+- `W15-EXPORT-UX`: Guided export view with CSV preview and validation warnings.

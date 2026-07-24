@@ -54,6 +54,7 @@ class GradeProfile:
     diagnostics_file: Path | None = None
     annotation_font_size: float = 24.0
     force_vision_extraction: bool = False
+    annotation_mode: str = "answer_inline"
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,7 @@ ALLOWED_GRADE_KEYS = REQUIRED_GRADE_KEYS | {
     "diagnostics_file",
     "annotation_font_size",
     "force_vision_extraction",
+    "annotation_mode",
 }
 ALLOWED_REVIEW_KEYS = {"host", "port"}
 
@@ -135,6 +137,7 @@ STRING_GRADE_FIELDS = {
     "identifier_column",
     "comment_column",
     "student_filter",
+    "annotation_mode",
 }
 POINT_GRADE_FIELDS = {
     "check_plus_points",

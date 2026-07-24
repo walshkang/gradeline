@@ -64,6 +64,7 @@ CLI_VALUE_MAPPINGS: tuple[CliValueMapping, ...] = (
     CliValueMapping("concurrency", "--concurrency", "int"),
     CliValueMapping("diagnostics_file", "--diagnostics-file", "path"),
     CliValueMapping("annotation_font_size", "--annotation-font-size", "float"),
+    CliValueMapping("annotation_mode", "--annotation-mode", "str"),
 )
 
 CLI_FLAG_MAPPINGS: tuple[tuple[str, str], ...] = (
@@ -108,6 +109,7 @@ OPTIONAL_GRADE_RENDER_ORDER: tuple[str, ...] = (
     "diagnostics_file",
     "annotation_font_size",
     "force_vision_extraction",
+    "annotation_mode",
 )
 
 _OPTIONAL_PATH_FIELDS = {"temp_dir", "cache_dir", "diagnostics_file"}
@@ -123,6 +125,7 @@ _OPTIONAL_STRING_FIELDS = {
     "identifier_column",
     "comment_column",
     "student_filter",
+    "annotation_mode",
 }
 _OPTIONAL_POINTS_FIELDS = {
     "check_plus_points",

@@ -280,9 +280,9 @@ def insert_mark(
 
     dark = is_dark_background(page, rect)
     if dark:
-        color = (0.0, 0.6, 0.0) if is_correct else (0.8, 0.0, 0.0)
-        fill_color = (1.0, 1.0, 1.0)
-        border_color = (0.7, 0.7, 0.7)
+        color = (0.2, 1.0, 0.2) if is_correct else (1.0, 0.3, 0.3)
+        fill_color = None
+        border_color = None
     else:
         color = (0.0, 0.6, 0.0) if is_correct else (0.8, 0.0, 0.0)
         fill_color = None

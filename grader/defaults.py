@@ -35,6 +35,10 @@ DEFAULT_EXTRACTION_MODEL: str = (
     (_defaults.get("models") or {}).get("extraction")
     or "auto"
 )
+DEFAULT_ANNOTATION_MODE: str = (
+    (_defaults.get("grading") or {}).get("annotation_mode")
+    or "answer_inline"
+)
 
 def resolve_model(role: str, setting: str) -> str:
     """Resolve a model setting to an exact model name based on [models.auto] or [models.free]."""

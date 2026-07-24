@@ -87,6 +87,7 @@ class GradingConfig:
     quiet: bool = False
     cache_dir: Path = Path(".grader_cache")
     force_vision_extraction: bool = False
+    annotation_mode: str = "answer_inline"
 
 
 def prompt_interrupt_action(ui) -> str:

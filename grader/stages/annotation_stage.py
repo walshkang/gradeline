@@ -136,6 +136,7 @@ def process_student_annotation(
             dry_run=config.dry_run,
             annotate_dry_run_marks=config.annotate_dry_run_marks,
             annotation_font_size=config.annotation_font_size,
+            annotation_mode=getattr(config, "annotation_mode", "answer_inline"),
         )
         result.output_pdf_paths = output_pdf_paths
         result.question_results = updated_question_results

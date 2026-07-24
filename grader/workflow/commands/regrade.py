@@ -22,6 +22,7 @@ def regrade_from_profile(
     host_override: str | None,
     port_override: int | None,
     clear_cache: bool = False,
+    annotation_mode: str | None = None,
 ) -> int:
     """Clear cached results and output artifacts, then re-run grading."""
     import grader.workflow_cli as wcli
@@ -85,6 +86,8 @@ def regrade_from_profile(
         grading_argv.extend(["--student-filter", student_filter])
     if question is not None:
         grading_argv.extend(["--regrade-question", question])
+    if annotation_mode:
+        grading_argv.extend(["--annotation-mode", annotation_mode])
 
     exit_code = wcli.invoke_grading_main(grading_argv)
 

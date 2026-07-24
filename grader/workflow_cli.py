@@ -196,6 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     regrade_parser.add_argument("--host", default=None, help="Override review server bind host")
     regrade_parser.add_argument("--port", type=int, default=None, help="Override review server bind port")
     regrade_parser.add_argument("--clear-cache", action="store_true", help="Delete all cached LLM responses from SQLite cache.db before regrading")
+    regrade_parser.add_argument("--annotation-mode", type=str, default=None, choices=["answer_inline", "right_margin", "question_prompt", "header_summary_only"], help="PDF annotation layout mode: answer_inline, right_margin, question_prompt, header_summary_only.")
 
     judge_parser = subparsers.add_parser(
         "judge",
@@ -413,6 +414,7 @@ def main(argv: list[str] | None = None) -> int:
                     host_override=getattr(args, "host", None),
                     port_override=getattr(args, "port", None),
                     clear_cache=getattr(args, "clear_cache", False),
+                    annotation_mode=getattr(args, "annotation_mode", None),
                 )
             elif command == "judge":
                 profile = getattr(args, "profile", None) or prompt_profile_interactive()

@@ -359,6 +359,68 @@ def find_anchor_in_doc(
     return best_page_idx, point
 
 
+def find_answer_anchor_in_doc(
+    doc: "fitz.Document",
+    question_id: str,
+    q_result: "QuestionResult" | None,
+    anchor_location: tuple[int, "fitz.Point"] | None,
+    block_registry: dict[str, "TextBlock"] | None = None,
+) -> tuple[int, "fitz.Point", str] | None:
+    import fitz
+
+    if anchor_location is None:
+        return None
+
+    page_idx, header_point = anchor_location
+    if page_idx < 0 or page_idx >= len(doc):
+        return None
+
+    page = doc[page_idx]
+
+    target_tokens: list[str] = []
+    if q_result:
+        quote = getattr(q_result, "evidence_quote", "") or ""
+        reason = getattr(q_result, "short_reason", "") or ""
+        combined_text = f"{quote} {reason}"
+
+        num_matches = re.findall(r"-?\d+(?:\.\d+)?%?", combined_text)
+        for num in num_matches:
+            num_str = num.strip()
+            if len(num_str) >= 2 and num_str not in ("10", "100", "0"):
+                target_tokens.append(num_str)
+                if num_str.startswith("0."):
+                    target_tokens.append(num_str[1:])
+
+    min_y = max(0.0, header_point.y - 15.0)
+
+    if target_tokens:
+        for tok in target_tokens:
+            rects = page.search_for(tok)
+            filtered = [r for r in rects if r.y0 >= min_y]
+            if filtered:
+                best_rect = max(filtered, key=lambda r: r.y0)
+                point = fitz.Point(clamp(best_rect.x1 + 8.0, 4.0, page.rect.width - 60.0), best_rect.y0)
+                return page_idx, point, "answer_anchor"
+
+    if target_tokens and block_registry:
+        pnum = page_idx + 1
+        candidates = []
+        for b in block_registry.values():
+            if b.page == pnum and b.top >= min_y:
+                for tok in target_tokens:
+                    if tok.lower() in b.text.lower():
+                        candidates.append((b.top, b))
+                        break
+        if candidates:
+            best_b = max(candidates, key=lambda c: c[0])[1]
+            point = fitz.Point(clamp(best_b.left + best_b.width + 8.0, 4.0, page.rect.width - 60.0), best_b.top)
+            return page_idx, point, "answer_anchor"
+
+    right_x = max(10.0, page.rect.width - 80.0)
+    right_point = fitz.Point(right_x, header_point.y)
+    return page_idx, right_point, "section_right_margin"
+
+
 def resolve_model_location(
     doc: "fitz.Document",
     pdf_filename: str,
