@@ -85,6 +85,7 @@ This document is the single source of truth for all planned improvements. It mer
 
 | **Backlog** | BL-DOCX | Word/TXT Solutions Keys Support | M | Flash | Backlog | Feedback #1 |
 | **Backlog** | BL-SEARCH | Smart Candidate Search in Downloads | S | Flash | Backlog | Feedback #3 |
+| **Backlog** | BL-RUBRIC-AI | AI Meta-Prompting for Subject-Aware Rubric Generation | M | Pro | Backlog | Pre-Flight Checks |
 
 ---
 

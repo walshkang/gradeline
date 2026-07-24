@@ -19,7 +19,7 @@ questions:
   weight: 0.25
   requires_work: true
   expected_answers:
-  - '\( *26\.49\d*, *27\.5[01]\d* *\)'
+  - '(?:\[|\() *26\.49\d* *(?:,|to|and) *27\.5[01]\d* *(?:\]|\))'
   scoring_criteria:
   - requirement: Correctly calculates the standard error (approx 0.2583).
     weight: 1.0
@@ -42,7 +42,7 @@ questions:
   weight: 0.25
   requires_work: true
   expected_answers:
-  - '\( *3\.26?\d*, *3\.53?\d* *\)'
+  - '(?:\[|\() *3\.26?\d* *(?:,|to|and) *3\.53?\d* *(?:\]|\))'
   scoring_criteria:
   - requirement: Correctly calculates the standard error (approx 0.0516).
     weight: 1.0
@@ -64,7 +64,7 @@ questions:
   weight: 0.25
   requires_work: true
   expected_answers:
-  - '(?:fail to reject|do not reject) (?:H0|H_0|the null)'
+  - '(?:fail to reject|do not reject)(?: *(?:H0|H_0|the null|it))?'
   scoring_criteria:
   - requirement: 'States the correct null (H₀: μ = 112) and one-tailed alternative (H␐: μ > 112) hypotheses.'
     weight: 1.0
@@ -88,7 +88,7 @@ questions:
   weight: 0.25
   requires_work: true
   expected_answers:
-  - '(?:fail to reject|do not reject) (?:H0|H_0|the null)'
+  - '(?:fail to reject|do not reject)(?: *(?:H0|H_0|the null|it))?'
   scoring_criteria:
   - requirement: 'States the correct null (H₀: μ = 32.5) and one-tailed alternative (H␐: μ < 32.5) hypotheses.'
     weight: 1.0

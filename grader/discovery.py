@@ -19,20 +19,36 @@ except ImportError:
 
 
 def discover_submission_units(submissions_dir: Path) -> list[SubmissionUnit]:
-    units: list[SubmissionUnit] = []
+    units_by_token: dict[str, dict] = {}
     for folder in sorted([p for p in submissions_dir.iterdir() if p.is_dir() and not p.name.startswith(".")], key=lambda p: p.name.lower()):
         convert_non_pdf_files_to_pdf(folder)
         pdfs = sorted(folder.rglob("*.pdf"), key=lambda p: str(p.relative_to(folder)).lower())
         if not pdfs:
             continue
         token, student_name = parse_folder_name(folder.name)
+        
+        if token not in units_by_token:
+            units_by_token[token] = {
+                "folder_path": folder,
+                "folder_relpath": folder.relative_to(submissions_dir),
+                "token": token,
+                "student_name": student_name,
+                "pdf_paths": list(pdfs)
+            }
+        else:
+            units_by_token[token]["pdf_paths"].extend(pdfs)
+            units_by_token[token]["folder_path"] = folder
+            units_by_token[token]["folder_relpath"] = folder.relative_to(submissions_dir)
+
+    units: list[SubmissionUnit] = []
+    for data in units_by_token.values():
         units.append(
             SubmissionUnit(
-                folder_path=folder,
-                folder_relpath=folder.relative_to(submissions_dir),
-                folder_token=token,
-                student_name=student_name,
-                pdf_paths=pdfs,
+                folder_path=data["folder_path"],
+                folder_relpath=data["folder_relpath"],
+                folder_token=data["token"],
+                student_name=data["student_name"],
+                pdf_paths=data["pdf_paths"],
             )
         )
     return units
