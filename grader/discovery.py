@@ -131,7 +131,7 @@ def convert_non_pdf_files_to_pdf(folder: Path) -> None:
         _convert_excel_to_pdf(folder, excel_files)
 
 
-def _convert_images_to_pdf(folder: Path, images: list[Path]) -> None:
+def _build_pdf_from_images(images: list[Path]) -> fitz.Document:
     try:
         import pillow_heif
         pillow_heif.register_heif_opener()
@@ -184,6 +184,11 @@ def _convert_images_to_pdf(folder: Path, images: list[Path]) -> None:
             except Exception:
                 pass
 
+    return doc
+
+
+def _convert_images_to_pdf(folder: Path, images: list[Path]) -> None:
+    doc = _build_pdf_from_images(images)
     if len(doc) > 0:
         output_pdf = folder / f"{folder.name}_images.pdf"
         if output_pdf.exists() and len(images) == 1:
@@ -193,7 +198,6 @@ def _convert_images_to_pdf(folder: Path, images: list[Path]) -> None:
         except Exception:
             pass
     doc.close()
-
 
 def _convert_word_to_pdf(folder: Path, word_files: list[Path]) -> None:
     for word_path in word_files:
@@ -206,6 +210,25 @@ def _convert_word_to_pdf(folder: Path, word_files: list[Path]) -> None:
 
         lines: list[str] = []
         is_docx = word_path.suffix.lower() == ".docx"
+        extracted_doc = fitz.open()
+
+        if is_docx:
+            import zipfile
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_path = Path(tmp_dir)
+                try:
+                    with zipfile.ZipFile(word_path) as z:
+                        image_paths = []
+                        for info in z.infolist():
+                            if info.filename.startswith("word/media/"):
+                                extracted = Path(z.extract(info, tmp_path))
+                                image_paths.append(extracted)
+                        if image_paths:
+                            img_doc = _build_pdf_from_images(image_paths)
+                            extracted_doc.insert_pdf(img_doc)
+                            img_doc.close()
+                except Exception:
+                    pass
 
         if is_docx:
             try:
@@ -229,7 +252,16 @@ def _convert_word_to_pdf(folder: Path, word_files: list[Path]) -> None:
             lines = _parse_doc_raw_text(word_path)
 
         if lines:
-            _render_text_lines_to_pdf(lines, output_pdf)
+            text_doc = _render_text_lines_to_pdf_doc(lines)
+            extracted_doc.insert_pdf(text_doc)
+            text_doc.close()
+
+        if len(extracted_doc) > 0:
+            try:
+                extracted_doc.save(output_pdf)
+            except Exception:
+                pass
+        extracted_doc.close()
 
 
 def _convert_excel_to_pdf(folder: Path, excel_files: list[Path]) -> None:
@@ -390,7 +422,7 @@ def _parse_xlsx_raw_xml(xlsx_path: Path) -> list[str]:
     return lines
 
 
-def _render_text_lines_to_pdf(lines: list[str], output_pdf: Path) -> None:
+def _render_text_lines_to_pdf_doc(lines: list[str]) -> fitz.Document:
     doc = fitz.open()
     page = doc.new_page()
     y = 50
@@ -408,5 +440,10 @@ def _render_text_lines_to_pdf(lines: list[str], output_pdf: Path) -> None:
                 y = 50
             page.insert_text((margin, y), chunk, fontsize=9, fontname="helv")
             y += line_height
+    return doc
+
+
+def _render_text_lines_to_pdf(lines: list[str], output_pdf: Path) -> None:
+    doc = _render_text_lines_to_pdf_doc(lines)
     doc.save(output_pdf)
     doc.close()
